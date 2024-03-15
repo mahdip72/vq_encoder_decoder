@@ -1,0 +1,80 @@
+fix_seed: 0
+checkpoints_every: 4
+tensorboard_log: True
+tqdm_progress_bar: True
+result_path: ./results
+architecture: prot2seq
+
+resume:
+  resume: False
+  resume_path: ./path/to/checkpoint.pth
+  restart_optimizer: True
+
+prot2seq_model:
+  compile_model: False
+  encoder:
+    model_type: esm_v2 # esm_v2, t5
+    model_name:  facebook/esm2_t12_35M_UR50D # facebook/esm2_t33_650M_UR50D, facebook/esm2_t30_150M_UR50D, facebook/esm2_t12_35M_UR50D
+    max_len: 512
+    quantization_4_bit: False # use with tune_embedding enable
+    tune_embedding: False # only for esm
+    fine_tune:
+      enable: False
+      last_layers_trainable: 2
+    lora:
+      enable: False
+      r: 8
+      lora_alpha: 32
+      lora_dropout: 0.05
+  decoder:
+    dimension: 480
+    dim_feedforward: 960
+    num_heads: 8
+    num_layers: 4
+    max_len: 16
+    activation_function: gelu
+
+train_settings:
+  data_path: H:\Datasets\Joint_training
+  num_epochs: 32
+  start_metric_epoch: 0
+  shuffle: True
+  loss: crossentropy # crossentropy or focal
+  sample_weight: True
+  task_weight: False
+  mixed_precision: fp16 # no, fp16, bf16, fp8
+  device: cuda
+  batch_size: 64
+  num_workers: 0
+  grad_accumulation: 8
+  max_task_samples: 50000
+
+valid_settings:
+  data_path: H:\Datasets\Joint_training
+  do_every: 1
+  batch_size: 8
+  device: cuda
+  num_workers: 0
+
+test_settings:
+  enable: True
+  data_path: H:\Datasets\Joint_training
+  batch_size: 1
+  device: cuda
+  num_workers: 0
+
+optimizer:
+  name: adam
+  lr: 5e-5
+  weight_decouple: True
+  weight_decay: 1e-2
+  eps: 1e-16
+  beta_1: 0.9
+  beta_2: 0.999
+  use_8bit_adam: False
+  grad_clip_norm: 1
+  decay:
+    warmup: 128
+    min_lr: 1e-6
+    gamma: 0.2
+    num_restarts: 1
