@@ -9,7 +9,7 @@ Here is a great repo of different pytorch implementation of VQ-VAE models: [repo
 
 
 ## Installation
-To use S-PLM project, install the corresponding environment.yaml file in your environment. Or you can follow the install.sh file to install the dependencies.
+To use this project, follow the install.sh file to install the dependencies.
 
 ### Install using SH file
 Create a conda environment and use this command to install the required packages inside the conda environment.
