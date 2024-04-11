@@ -3,6 +3,9 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.datasets import make_blobs
 import numpy as np
+import torch
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 
 
 class CustomDataset(Dataset):
@@ -23,31 +26,48 @@ def generate_data(n_samples, n_features, centers, cluster_std):
     return X, y
 
 
+def load_fashion_mnist_data(batch_size, shuffle):
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+    )
+    dataset = datasets.FashionMNIST(
+        root="~/data/fashion_mnist", train=True, download=True, transform=transform
+    )
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return data_loader
+
 def main():
     # Set a fixed random seed for reproducibility
-    np.random.seed(42)
+    # np.random.seed(42)
+    #
+    # # Parameters for dataset generation
+    # n_samples = 10000
+    # n_features = 8
+    # centers = 16
+    # cluster_std = 1.2
+    # test_size = 0.2
+    # batch_size = 64
+    #
+    # # Generate data
+    # X, y = generate_data(n_samples, n_features, centers, cluster_std)
+    #
+    # # Prepare datasets
+    # x_train, x_valid, y_train, y_valid = train_test_split(X, y, test_size=test_size, random_state=42)
+    # train_dataset = CustomDataset(x_train, y_train)
+    # valid_dataset = CustomDataset(x_valid, y_valid)
+    #
+    # # Prepare DataLoaders
+    # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
+    #
+    # return train_loader, valid_loader
+    batch_size = 256
+    shuffle = True
 
-    # Parameters for dataset generation
-    n_samples = 10000
-    n_features = 8
-    centers = 16
-    cluster_std = 1.2
-    test_size = 0.2
-    batch_size = 64
+    # Load FashionMNIST data
+    train_loader = load_fashion_mnist_data(batch_size, shuffle)
 
-    # Generate data
-    X, y = generate_data(n_samples, n_features, centers, cluster_std)
-
-    # Prepare datasets
-    x_train, x_valid, y_train, y_valid = train_test_split(X, y, test_size=test_size, random_state=42)
-    train_dataset = CustomDataset(x_train, y_train)
-    valid_dataset = CustomDataset(x_valid, y_valid)
-
-    # Prepare DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
-
-    return train_loader, valid_loader
+    return train_loader
 
 
 if __name__ == "__main__":
