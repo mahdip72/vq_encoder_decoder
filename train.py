@@ -12,7 +12,8 @@ from model import SimpleVQAutoEncoder
 device = "cuda" if torch.cuda.is_available() else "cpu"
 num_codes = 256
 
-def train_loop(model, train_loader, train_iterations=1000, alpha=10):
+
+def train_loop(model, train_loader, train_iterations=1000, alpha=10, epochs=10):
     def iterate_dataset(data_loader):
         data_iter = iter(data_loader)
         while True:
@@ -23,19 +24,20 @@ def train_loop(model, train_loader, train_iterations=1000, alpha=10):
                 x, y = next(data_iter)
             yield x.to(device), y.to(device)
 
-    for _ in (pbar := trange(train_iterations)):
-        opt.zero_grad()
-        x, _ = next(iterate_dataset(train_loader))
-        out, indices, cmt_loss = model(x)
-        rec_loss = (out - x).abs().mean()
-        (rec_loss + alpha * cmt_loss).backward()
+    for epoch in range(epochs):
+        for _ in (pbar := trange(len(train_loader))):
+            opt.zero_grad()
+            x, _ = next(iterate_dataset(train_loader))
+            out, indices, cmt_loss = model(x)
+            rec_loss = (out - x).abs().mean()
+            (rec_loss + alpha * cmt_loss).backward()
 
-        opt.step()
-        pbar.set_description(
-            f"rec loss: {rec_loss.item():.3f} | "
-            + f"cmt loss: {cmt_loss.item():.3f} | "
-            + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
-        )
+            opt.step()
+            pbar.set_description(
+                f"Epoch: {epoch + 1}, rec loss: {rec_loss.item():.3f} | "
+                + f"cmt loss: {cmt_loss.item():.3f} | "
+                + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
+            )
     return
 
 
@@ -55,14 +57,12 @@ if __name__ == '__main__':
 
     train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
 
-    # result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
     lr = 3e-4
-    epoch = 1000
     num_codes = 256
     seed = 1234
 
     torch.random.manual_seed(seed)
     model = SimpleVQAutoEncoder(codebook_size=num_codes).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
-    train_loop(model, train_data, train_iterations=epoch)
+    train_loop(model, train_data, train_iterations=10, epochs=10)
     print("Train finished!")
