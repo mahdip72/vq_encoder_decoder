@@ -7,62 +7,59 @@ from utils  import *
 from torch.utils.data import DataLoader
 from data_test import *
 from model import SimpleVQAutoEncoder
+from tqdm import  tqdm
 
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-num_codes = 256
+def train(model, train_loader, optimizer, device, epoch, alpha, num_codes):
+    model.train()
+    total_loss = 0.0
+    pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
+    for data in pbar:
+        inputs, labels = data
+        inputs = inputs.to(device)
+        optimizer.zero_grad()
+        outputs, indices, cmt_loss = model(inputs)
+        rec_loss = torch.abs(outputs - inputs).mean()
+        loss = rec_loss + alpha * cmt_loss
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+        # Calculate the average loss for the current batch for real-time feedback
+        batch_avg_loss = total_loss / (pbar.n + 1)  # pbar.n is the number of batches processed so far
+
+        # Update progress description with current loss values
+        pbar.set_description(
+            f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
+            + f"Rec Loss: {rec_loss.item():.3f} | "
+            + f"Cmt Loss: {cmt_loss.item():.3f} | "
+            + f"Active %: {indices.unique().numel() / num_codes * 100:.3f}"
+        )
+
+    # Calculate the average loss across all batches for the epoch
+    avg_loss = total_loss / len(train_loader)
+    return avg_loss
 
 
-def train_loop(model, train_loader, train_iterations=1000, alpha=10, epochs=10):
-    def iterate_dataset(data_loader):
-        data_iter = iter(data_loader)
-        while True:
-            try:
-                x, y = next(data_iter)
-            except StopIteration:
-                data_iter = iter(data_loader)
-                x, y = next(data_iter)
-            yield x.to(device), y.to(device)
-
-    for epoch in range(epochs):
-        for _ in (pbar := trange(len(train_loader))):
-            opt.zero_grad()
-            x, _ = next(iterate_dataset(train_loader))
-            out, indices, cmt_loss = model(x)
-            rec_loss = (out - x).abs().mean()
-            (rec_loss + alpha * cmt_loss).backward()
-
-            opt.step()
-            pbar.set_description(
-                f"Epoch: {epoch + 1}, rec loss: {rec_loss.item():.3f} | "
-                + f"cmt loss: {cmt_loss.item():.3f} | "
-                + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
-            )
-    return
+def main():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
+    epochs = 10
+    lr = 3e-4
+    alpha = 10  # Regularization factor for commitment loss
+    num_codes = 256
+    train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
 
-def evaluate_loop():
-    pass
+    model = SimpleVQAutoEncoder(codebook_size=256).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+
+    for epoch in range(1, epochs + 1):
+        train_loss = train(model, train_data, optimizer, device, epoch, alpha, num_codes)
+        print(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
+
+    print("Training complete!")
 
 
 if __name__ == '__main__':
-    # parser = argparse.ArgumentParser(description="Train a deep neural nets.")
-    # parser.add_argument("--config_path", "-c", help="The location of config file", default='./config.yaml')
-    # args = parser.parse_args()
-    # config_path = args.config_path
-    #
-    # with open(config_path) as file:
-    #     config_file = yaml.full_load(file)
-
-    train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
-
-    lr = 3e-4
-    num_codes = 256
-    seed = 1234
-
-    torch.random.manual_seed(seed)
-    model = SimpleVQAutoEncoder(codebook_size=num_codes).to(device)
-    opt = torch.optim.AdamW(model.parameters(), lr=lr)
-    train_loop(model, train_data, train_iterations=10, epochs=10)
-    print("Train finished!")
+    main()
