@@ -38,7 +38,14 @@ def train_loop(model, train_loader, optimizer, device, epoch, alpha, num_codes):
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
+    # configs = load_configs(dict_config)
+    #
+    # if isinstance(configs.fix_seed, int):
+    #     torch.manual_seed(configs.fix_seed)
+    #     torch.random.manual_seed(configs.fix_seed)
+    #     np.random.seed(configs.fix_seed)
+    #
+    # result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
 
     epochs = 10
     lr = 3e-4
