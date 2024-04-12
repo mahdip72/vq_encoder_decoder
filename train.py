@@ -10,7 +10,7 @@ from model import SimpleVQAutoEncoder
 from tqdm import  tqdm
 
 
-def train(model, train_loader, optimizer, device, epoch, alpha, num_codes):
+def train_loop(model, train_loader, optimizer, device, epoch, alpha, num_codes):
     model.train()
     total_loss = 0.0
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
@@ -24,11 +24,7 @@ def train(model, train_loader, optimizer, device, epoch, alpha, num_codes):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-
-        # Calculate the average loss for the current batch for real-time feedback
-        batch_avg_loss = total_loss / (pbar.n + 1)  # pbar.n is the number of batches processed so far
-
-        # Update progress description with current loss values
+        batch_avg_loss = total_loss / (pbar.n + 1)
         pbar.set_description(
             f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
             + f"Rec Loss: {rec_loss.item():.3f} | "
@@ -36,7 +32,6 @@ def train(model, train_loader, optimizer, device, epoch, alpha, num_codes):
             + f"Active %: {indices.unique().numel() / num_codes * 100:.3f}"
         )
 
-    # Calculate the average loss across all batches for the epoch
     avg_loss = total_loss / len(train_loader)
     return avg_loss
 
@@ -47,7 +42,7 @@ def main():
 
     epochs = 10
     lr = 3e-4
-    alpha = 10  # Regularization factor for commitment loss
+    alpha = 10
     num_codes = 256
     train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
 
@@ -55,7 +50,7 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     for epoch in range(1, epochs + 1):
-        train_loss = train(model, train_data, optimizer, device, epoch, alpha, num_codes)
+        train_loss = train_loop(model, train_data, optimizer, device, epoch, alpha, num_codes)
         print(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     print("Training complete!")
