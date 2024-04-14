@@ -6,6 +6,10 @@ import logging as log
 from pathlib import Path
 from box import Box
 from torch.utils.tensorboard import SummaryWriter
+import torch
+import torch.optim as optim
+import numpy as np
+from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 
 def get_logging(result_path):
@@ -36,6 +40,56 @@ def prepare_tensorboard(result_path):
     val_writer = SummaryWriter(val_log_path)
 
     return train_writer, val_writer
+
+
+def prepare_optimizer(net, configs, num_train_samples, logging):
+    optimizer, scheduler = load_opt(net, configs, logging)
+    if scheduler is None:
+        whole_steps = np.ceil(
+            num_train_samples / configs.train_settings.grad_accumulation
+        ) * configs.train_settings.num_epochs / configs.optimizer.decay.num_restarts
+        first_cycle_steps = np.ceil(whole_steps / configs.optimizer.decay.num_restarts)
+        scheduler = CosineAnnealingWarmupRestarts(
+            optimizer,
+            first_cycle_steps=first_cycle_steps,
+            cycle_mult=1.0,
+            max_lr=configs.optimizer.lr,
+            min_lr=configs.optimizer.decay.min_lr,
+            warmup_steps=configs.optimizer.decay.warmup,
+            gamma=configs.optimizer.decay.gamma)
+
+    return optimizer, scheduler
+
+
+def load_opt(model, config, logging):
+    scheduler = None
+    if config.optimizer.name.lower() == 'adabelief':
+        opt = optim.AdaBelief(model.parameters(), lr=config.optimizer.lr, eps=config.optimizer.eps,
+                              decoupled_decay=True,
+                              weight_decay=config.optimizer.weight_decay, rectify=False)
+    elif config.optimizer.name.lower() == 'adam':
+        # opt = eval('torch.optim.' + config.optimizer.name)(model.parameters(), lr=config.optimizer.lr, eps=eps,
+        #                                       weight_decay=config.optimizer.weight_decay)
+        if config.optimizer.use_8bit_adam:
+            import bitsandbytes
+            logging.info('use 8-bit adamw')
+            opt = bitsandbytes.optim.AdamW8bit(
+                model.parameters(), lr=float(config.optimizer.lr),
+                betas=(config.optimizer.beta_1, config.optimizer.beta_2),
+                weight_decay=float(config.optimizer.weight_decay),
+                eps=float(config.optimizer.eps),
+            )
+        else:
+            opt = torch.optim.AdamW(
+                model.parameters(), lr=float(config.optimizer.lr),
+                betas=(config.optimizer.beta_1, config.optimizer.beta_2),
+                weight_decay=float(config.optimizer.weight_decay),
+                eps=float(config.optimizer.eps)
+            )
+
+    else:
+        raise ValueError('wrong optimizer')
+    return opt, scheduler
 
 
 def load_configs(config):

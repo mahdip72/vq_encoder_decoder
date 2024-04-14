@@ -49,8 +49,6 @@ def main(dict_config, config_file_path):
 
     logging = get_logging(result_path)
 
-    epochs = 10
-    lr = 3e-4
     alpha = 10
     num_codes = 256
     train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
@@ -62,7 +60,9 @@ def main(dict_config, config_file_path):
     )
 
     model = SimpleVQAutoEncoder(codebook_size=256)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=configs.optimizer.lr)
+
+    optimizer, scheduler = prepare_optimizer(model, configs, len(train_data), logging)
+    logging.info('preparing optimizer is done')
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
@@ -75,7 +75,7 @@ def main(dict_config, config_file_path):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Train a deep neural nets.")
+    parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
     parser.add_argument("--config_path", "-c", help="The location of config file", default='./config.yaml')
     args = parser.parse_args()
     config_path = args.config_path
