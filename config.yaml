@@ -1,5 +1,5 @@
 fix_seed: 0
-checkpoints_every: 4
+checkpoints_every: 128
 tensorboard_log: True
 tqdm_progress_bar: True
 result_path: ./results
@@ -44,8 +44,8 @@ train_settings:
   task_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 64
-  num_workers: 0
+  batch_size: 128
+  num_workers: 8
   grad_accumulation: 1
   max_task_samples: 50000
 
