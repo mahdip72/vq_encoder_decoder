@@ -21,3 +21,11 @@ Then, run the following command to install the required packages inside the cond
 ```commandline
 bash install.sh
 ```
+
+## To Do
+- [ ] Add and test the LFQ model as an option
+- [ ] Connect the config file to the VQ model
+- [ ] Add other features of accelerate training to the project
+- [ ] Add the evaluation code to fashionMNIST dataset
+- [ ] Connect GVP model to the config file
+- [ ] Create the main VQ model with the GVP encoder and a decoder
