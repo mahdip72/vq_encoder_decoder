@@ -3,7 +3,7 @@ import yaml
 import torch
 from tqdm.auto import trange
 import numpy as np
-from utils  import *
+from utils import *
 from torch.utils.data import DataLoader
 from data_test import *
 from model import SimpleVQAutoEncoder
@@ -45,6 +45,8 @@ def main(dict_config, config_file_path):
         np.random.seed(configs.fix_seed)
 
     result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
+
+    logging = get_logging(result_path)
 
     epochs = 10
     lr = 3e-4

@@ -2,9 +2,25 @@ import os
 import datetime
 import shutil
 import ast
+import logging as log
 from pathlib import Path
 from box import Box
 from torch.utils.tensorboard import SummaryWriter
+
+
+def get_logging(result_path):
+    logger = log.getLogger(result_path)
+    logger.setLevel(log.INFO)
+
+    fh = log.FileHandler(os.path.join(result_path, "logs.txt"))
+    formatter = log.Formatter('%(asctime)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    sh = log.StreamHandler()
+    logger.addHandler(sh)
+
+    return logger
 
 
 def prepare_tensorboard(result_path):
