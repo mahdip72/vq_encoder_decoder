@@ -46,7 +46,7 @@ train_settings:
   device: cuda
   batch_size: 64
   num_workers: 0
-  grad_accumulation: 8
+  grad_accumulation: 1
   max_task_samples: 50000
 
 valid_settings:
