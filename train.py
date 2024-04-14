@@ -49,6 +49,7 @@ def main(dict_config, config_file_path):
     alpha = 10
     num_codes = 256
     train_dataloader = load_fashion_mnist_data(batch_size=256, shuffle=True)
+    logging.info('preparing dataloaders are done')
 
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
@@ -57,6 +58,7 @@ def main(dict_config, config_file_path):
     )
 
     net = SimpleVQAutoEncoder(codebook_size=256)
+    logging.info('preparing model is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
