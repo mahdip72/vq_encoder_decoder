@@ -5,6 +5,7 @@ from tqdm.auto import trange
 import numpy as np
 from utils import *
 from torch.utils.data import DataLoader
+from accelerate import Accelerator
 from data_test import *
 from model import SimpleVQAutoEncoder
 from tqdm import tqdm
@@ -53,6 +54,12 @@ def main(dict_config, config_file_path):
     alpha = 10
     num_codes = 256
     train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
+
+    accelerator = Accelerator(
+        mixed_precision=configs.train_settings.mixed_precision,
+        gradient_accumulation_steps=configs.train_settings.grad_accumulation,
+        dispatch_batches=True
+    )
 
     model = SimpleVQAutoEncoder(codebook_size=256)
     optimizer = torch.optim.AdamW(model.parameters(), lr=configs.optimizer.lr)
