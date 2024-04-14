@@ -8,19 +8,34 @@ from model import SimpleVQAutoEncoder
 from tqdm import tqdm
 
 
-def train_loop(model, train_loader, optimizer, epoch, alpha, num_codes):
-    model.train()
+def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
+    accelerator = kwargs.pop('accelerator')
+    optimizer = kwargs.pop('optimizer')
+    scheduler = kwargs.pop('scheduler')
+
+    optimizer.zero_grad()
+
+    net.train()
     total_loss = 0.0
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
     for data in pbar:
         inputs, labels = data
-        # inputs = inputs.to(device)
         optimizer.zero_grad()
-        outputs, indices, cmt_loss = model(inputs)
+        outputs, indices, cmt_loss = net(inputs)
         rec_loss = torch.abs(outputs - inputs).mean()
         loss = rec_loss + alpha * cmt_loss
-        loss.backward()
+
+        # Gather the losses across all processes for logging (if we use distributed training).
+        # avg_loss = accelerator.gather(loss.repeat(kwargs['configs'].train_settings.train_batch_size)).mean()
+        # train_loss += avg_loss.item() / kwargs['configs'].train_settings.grad_accumulation
+
+        accelerator.backward(loss)
+        if accelerator.sync_gradients:
+            accelerator.clip_grad_norm_(net.parameters(), kwargs['configs'].optimizer.grad_clip_norm)
         optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+
         total_loss += loss.item()
         batch_avg_loss = total_loss / (pbar.n + 1)
         pbar.set_description(
@@ -79,7 +94,8 @@ def main(dict_config, config_file_path):
     train_writer, valid_writer = prepare_tensorboard(result_path)
 
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(net, train_dataloader, optimizer, epoch, alpha, num_codes)
+        train_loss = train_loop(net, train_dataloader, epoch, alpha, num_codes,
+                                accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs)
         print(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     print("Training complete!")
