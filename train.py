@@ -65,6 +65,13 @@ def main(dict_config, config_file_path):
         net, optimizer, train_dataloader, scheduler
     )
 
+    net.to(accelerator.device)
+
+    # compile model to train faster and efficiently
+    if configs.prot2seq_model.compile_model:
+        net = torch.compile(net)
+        if accelerator.is_main_process:
+            logging.info('compile model is done')
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
