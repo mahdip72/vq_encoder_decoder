@@ -14,3 +14,4 @@ pip install python-box
 pip install peft
 pip install -U scikit-learn
 pip install rdkit-pypi
+pip install vector-quantize-pytorch
