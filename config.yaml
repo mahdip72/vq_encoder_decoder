@@ -65,7 +65,7 @@ test_settings:
 
 optimizer:
   name: adam
-  lr: 5e-5
+  lr: 1e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -74,7 +74,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 128
+    warmup: 16
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1
