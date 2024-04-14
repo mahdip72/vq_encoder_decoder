@@ -12,6 +12,7 @@ def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
+    logging = kwargs.pop('logging')
 
     optimizer.zero_grad()
 
@@ -63,7 +64,7 @@ def main(dict_config, config_file_path):
 
     alpha = 10
     num_codes = 256
-    train_dataloader = load_fashion_mnist_data(batch_size=256, shuffle=True)
+    train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
     logging.info('preparing dataloaders are done')
 
     accelerator = Accelerator(
@@ -95,8 +96,9 @@ def main(dict_config, config_file_path):
 
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         train_loss = train_loop(net, train_dataloader, epoch, alpha, num_codes,
-                                accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs)
-        print(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
+                                accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
+                                logging=logging)
+        logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     print("Training complete!")
 
