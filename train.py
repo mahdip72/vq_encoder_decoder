@@ -1,10 +1,7 @@
 import argparse
 import yaml
 import torch
-from tqdm.auto import trange
-import numpy as np
 from utils import *
-from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from data_test import *
 from model import SimpleVQAutoEncoder
@@ -51,7 +48,7 @@ def main(dict_config, config_file_path):
 
     alpha = 10
     num_codes = 256
-    train_data = load_fashion_mnist_data(batch_size=256, shuffle=True)
+    train_dataloader = load_fashion_mnist_data(batch_size=256, shuffle=True)
 
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
@@ -59,16 +56,21 @@ def main(dict_config, config_file_path):
         dispatch_batches=True
     )
 
-    model = SimpleVQAutoEncoder(codebook_size=256)
+    net = SimpleVQAutoEncoder(codebook_size=256)
 
-    optimizer, scheduler = prepare_optimizer(model, configs, len(train_data), logging)
+    optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
+
+    net, optimizer, train_dataloader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, scheduler
+    )
+
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
 
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(model, train_data, optimizer, epoch, alpha, num_codes)
+        train_loss = train_loop(net, train_dataloader, optimizer, epoch, alpha, num_codes)
         print(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     print("Training complete!")
