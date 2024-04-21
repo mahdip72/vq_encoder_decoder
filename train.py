@@ -11,11 +11,6 @@ from tqdm import tqdm
 import logging
 
 
-def save_checkpoint(state, filename="checkpoint.pth.tar"):
-    torch.save(state, filename)
-    logging.info(f"Checkpoint saved to {filename}")
-
-
 def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
@@ -109,13 +104,21 @@ def main(dict_config, config_file_path):
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
-    checkpoint_path = ''
+    epoch = 0
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         train_loss = train_loop(net, train_dataloader, epoch, alpha, num_codes,
                                 accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
                                 logging=logging)
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
+    tools = dict()
+    tools['net'] = net,
+    tools['optimizer'] = optimizer,
+    tools['scheduler'] = scheduler
+
+    # Set the path to save the model checkpoint.
+    model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+    save_checkpoint(epoch, model_path, tools, accelerator)
     print("Training complete!")
 
 
