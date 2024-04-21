@@ -50,14 +50,6 @@ def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
 
     avg_loss = total_loss / len(train_loader)
 
-    if accelerator.is_main_process:
-        save_checkpoint({
-            'epoch': epoch,
-            'state_dict': net.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'loss': avg_loss,
-        }, filename=os.path.join(config_path, f'checkpoint_epoch_{epoch}.pth.tar'))
-
     return avg_loss
 
 
@@ -116,9 +108,13 @@ def main(dict_config, config_file_path):
     tools['optimizer'] = optimizer,
     tools['scheduler'] = scheduler
 
-    # Set the path to save the model checkpoint.
-    model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
-    save_checkpoint(epoch, model_path, tools, accelerator)
+    if accelerator.is_main_process:
+        accelerator.wait_for_everyone()
+        # Set the path to save the model checkpoint.
+        model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+        save_checkpoint(epoch, model_path, tools, accelerator)
+        logging.info(f'\tsaving the best model in {model_path}')
+
     print("Training complete!")
 
 
