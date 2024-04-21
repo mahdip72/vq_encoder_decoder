@@ -44,3 +44,13 @@ class SimpleVQAutoEncoder(nn.Module):
             x = layer(x)
 
         return x.clamp(-1, 1), indices, commit_loss
+
+
+if __name__ == '__main__':
+    net = SimpleVQAutoEncoder(codebook_size=256)
+    # create a random input tensor and pass it through the network
+    x = torch.randn(1, 1, 28, 28)
+    output, x, y = net(x, return_vq_only=True)
+    print(output.shape)
+    print(x.shape)
+    print(y.shape)
