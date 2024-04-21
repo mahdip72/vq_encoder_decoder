@@ -9,11 +9,13 @@ from data_test import *
 from model import SimpleVQAutoEncoder
 from tqdm import tqdm
 
+
 def load_model(checkpoint_path):
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     model = SimpleVQAutoEncoder(codebook_size=256)
     model.load_state_dict(checkpoint['state_dict'])
     return model
+
 
 def inference(model, data_loader):
     model.eval()  # Switch model to evaluation mode
@@ -39,7 +41,7 @@ def visualize_results(original, reconstructed):
 
 def visualize_vq_outputs_cv2(vq_outputs, indices, commit_losses):
     batch_size = vq_outputs.shape[0]
-    scale_factor = 10  # Scale factor for viewing the images larger
+    scale_factor = 64  # Scale factor for viewing the images larger
 
     for i in range(batch_size):
         # Feature maps visualization
@@ -69,7 +71,6 @@ def visualize_vq_outputs_cv2(vq_outputs, indices, commit_losses):
         cv2.waitKey(0)  # Wait for a key press to continue to the next image
 
     cv2.destroyAllWindows()
-
 
 
 def main():
