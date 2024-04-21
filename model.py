@@ -22,15 +22,6 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1)
         ])
 
-    def forward_old(self, x):
-        for layer in self.layers:
-            if isinstance(layer, VectorQuantize):
-                x, indices, commit_loss = layer(x)
-            else:
-                x = layer(x)
-
-        return x.clamp(-1, 1), indices, commit_loss
-
     def forward(self, x, return_vq_only=False):
         for layer in self.encoder_layers:
             x = layer(x)
