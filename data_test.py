@@ -36,7 +36,6 @@ def load_fashion_mnist_data(batch_size, shuffle):
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return data_loader
 
-
 def main():
     # Set a fixed random seed for reproducibility
     # np.random.seed(42)

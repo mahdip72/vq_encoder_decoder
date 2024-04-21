@@ -1,4 +1,6 @@
 import argparse
+import logging
+
 import yaml
 import torch
 from utils import *
@@ -6,6 +8,12 @@ from accelerate import Accelerator
 from data_test import *
 from model import SimpleVQAutoEncoder
 from tqdm import tqdm
+import logging
+
+
+def save_checkpoint(state, filename="checkpoint.pth.tar"):
+    torch.save(state, filename)
+    logging.info(f"Checkpoint saved to {filename}")
 
 
 def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
@@ -43,10 +51,18 @@ def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
             f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
             + f"Rec Loss: {rec_loss.item():.3f} | "
             + f"Cmt Loss: {cmt_loss.item():.3f} | "
-            + f"Active %: {indices.unique().numel() / num_codes * 100:.3f}"
-        )
+            + f"Active %: {indices.unique().numel() / num_codes * 100:.3f}")
 
     avg_loss = total_loss / len(train_loader)
+
+    if accelerator.is_main_process:
+        save_checkpoint({
+            'epoch': epoch,
+            'state_dict': net.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'loss': avg_loss,
+        }, filename=os.path.join(config_path, f'checkpoint_epoch_{epoch}.pth.tar'))
+
     return avg_loss
 
 
@@ -93,7 +109,7 @@ def main(dict_config, config_file_path):
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
-
+    checkpoint_path = ''
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         train_loss = train_loop(net, train_dataloader, epoch, alpha, num_codes,
                                 accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
