@@ -86,6 +86,19 @@ def main():
             commit_losses = torch.full((inputs.size(0),), commit_loss.item(), dtype=torch.float32)
             # todo: add visualization here
             visualize_vq_outputs_cv2(vq_output, indices, commit_losses)
+    # inference(net, test_dataloader)
+    # Perform inference
+
+    # # Iterate over dataset and the plot each image in a batch using opencv
+    # for i, (images, labels) in enumerate(train_dataloader):
+    #     print(f"Batch {i} of images has shape {images.shape}")
+    #     print(f"Batch {i} of labels has shape {labels.shape}")
+    #     img = images.squeeze().numpy()
+    #     # resize the image to 256x256
+    #     img = cv2.resize(img, (256, 256))
+    #
+    #     cv2.imshow('image', img)
+    #     cv2.waitKey(0)
 
 
 if __name__ == '__main__':
