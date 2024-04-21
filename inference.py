@@ -83,10 +83,8 @@ def main():
         for inputs, _ in test_dataloader:
             vq_output, indices, commit_loss = net(inputs, return_vq_only=True)
 
-            # Assuming `commit_loss` is a scalar for the whole batch, replicate it for each sample
-            commit_losses = torch.full((inputs.size(0),), commit_loss.item(), device=inputs)
-
-            # Visualize outputs using cv2
+            commit_losses = torch.full((inputs.size(0),), commit_loss.item(), dtype=torch.float32)
+            # todo: add visualization here
             visualize_vq_outputs_cv2(vq_output, indices, commit_losses)
     # inference(net, test_dataloader)
     # Perform inference
