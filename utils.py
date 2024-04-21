@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.optim as optim
 import numpy as np
+from accelerate import Accelerator
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 
@@ -25,6 +26,31 @@ def get_logging(result_path):
     logger.addHandler(sh)
 
     return logger
+
+
+def save_checkpoint(epoch: int, model_path: str, tools: dict, accelerator: Accelerator):
+    """
+    Save the model checkpoints during training.
+
+    Args:
+        epoch (int): The current epoch number.
+        model_path (str): The path to save the model checkpoint.
+        tools (dict): A dictionary containing the necessary tools for saving the model checkpoints.
+        accelerator (Accelerator): Accelerator object.
+
+    Returns:
+        None
+    """
+    # # Set the path to save the model checkpoint.
+    # model_path = os.path.join(tools['result_path'], 'checkpoints', f'checkpoint_{epoch}.pth')
+
+    # Save the model checkpoint.
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': accelerator.unwrap_model(tools['net']).state_dict(),
+        'optimizer_state_dict': accelerator.unwrap_model(tools['optimizer'].state_dict()),
+        'scheduler_state_dict': accelerator.unwrap_model(tools['scheduler'].state_dict()),
+    }, model_path)
 
 
 def prepare_tensorboard(result_path):
