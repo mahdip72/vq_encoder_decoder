@@ -76,9 +76,8 @@ def visualize_vq_outputs_cv2(vq_outputs, indices, commit_losses):
 def main():
     net = SimpleVQAutoEncoder(codebook_size=256)
 
-    train_dataloader = load_fashion_mnist_data(batch_size=1, shuffle=False)
+    test_dataloader = load_fashion_mnist_data(batch_size=1, shuffle=False)
 
-    test_dataloader = load_fashion_mnist_data(batch_size=256, shuffle=False)
     with torch.no_grad():
         for inputs, _ in test_dataloader:
             vq_output, indices, commit_loss = net(inputs, return_vq_only=True)
