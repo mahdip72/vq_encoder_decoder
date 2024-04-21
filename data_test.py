@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import cv2
 
 
 class CustomDataset(Dataset):
@@ -36,39 +37,21 @@ def load_fashion_mnist_data(batch_size, shuffle):
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return data_loader
 
+
 def main():
-    # Set a fixed random seed for reproducibility
-    # np.random.seed(42)
-    #
-    # # Parameters for dataset generation
-    # n_samples = 10000
-    # n_features = 8
-    # centers = 16
-    # cluster_std = 1.2
-    # test_size = 0.2
-    # batch_size = 64
-    #
-    # # Generate data
-    # X, y = generate_data(n_samples, n_features, centers, cluster_std)
-    #
-    # # Prepare datasets
-    # x_train, x_valid, y_train, y_valid = train_test_split(X, y, test_size=test_size, random_state=42)
-    # train_dataset = CustomDataset(x_train, y_train)
-    # valid_dataset = CustomDataset(x_valid, y_valid)
-    #
-    # # Prepare DataLoaders
-    # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    # valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
-    #
-    # return train_loader, valid_loader
     batch_size = 256
     shuffle = True
-
-    # Load FashionMNIST data
     train_loader = load_fashion_mnist_data(batch_size, shuffle)
-
     return train_loader
 
 
 if __name__ == "__main__":
-    main()
+    train_loader = load_fashion_mnist_data(batch_size=1, shuffle=False)
+    for i, (images, labels) in enumerate(train_loader):
+        print(f"Batch {i} of images has shape {images.shape}")
+        print(f"Batch {i} of labels has shape {labels.shape}")
+        img = images.squeeze().numpy()
+        img = cv2.resize(img, (256, 256))
+
+        cv2.imshow('image', img)
+        cv2.waitKey(0)
