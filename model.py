@@ -31,3 +31,10 @@ class SimpleVQAutoEncoder(nn.Module):
         if return_vq_only:
             return x, indices, commit_loss  # Returns right after VQ layer
 
+
+if __name__ == '__main__':
+    net = SimpleVQAutoEncoder(codebook_size=256)
+    # create a random input tensor and pass it through the network
+    x = torch.randn(1, 1, 28, 28)
+    output = net(x)
+    print(output.shape)
