@@ -78,14 +78,6 @@ def main():
 
     train_dataloader = load_fashion_mnist_data(batch_size=1, shuffle=False)
 
-    # Load the test dataset
-    # test_dataset = DataLoader(
-    #     datasets.FashionMNIST(
-    #         root="~/data/fashion_mnist", train=False, download=True, transform=transform
-    #     ),
-    #     batch_size=256,
-    #     shuffle=False,
-    # )
     test_dataloader = load_fashion_mnist_data(batch_size=256, shuffle=False)
     with torch.no_grad():
         for inputs, _ in test_dataloader:
