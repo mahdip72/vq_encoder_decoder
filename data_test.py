@@ -46,6 +46,16 @@ def main():
 
 
 if __name__ == "__main__":
+    import yaml
+    from utils import load_configs
+
+    config_path = "./config.yaml"
+
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+
+    configs = load_configs(config_file)
+
     train_loader = load_fashion_mnist_data(batch_size=1, shuffle=False)
     for i, (images, labels) in enumerate(train_loader):
         print(f"Batch {i} of images has shape {images.shape}")
