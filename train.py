@@ -4,6 +4,7 @@ import yaml
 import os
 import torch
 from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
+from utils import load_checkpoints
 from accelerate import Accelerator
 from data_test import load_fashion_mnist_data
 from model import SimpleVQAutoEncoder
@@ -91,6 +92,8 @@ def main(dict_config, config_file_path):
         net, optimizer, train_dataloader, scheduler
     )
 
+    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+
     net.to(accelerator.device)
 
     # compile model to train faster and efficiently
@@ -106,7 +109,7 @@ def main(dict_config, config_file_path):
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         train_loss = train_loop(net, train_dataloader, epoch,
                                 accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
-                                logging=logging)
+                                logging=logging, train_writer=train_writer)
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     tools = dict()
