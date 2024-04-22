@@ -28,7 +28,7 @@ def get_logging(result_path):
     return logger
 
 
-def save_checkpoint(epoch: int, model_path: str, tools: dict, accelerator: Accelerator):
+def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwargs):
     """
     Save the model checkpoints during training.
 
@@ -41,15 +41,13 @@ def save_checkpoint(epoch: int, model_path: str, tools: dict, accelerator: Accel
     Returns:
         None
     """
-    # # Set the path to save the model checkpoint.
-    # model_path = os.path.join(tools['result_path'], 'checkpoints', f'checkpoint_{epoch}.pth')
 
     # Save the model checkpoint.
     torch.save({
         'epoch': epoch,
-        'model_state_dict': accelerator.unwrap_model(tools['net']).state_dict(),
-        'optimizer_state_dict': accelerator.unwrap_model(tools['optimizer'].state_dict()),
-        'scheduler_state_dict': accelerator.unwrap_model(tools['scheduler'].state_dict()),
+        'model_state_dict': accelerator.unwrap_model(kwargs['net']).state_dict(),
+        'optimizer_state_dict': accelerator.unwrap_model(kwargs['optimizer'].state_dict()),
+        'scheduler_state_dict': accelerator.unwrap_model(kwargs['scheduler'].state_dict()),
     }, model_path)
 
 
