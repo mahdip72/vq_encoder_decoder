@@ -1,13 +1,8 @@
 import torch
-from model import SimpleVQAutoEncoder
-from data_test import load_fashion_mnist_data
 import cv2
-import numpy as np
-from utils import *
-from accelerate import Accelerator
-from data_test import *
+from utils import load_checkpoints_simple
+from data_test import load_fashion_mnist_data
 from model import SimpleVQAutoEncoder
-from tqdm import tqdm
 
 
 def main():
