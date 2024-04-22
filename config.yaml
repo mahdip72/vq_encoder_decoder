@@ -11,6 +11,13 @@ resume:
 
 model:
   compile_model: False
+  vector_quantization:
+    dim: 32
+    codebook_size: 512
+    decay: 0.8
+    commitment_weight : 1.0
+    alpha: 10.0
+
   gvp_encoder:
     max_len: 512
     fine_tune:
