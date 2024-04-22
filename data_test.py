@@ -29,8 +29,10 @@ def generate_data(n_samples, n_features, centers, cluster_std):
 
 def load_fashion_mnist_data(batch_size, shuffle):
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
-    )
+
+    [transforms.ToTensor()])
+    #, transforms.Normalize((0.5,), (0.5,))])
+
     dataset = datasets.FashionMNIST(
         root="~/data/fashion_mnist", train=True, download=True, transform=transform
     )
