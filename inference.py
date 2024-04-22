@@ -10,17 +10,12 @@ from model import SimpleVQAutoEncoder
 from tqdm import tqdm
 
 
-def load_model(checkpoint_path='epoch_8.pth'):
-    model = SimpleVQAutoEncoder(codebook_size=256)
-    load_checkpoints_simple(checkpoint_path, model)
-    return model
-
-
 def main():
     import yaml
     from utils import load_configs
 
     config_path = "./config.yaml"
+    checkpoint_path = "./checkpoints/epoch_10.pth"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -33,6 +28,8 @@ def main():
         decay=configs.model.vector_quantization.decay,
         commitment_weight=configs.model.vector_quantization.commitment_weight
     )
+
+    net = load_checkpoints_simple(checkpoint_path, net)
 
     test_dataloader = load_fashion_mnist_data(batch_size=1, shuffle=False)
 
