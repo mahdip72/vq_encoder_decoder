@@ -5,7 +5,7 @@ from vector_quantize_pytorch import VectorQuantize
 
 
 class TransformersVQAutoEncoder(nn.Module):
-    def __init__(self, d_model=32, nhead=8, num_encoder_layers=8, dim_feedforward=256, **kwargs):
+    def __init__(self, d_model=32, nhead=4, num_encoder_layers=6, dim_feedforward=64, **kwargs):
         super().__init__()
 
         self.d_model = kwargs['dim']
@@ -46,6 +46,9 @@ class TransformersVQAutoEncoder(nn.Module):
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
             nn.Conv2d(self.d_model, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
+            nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
