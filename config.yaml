@@ -1,5 +1,5 @@
 fix_seed: 0
-checkpoints_every: 128
+checkpoints_every: 4
 tensorboard_log: True
 tqdm_progress_bar: True
 result_path: ./results
@@ -47,14 +47,14 @@ model:
 
 train_settings:
   data_path: H:\Datasets\Joint_training
-  num_epochs: 8
+  num_epochs: 12
   shuffle: True
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 128
-  num_workers: 8
+  batch_size: 64
+  num_workers: 12
   grad_accumulation: 1
   max_task_samples: 50000
 
@@ -67,7 +67,7 @@ valid_settings:
 
 optimizer:
   name: adam
-  lr: 1e-4
+  lr: 5e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
