@@ -76,8 +76,6 @@ def main(dict_config, config_file_path):
         dispatch_batches=True
     )
 
-    # alpha = 10
-    # num_codes = 256
     net = SimpleVQAutoEncoder(
         dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
