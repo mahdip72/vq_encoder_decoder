@@ -105,24 +105,26 @@ def main(dict_config, config_file_path):
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
 
-    epoch = 0
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         train_loss = train_loop(net, train_dataloader, epoch,
                                 accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
                                 logging=logging, train_writer=train_writer)
+
+        if epoch % configs.checkpoints_every == 0:
+            tools = dict()
+            tools['net'] = net
+            tools['optimizer'] = optimizer
+            tools['scheduler'] = scheduler
+
+            accelerator.wait_for_everyone()
+
+            # Set the path to save the model checkpoint.
+            model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+            if accelerator.is_main_process:
+                logging.info(f'\tsaving the best model in {model_path}')
+
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
-
-    tools = dict()
-    tools['net'] = net
-    tools['optimizer'] = optimizer
-    tools['scheduler'] = scheduler
-
-    if accelerator.is_main_process:
-        accelerator.wait_for_everyone()
-        # Set the path to save the model checkpoint.
-        model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
-        save_checkpoint(epoch, model_path, tools, accelerator)
-        logging.info(f'\tsaving the best model in {model_path}')
 
     print("Training complete!")
 
