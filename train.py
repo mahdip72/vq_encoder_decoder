@@ -104,8 +104,8 @@ def main(dict_config, config_file_path):
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     tools = dict()
-    tools['net'] = net,
-    tools['optimizer'] = optimizer,
+    tools['net'] = net
+    tools['optimizer'] = optimizer
     tools['scheduler'] = scheduler
 
     if accelerator.is_main_process:
