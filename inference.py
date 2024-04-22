@@ -10,10 +10,9 @@ from model import SimpleVQAutoEncoder
 from tqdm import tqdm
 
 
-def load_model(checkpoint_path):
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+def load_model(checkpoint_path='epoch_8.pth'):
     model = SimpleVQAutoEncoder(codebook_size=256)
-    model.load_state_dict(checkpoint['state_dict'])
+    load_checkpoints_simple(checkpoint_path, model)
     return model
 
 
