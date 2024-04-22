@@ -7,7 +7,7 @@ from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimiz
 from utils import load_checkpoints
 from accelerate import Accelerator
 from data_test import load_fashion_mnist_data
-from model import SimpleVQAutoEncoder
+from model import SimpleVQAutoEncoder, TransformersVQAutoEncoder
 from tqdm import tqdm
 
 
@@ -77,7 +77,7 @@ def main(dict_config, config_file_path):
         dispatch_batches=True
     )
 
-    net = SimpleVQAutoEncoder(
+    net = TransformersVQAutoEncoder(
         dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
         decay=configs.model.vector_quantization.decay,
