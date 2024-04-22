@@ -1,21 +1,23 @@
 import argparse
-import logging
-
+import numpy as np
 import yaml
+import os
 import torch
-from utils import *
+from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from accelerate import Accelerator
-from data_test import *
+from data_test import load_fashion_mnist_data
 from model import SimpleVQAutoEncoder
 from tqdm import tqdm
-import logging
 
 
-def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
+def train_loop(net, train_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
     logging = kwargs.pop('logging')
+    configs = kwargs.pop('configs')
+    alpha = configs.model.vector_quantization.alpha
+    codebook_size = configs.model.vector_quantization.codebook_size
 
     optimizer.zero_grad()
 
@@ -35,7 +37,7 @@ def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
 
         accelerator.backward(loss)
         if accelerator.sync_gradients:
-            accelerator.clip_grad_norm_(net.parameters(), kwargs['configs'].optimizer.grad_clip_norm)
+            accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
@@ -46,7 +48,7 @@ def train_loop(net, train_loader, epoch, alpha, num_codes, **kwargs):
             f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
             + f"Rec Loss: {rec_loss.item():.3f} | "
             + f"Cmt Loss: {cmt_loss.item():.3f} | "
-            + f"Active %: {indices.unique().numel() / num_codes * 100:.3f}")
+            + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
 
     avg_loss = total_loss / len(train_loader)
 
@@ -65,8 +67,6 @@ def main(dict_config, config_file_path):
 
     logging = get_logging(result_path)
 
-    alpha = 10
-    num_codes = 256
     train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
     logging.info('preparing dataloaders are done')
 
@@ -76,7 +76,14 @@ def main(dict_config, config_file_path):
         dispatch_batches=True
     )
 
-    net = SimpleVQAutoEncoder(codebook_size=256)
+    # alpha = 10
+    # num_codes = 256
+    net = SimpleVQAutoEncoder(
+        dim=configs.model.vector_quantization.dim,
+        codebook_size=configs.model.vector_quantization.codebook_size,
+        decay=configs.model.vector_quantization.decay,
+        commitment_weight=configs.model.vector_quantization.commitment_weight
+    )
     logging.info('preparing model is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
@@ -89,23 +96,24 @@ def main(dict_config, config_file_path):
     net.to(accelerator.device)
 
     # compile model to train faster and efficiently
-    if configs.prot2seq_model.compile_model:
+    if configs.model.compile_model:
         net = torch.compile(net)
         if accelerator.is_main_process:
             logging.info('compile model is done')
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
+
     epoch = 0
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(net, train_dataloader, epoch, alpha, num_codes,
+        train_loss = train_loop(net, train_dataloader, epoch,
                                 accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
                                 logging=logging)
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     tools = dict()
-    tools['net'] = net,
-    tools['optimizer'] = optimizer,
+    tools['net'] = net
+    tools['optimizer'] = optimizer
     tools['scheduler'] = scheduler
 
     if accelerator.is_main_process:

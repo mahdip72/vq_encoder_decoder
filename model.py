@@ -4,7 +4,7 @@ from vector_quantize_pytorch import VectorQuantize
 
 
 class SimpleVQAutoEncoder(nn.Module):
-    def __init__(self, **vq_kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         self.encoder_layers = nn.ModuleList([
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
@@ -13,7 +13,13 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2)
         ])
-        self.vq_layer = VectorQuantize(dim=32, accept_image_fmap=True, **vq_kwargs)
+        self.vq_layer = VectorQuantize(
+            dim=kwargs['dim'],
+            codebook_size=kwargs['codebook_size'],  # codebook size
+            decay=kwargs['decay'],
+            commitment_weight=kwargs['commitment_weight'],
+            accept_image_fmap=True
+        )
         self.decoder_layers = nn.ModuleList([
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
