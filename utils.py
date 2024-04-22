@@ -53,6 +53,13 @@ def save_checkpoint(epoch: int, model_path: str, tools: dict, accelerator: Accel
     }, model_path)
 
 
+def load_checkpoints_simple(configs, net):
+    model_checkpoint = torch.load(configs.resume.resume_path, map_location='cpu')
+    pretrained_state_dict = model_checkpoint['model_state_dict']
+    net.load_state_dict(pretrained_state_dict, strict=True)
+    return net
+
+
 def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
     """
     Load saved checkpoints from a previous training session.
