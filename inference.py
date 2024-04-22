@@ -75,30 +75,25 @@ def visualize_vq_outputs_cv2(vq_outputs, indices, commit_losses):
 
 def main():
     net = SimpleVQAutoEncoder(codebook_size=256)
-    # todo: load checkpoint here
 
     test_dataloader = load_fashion_mnist_data(batch_size=1, shuffle=False)
 
     with torch.inference_mode():
-        for inputs, _ in test_dataloader:
-            vq_output, indices, commit_loss = net(inputs, return_vq_only=True)
+        for inputs in test_dataloader:
+                img_before = inputs[0].squeeze().numpy()
+                img_before = cv2.resize(img_before, (256, 256))
+                cv2.imshow('image', img_before)
+                cv2.waitKey(0)
 
-            commit_losses = torch.full((inputs.size(0),), commit_loss.item(), dtype=torch.float32)
-            # todo: add visualization here
-            visualize_vq_outputs_cv2(vq_output, indices, commit_losses)
-    # inference(net, test_dataloader)
-    # Perform inference
+                vq_output, indices, commit_loss = net(inputs[0], return_vq_only=True)
 
-    # # Iterate over dataset and the plot each image in a batch using opencv
-    # for i, (images, labels) in enumerate(train_dataloader):
-    #     print(f"Batch {i} of images has shape {images.shape}")
-    #     print(f"Batch {i} of labels has shape {labels.shape}")
-    #     img = images.squeeze().numpy()
-    #     # resize the image to 256x256
-    #     img = cv2.resize(img, (256, 256))
-    #
-    #     cv2.imshow('image', img)
-    #     cv2.waitKey(0)
+                img_after = vq_output[0, 0]  # Shape (7, 7)
+                img_after = (img_after * 255).to(torch.uint8).numpy()
+                img_after = cv2.resize(img_after, (256, 256), interpolation=cv2.INTER_NEAREST)
+                cv2.imshow("Image", img_after)
+                cv2.waitKey(0)
+
+
 
 
 if __name__ == '__main__':
