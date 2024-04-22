@@ -44,7 +44,23 @@ class SimpleVQAutoEncoder(nn.Module):
 
 
 if __name__ == '__main__':
-    net = SimpleVQAutoEncoder(codebook_size=256)
+    import yaml
+    from utils import load_configs
+
+    config_path = "./config.yaml"
+
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+
+    configs = load_configs(config_file)
+
+    net = SimpleVQAutoEncoder(
+        dim=configs.model.vector_quantization.dim,
+        codebook_size=configs.model.vector_quantization.codebook_size,
+        decay=configs.model.vector_quantization.decay,
+        commitment_weight=configs.model.vector_quantization.commitment_weight
+    )
+
     # create a random input tensor and pass it through the network
     x = torch.randn(1, 1, 28, 28)
     output, x, y = net(x, return_vq_only=True)
