@@ -49,5 +49,5 @@ if __name__ == '__main__':
     x = torch.randn(1, 1, 28, 28)
     output, x, y = net(x, return_vq_only=True)
     print(output.shape)
-    print(x.shape)
+    print(x)
     print(y.shape)
