@@ -8,9 +8,18 @@ class SimpleVQAutoEncoder(nn.Module):
         super().__init__()
         self.encoder_layers = nn.ModuleList([
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.BatchNorm2d(16),
             nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
+            nn.GELU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.GELU(),
+            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.GELU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         ])
         self.vq_layer = VectorQuantize(
@@ -23,9 +32,16 @@ class SimpleVQAutoEncoder(nn.Module):
         self.decoder_layers = nn.ModuleList([
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
+            nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
             nn.GELU(),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1)
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
+            nn.GELU(),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         ])
 
     def forward(self, x, return_vq_only=False):
