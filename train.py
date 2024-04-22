@@ -89,7 +89,7 @@ def main(dict_config, config_file_path):
     net.to(accelerator.device)
 
     # compile model to train faster and efficiently
-    if configs.prot2seq_model.compile_model:
+    if configs.model.compile_model:
         net = torch.compile(net)
         if accelerator.is_main_process:
             logging.info('compile model is done')
