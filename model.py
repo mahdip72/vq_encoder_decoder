@@ -77,6 +77,9 @@ class TransformersVQAutoEncoder(nn.Module):
 class SimpleVQAutoEncoder(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
+
+        self.d_model = kwargs['dim']
+
         self.encoder_layers = nn.ModuleList([
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
@@ -84,15 +87,15 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
+            nn.GELU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(16, self.d_model, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.d_model),
             nn.GELU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(32),
-            nn.GELU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.d_model),
             nn.GELU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         ])
@@ -105,16 +108,16 @@ class SimpleVQAutoEncoder(nn.Module):
         )
         self.decoder_layers = nn.ModuleList([
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.d_model),
             nn.GELU(),
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.d_model),
             nn.GELU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
-            nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
