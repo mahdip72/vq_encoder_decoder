@@ -29,7 +29,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
         inputs, labels = data
         optimizer.zero_grad()
         outputs, indices, cmt_loss = net(inputs)
-        rec_loss = torch.abs(outputs - inputs).mean()
+
+        # calculate MSE loss
+        rec_loss = torch.nn.functional.mse_loss(outputs, inputs)
+
         loss = rec_loss + alpha * cmt_loss
 
         # Gather the losses across all processes for logging (if we use distributed training).
