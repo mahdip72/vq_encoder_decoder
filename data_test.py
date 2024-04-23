@@ -43,7 +43,7 @@ def load_fashion_mnist_data(batch_size, shuffle):
 def load_cifar10_data(batch_size, shuffle):
     transform = transforms.Compose([
         transforms.ToTensor(),  # Convert images to PyTorch tensors
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize the images
+        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize the images
     ])
 
     dataset = datasets.CIFAR10(
@@ -80,7 +80,7 @@ if __name__ == "__main__":
         # convert CHW to HWC
         img = np.transpose(img, (1, 2, 0))
         # convert to 0-255 based on the normalization values in the transform
-        img = img * 0.5 + 0.5
+        # img = img * 0.5 + 0.5
 
         img = cv2.resize(img, (256, 256))
 
