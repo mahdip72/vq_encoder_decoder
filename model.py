@@ -103,6 +103,10 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
 
+            nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.d_model),
+            nn.GELU(),
+
             nn.MaxPool2d(kernel_size=2, stride=2)
         ])
         self.vq_layer = VectorQuantize(
@@ -122,6 +126,10 @@ class SimpleVQAutoEncoder(nn.Module):
 
         self.decoder_layers = nn.ModuleList([
             nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.d_model),
+            nn.GELU(),
+
             nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
