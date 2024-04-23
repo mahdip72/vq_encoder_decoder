@@ -10,8 +10,8 @@ def main():
     import yaml
     from utils import load_configs
 
-    config_path = "results/2024-04-22__21-28-43/config.yaml"
-    checkpoint_path = "results/2024-04-22__21-28-43/checkpoints/epoch_32.pth"
+    config_path = "results/2024-04-22__21-53-27/config.yaml"
+    checkpoint_path = "results/2024-04-22__21-53-27/checkpoints/epoch_24.pth"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -41,6 +41,7 @@ def main():
             vq_output, indices, commit_loss = net(inputs[0], return_vq_only=False)
 
             img_after = vq_output.squeeze().numpy()
+            img_after = np.clip(img_after, 0, 1)
             img_after = (img_after * 255).astype(np.uint8)
             img_after = np.transpose(img_after, (1, 2, 0))
             img_after = cv2.resize(img_after, (256, 256))
