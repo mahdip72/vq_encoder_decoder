@@ -7,7 +7,7 @@ from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimiz
 from utils import load_checkpoints
 from accelerate import Accelerator
 from data_test import load_fashion_mnist_data
-from model import SimpleVQAutoEncoder, TransformersVQAutoEncoder
+from model import prepare_models
 from tqdm import tqdm
 
 
@@ -77,12 +77,7 @@ def main(dict_config, config_file_path):
         dispatch_batches=True
     )
 
-    net = TransformersVQAutoEncoder(
-        dim=configs.model.vector_quantization.dim,
-        codebook_size=configs.model.vector_quantization.codebook_size,
-        decay=configs.model.vector_quantization.decay,
-        commitment_weight=configs.model.vector_quantization.commitment_weight
-    )
+    net = prepare_models(configs, logging, accelerator)
     logging.info('preparing model is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
