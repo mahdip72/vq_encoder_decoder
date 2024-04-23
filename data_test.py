@@ -40,6 +40,19 @@ def load_fashion_mnist_data(batch_size, shuffle):
     return data_loader
 
 
+def load_cifar10_data(batch_size, shuffle):
+    transform = transforms.Compose([
+        transforms.ToTensor(),  # Convert images to PyTorch tensors
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize the images
+    ])
+
+    dataset = datasets.CIFAR10(
+        root="~/data/cifar10", train=True, download=True, transform=transform
+    )
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return data_loader
+
+
 def main():
     batch_size = 256
     shuffle = True
@@ -58,12 +71,18 @@ if __name__ == "__main__":
 
     configs = load_configs(config_file)
 
-    train_loader = load_fashion_mnist_data(batch_size=1, shuffle=False)
+    # train_loader = load_fashion_mnist_data(batch_size=1, shuffle=False)
+    train_loader = load_cifar10_data(batch_size=1, shuffle=False)
     for i, (images, labels) in enumerate(train_loader):
         print(f"Batch {i} of images has shape {images.shape}")
         print(f"Batch {i} of labels has shape {labels.shape}")
         img = images.squeeze().numpy()
+        # convert CHW to HWC
+        img = np.transpose(img, (1, 2, 0))
+        # convert to 0-255 based on the normalization values in the transform
+        img = img * 0.5 + 0.5
+
         img = cv2.resize(img, (256, 256))
 
-        cv2.imshow('image', img)
+        cv2.imshow('image', img[:, :, ::-1])
         cv2.waitKey(0)
