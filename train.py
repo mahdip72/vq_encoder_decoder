@@ -30,8 +30,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         optimizer.zero_grad()
         outputs, indices, cmt_loss = net(inputs)
 
-        # calculate MSE loss
-        rec_loss = torch.nn.functional.mse_loss(outputs, inputs)
+        rec_loss = torch.nn.functional.l1_loss(outputs, inputs)
 
         loss = rec_loss + alpha * cmt_loss
 
