@@ -84,24 +84,30 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
+
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
+
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
+
             nn.MaxPool2d(kernel_size=2, stride=2),
+
             nn.Conv2d(16, self.d_model, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
+
             nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
+
             nn.MaxPool2d(kernel_size=2, stride=2)
         ])
         self.vq_layer = VectorQuantize(
-            dim=kwargs['dim'],
-            codebook_size=kwargs['codebook_size'],  # codebook size
+            dim=self.d_model,
+            codebook_size=kwargs['codebook_size'],
             decay=kwargs['decay'],
             commitment_weight=kwargs['commitment_weight'],
             accept_image_fmap=True
@@ -111,16 +117,21 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
+
             nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(self.d_model),
             nn.GELU(),
+
             nn.Upsample(scale_factor=2, mode="nearest"),
+
+            nn.Conv2d(self.d_model, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
+            nn.GELU(),
+
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
-            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(16),
-            nn.GELU(),
+
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         ])
 
@@ -200,7 +211,7 @@ if __name__ == '__main__':
 
     main_configs = load_configs(config_file)
 
-    net = TransformersVQAutoEncoder(
+    net = SimpleVQAutoEncoder(
         dim=main_configs.model.vector_quantization.dim,
         codebook_size=main_configs.model.vector_quantization.codebook_size,
         decay=main_configs.model.vector_quantization.decay,
