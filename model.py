@@ -146,6 +146,7 @@ class SimpleVQAutoEncoder(nn.Module):
     def forward(self, x, return_vq_only=False):
         for layer in self.encoder_layers:
             x = layer(x)
+            # print(x.shape)
 
         x, indices, commit_loss = self.vq_layer(x)
 
@@ -154,7 +155,9 @@ class SimpleVQAutoEncoder(nn.Module):
 
         for layer in self.decoder_layers:
             x = layer(x)
-
+            # print(x.shape)
+        # make sure the output is in the range of 0-1
+        x = torch.clamp(x, 0, 1)
         return x, indices, commit_loss
 
 
@@ -227,7 +230,7 @@ if __name__ == '__main__':
     )
 
     # create a random input tensor and pass it through the network
-    x = torch.randn(1, 1, 28, 28)
+    x = torch.randn(1, 3, 32, 32)
     output, x, y = net(x, return_vq_only=False)
     print(output.shape)
     print(x.shape)
