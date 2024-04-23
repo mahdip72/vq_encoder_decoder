@@ -6,7 +6,7 @@ import torch
 from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils import load_checkpoints
 from accelerate import Accelerator
-from data_test import load_fashion_mnist_data
+from data_test import prepare_dataloaders
 from model import prepare_models
 from tqdm import tqdm
 
@@ -71,7 +71,7 @@ def main(dict_config, config_file_path):
 
     logging = get_logging(result_path)
 
-    train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
+    train_dataloader = prepare_dataloaders(configs)
     logging.info('preparing dataloaders are done')
 
     accelerator = Accelerator(

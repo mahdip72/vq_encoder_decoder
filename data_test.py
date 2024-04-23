@@ -53,6 +53,12 @@ def load_cifar10_data(batch_size, shuffle):
     return data_loader
 
 
+def prepare_dataloaders(configs):
+    # train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
+    train_dataloader = load_cifar10_data(batch_size=configs.train_settings.batch_size, shuffle=True)
+    return train_dataloader
+
+
 def main():
     batch_size = 256
     shuffle = True
@@ -69,11 +75,11 @@ if __name__ == "__main__":
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    configs = load_configs(config_file)
+    main_configs = load_configs(config_file)
 
     # train_loader = load_fashion_mnist_data(batch_size=1, shuffle=False)
-    train_loader = load_cifar10_data(batch_size=1, shuffle=False)
-    for i, (images, labels) in enumerate(train_loader):
+    data_loader = load_cifar10_data(batch_size=1, shuffle=False)
+    for i, (images, labels) in enumerate(data_loader):
         print(f"Batch {i} of images has shape {images.shape}")
         print(f"Batch {i} of labels has shape {labels.shape}")
         img = images.squeeze().numpy()
