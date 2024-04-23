@@ -9,8 +9,8 @@ def main():
     import yaml
     from utils import load_configs
 
-    config_path = "./config.yaml"
-    checkpoint_path = "./checkpoints/epoch_10.pth"
+    config_path = "results/2024-04-22__20-20-11/config.yaml"
+    checkpoint_path = "results/2024-04-22__20-20-11/checkpoints/epoch_8.pth"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -32,15 +32,14 @@ def main():
         for inputs in test_dataloader:
             img_before = inputs[0].squeeze().numpy()
             img_before = cv2.resize(img_before, (256, 256))
-            cv2.imshow('image', img_before)
-            cv2.waitKey(0)
+            cv2.imshow('input', img_before)
 
             vq_output, indices, commit_loss = net(inputs[0], return_vq_only=True)
 
             img_after = vq_output[0, 0]  # Shape (7, 7)
             img_after = (img_after * 255).to(torch.uint8).numpy()
             img_after = cv2.resize(img_after, (256, 256), interpolation=cv2.INTER_NEAREST)
-            cv2.imshow("Image", img_after)
+            cv2.imshow("recons", img_after)
             cv2.waitKey(0)
 
 
