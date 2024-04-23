@@ -147,7 +147,7 @@ class SimpleVQAutoEncoder(nn.Module):
         for layer in self.decoder_layers:
             x = layer(x)
 
-        return x.clamp(-1, 1), indices, commit_loss
+        return x, indices, commit_loss
 
 
 def get_nb_trainable_parameters(model):
