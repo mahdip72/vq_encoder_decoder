@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import VectorQuantize, LFQ
 
 
 class TransformersVQAutoEncoder(nn.Module):
@@ -81,7 +81,7 @@ class SimpleVQAutoEncoder(nn.Module):
         self.d_model = kwargs['dim']
 
         self.encoder_layers = nn.ModuleList([
-            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.GELU(),
 
@@ -112,6 +112,14 @@ class SimpleVQAutoEncoder(nn.Module):
             commitment_weight=kwargs['commitment_weight'],
             accept_image_fmap=True
         )
+        # from math import log2
+        # self.vq_layer = LFQ(
+        #     dim=self.d_model,
+        #     codebook_size=kwargs['codebook_size'],
+        #     entropy_loss_weight=0.02,
+        #     diversity_gamma=1.0
+        # )
+
         self.decoder_layers = nn.ModuleList([
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(self.d_model, self.d_model, kernel_size=3, stride=1, padding=1),
@@ -132,7 +140,7 @@ class SimpleVQAutoEncoder(nn.Module):
             nn.BatchNorm2d(16),
             nn.GELU(),
 
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(16, 3, kernel_size=3, stride=1, padding=1),
         ])
 
     def forward(self, x, return_vq_only=False):
