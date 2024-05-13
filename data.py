@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from utils import load_h5_file
 from torch_geometric.data import Batch, Data
 import time
-from rotary_embedding import RotaryEmbedding
+from gvp.rotary_embedding import RotaryEmbedding
 
 
 def custom_collate(one_batch):
