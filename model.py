@@ -5,10 +5,6 @@ from vector_quantize_pytorch import VectorQuantize, LFQ
 import gvp.models
 from torch_geometric.nn import radius, global_mean_pool, global_max_pool
 from data import *
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
 
 
 class TransformersVQAutoEncoder(nn.Module):
@@ -336,7 +332,9 @@ def prepare_models(configs, logging, accelerator):
 
 if __name__ == '__main__':
     import yaml
+    from utils import get_dummy_logger
     from utils import load_configs
+    logger, buffer = get_dummy_logger()
 
     config_path = "./config.yaml"
 
