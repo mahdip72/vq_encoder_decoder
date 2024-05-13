@@ -13,6 +13,8 @@ from accelerate import Accelerator
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 import math
 import h5py
+from io import StringIO
+
 
 def get_logging(result_path):
     logger = log.getLogger(result_path)
@@ -27,6 +29,27 @@ def get_logging(result_path):
     logger.addHandler(sh)
 
     return logger
+
+
+def get_dummy_logger():
+    # Create a logger object
+    logger = log.getLogger('dummy')
+    logger.setLevel(log.INFO)
+
+    # Create a string buffer to hold the logs
+    log_buffer = StringIO()
+
+    # Create a stream handler that writes to the string buffer
+    handler = log.StreamHandler(log_buffer)
+    formatter = log.Formatter('%(asctime)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    # Optionally disable propagation to prevent logging on the parent logger
+    logger.propagate = False
+
+    # Return both logger and buffer so you can inspect logs as needed
+    return logger, log_buffer
 
 
 def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwargs):
