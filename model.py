@@ -5,9 +5,11 @@ from vector_quantize_pytorch import VectorQuantize, LFQ
 import gvp.models
 from torch_geometric.nn import radius, global_mean_pool, global_max_pool
 from data import *
+import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
+
 
 class TransformersVQAutoEncoder(nn.Module):
     def __init__(self, d_model=32, nhead=4, num_encoder_layers=6, dim_feedforward=64, **kwargs):
@@ -64,7 +66,7 @@ class TransformersVQAutoEncoder(nn.Module):
         x = self.initial_conv(x)
         n, c, h, w = x.shape
         x = x.view(n, h * w, c)  # Adjust to (batch_size, seq_length, feature_size)
-        x += self.positional_encoding[:, :h*w, :]  # Ensure positional encoding is added correctly
+        x += self.positional_encoding[:, :h * w, :]  # Ensure positional encoding is added correctly
         x = self.transformer_encoder(x)
         x = x.view(n, c, h, w)  # Reshape back to feature map
 
@@ -193,19 +195,19 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
         if configs.model.struct_encoder.use_rotary_embeddings:
             if configs.model.struct_encoder.rotary_mode == 3:
                 edge_in_dim = (
-                configs.model.struct_encoder.num_rbf + 8, 1)  # 16+2+3+3 only for mode ==3 add 8D pos_embeddings
+                    configs.model.struct_encoder.num_rbf + 8, 1)  # 16+2+3+3 only for mode ==3 add 8D pos_embeddings
             else:
                 edge_in_dim = (configs.model.struct_encoder.num_rbf + 2, 1)  # 16+2
         else:
             edge_in_dim = (
-            configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
-            1)  # num_rbf+num_positional_embeddings
+                configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
+                1)  # num_rbf+num_positional_embeddings
 
         # node_h_dim = configs.model.struct_encoder.node_h_dim
-        node_h_dim=(100, 16) #default
+        node_h_dim = (100, 16)  # default
         # node_h_dim = (100, 32)  # seems best?
         # edge_h_dim = configs.model.struct_encoder.edge_h_dim
-        edge_h_dim = (32, 1) #default
+        edge_h_dim = (32, 1)  # default
         # gvp_num_layers = configs.model.struct_encoder.gvp_num_layers
         gvp_num_layers = 3
 
@@ -228,7 +230,7 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
 
         dim_mlp = node_h_dim[0]
         # self.esm_pool_mode= configs.model.esm_encoder.pool_mode
-        self.esm_pool_mode= 2
+        self.esm_pool_mode = 2
         # self.projectors_protein = MoBYMLP(in_dim=dim_mlp, inner_dim=protein_inner_dim, out_dim=protein_out_dim,
         #                                   num_layers=protein_num_projector)
         #
