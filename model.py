@@ -4,6 +4,10 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from vector_quantize_pytorch import VectorQuantize, LFQ
 import gvp.models
 from torch_geometric.nn import radius, global_mean_pool, global_max_pool
+from data import *
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
 
 class TransformersVQAutoEncoder(nn.Module):
     def __init__(self, d_model=32, nhead=4, num_encoder_layers=6, dim_feedforward=64, **kwargs):
@@ -197,15 +201,16 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
             configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
             1)  # num_rbf+num_positional_embeddings
 
-        node_h_dim = configs.model.struct_encoder.node_h_dim
-        # node_h_dim=(100, 16) #default
+        # node_h_dim = configs.model.struct_encoder.node_h_dim
+        node_h_dim=(100, 16) #default
         # node_h_dim = (100, 32)  # seems best?
-        edge_h_dim = configs.model.struct_encoder.edge_h_dim
-        # edge_h_dim = (32, 1) #default
-        gvp_num_layers = configs.model.struct_encoder.gvp_num_layers
-        # gvp_num_layers = 3
+        # edge_h_dim = configs.model.struct_encoder.edge_h_dim
+        edge_h_dim = (32, 1) #default
+        # gvp_num_layers = configs.model.struct_encoder.gvp_num_layers
+        gvp_num_layers = 3
 
-        self.use_seq = configs.model.struct_encoder.use_seq.enable
+        # self.use_seq = configs.model.struct_encoder.use_seq.enable
+        self.use_seq = False
         if self.use_seq:
             self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
             self.backbone = gvp.models.structure_encoder(node_in_dim, node_h_dim,
@@ -223,11 +228,12 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
 
         dim_mlp = node_h_dim[0]
         # self.esm_pool_mode= configs.model.esm_encoder.pool_mode
-        self.projectors_protein = MoBYMLP(in_dim=dim_mlp, inner_dim=protein_inner_dim, out_dim=protein_out_dim,
-                                          num_layers=protein_num_projector)
-
-        self.projectors_residue = MoBYMLP(in_dim=dim_mlp, inner_dim=residue_inner_dim, out_dim=residue_out_dim,
-                                          num_layers=residue_num_projector)
+        self.esm_pool_mode= 2
+        # self.projectors_protein = MoBYMLP(in_dim=dim_mlp, inner_dim=protein_inner_dim, out_dim=protein_out_dim,
+        #                                   num_layers=protein_num_projector)
+        #
+        # self.projectors_residue = MoBYMLP(in_dim=dim_mlp, inner_dim=residue_inner_dim, out_dim=residue_out_dim,
+        #                                   num_layers=residue_num_projector)
         if hasattr(configs.model.struct_encoder, "fine_tuning") and not configs.model.struct_encoder.fine_tuning.enable:
             for name, param in self.backbone.named_parameters():
                 param.requires_grad = False
@@ -243,7 +249,7 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
     def forward(self, graph, esm2_representation=None,
                 return_embedding=False):  # this batch is torch_geometric batch.batch to indicate the batch
         """
-        graph: torch_geometric batchdasta
+        graph: torch_geometric batchdata
         """
         nodes = (graph.node_s, graph.node_v)
         edges = (graph.edge_s, graph.edge_v)
@@ -304,6 +310,14 @@ def print_trainable_parameters(model, logging, description=""):
 
 
 def prepare_models(configs, logging, accelerator):
+    residue_inner_dim = 4096,
+    residue_out_dim = 256,
+    protein_out_dim = 256,
+    residue_num_projector = 2,
+    protein_inner_dim = 4096,
+    protein_num_projector = 2,
+    seqlen = 512
+    gvp_model = GVPEncoder()
 
     model = SimpleVQAutoEncoder(
         dim=configs.model.vector_quantization.dim,
@@ -312,10 +326,10 @@ def prepare_models(configs, logging, accelerator):
         commitment_weight=configs.model.vector_quantization.commitment_weight
     )
 
-    if accelerator.is_main_process:
-        print_trainable_parameters(model, logging, 'VQ-VAE')
+    # if accelerator.is_main_process:
+    #     print_trainable_parameters(model, logging, 'VQ-VAE')
 
-    return model
+    return gvp_model
 
 
 if __name__ == '__main__':
@@ -336,9 +350,19 @@ if __name__ == '__main__':
         commitment_weight=main_configs.model.vector_quantization.commitment_weight
     )
 
+    dataset_path = './data/h5'
+    dataset = ProteinGraphDataset(dataset_path)
+
+    test_dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=custom_collate)
+
+    for batch in test_dataloader:
+        model = prepare_models()
+        output = model(batch)
+        logger.info(f'Output: {output}')
+
     # create a random input tensor and pass it through the network
-    x = torch.randn(1, 3, 32, 32)
-    output, x, y = net(x, return_vq_only=False)
-    print(output.shape)
-    print(x.shape)
-    print(y.shape)
+    # x = torch.randn(1, 3, 32, 32)
+    # output, x, y = net(x, return_vq_only=False)
+    # print(output.shape)
+    # print(x.shape)
+    # print(y.shape)
