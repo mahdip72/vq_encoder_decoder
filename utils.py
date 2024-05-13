@@ -11,7 +11,8 @@ import torch.optim as optim
 import numpy as np
 from accelerate import Accelerator
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
-
+import math
+import h5py
 
 def get_logging(result_path):
     logger = log.getLogger(result_path)
@@ -245,3 +246,13 @@ def prepare_saving_dir(configs, config_file_path):
 
     # Return the path to the result directory.
     return result_path, checkpoint_path
+
+
+def load_h5_file(file_path):
+    with h5py.File(file_path, 'r') as f:
+        seq = f['seq'][()]
+        n_ca_c_o_coord = f['N_CA_C_O_coord'][:]
+        plddt_scores = f['plddt_scores'][:]
+    return seq, n_ca_c_o_coord, plddt_scores
+
+
