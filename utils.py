@@ -41,6 +41,9 @@ def load_configs(config):
     if not hasattr(tree_config.model.struct_encoder,"use_rotary_embeddings"): #configs also have num_rbf and num_positional_embeddings
         tree_config.model.struct_encoder.use_rotary_embeddings=False
     
+    if not hasattr(tree_config.model.struct_encoder,"rotary_mode"):
+        tree_config.model.struct_encoder.rotary_mode=1
+    
     if not hasattr(tree_config.model.struct_encoder,"use_foldseek"): #configs also have num_rbf and num_positional_embeddings
         tree_config.model.struct_encoder.use_foldseek=False
     
