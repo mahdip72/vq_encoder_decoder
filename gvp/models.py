@@ -38,24 +38,24 @@ class structure_encoder(nn.Module):
 
     def __init__(self, node_in_dim, node_h_dim,
                  edge_in_dim, edge_h_dim,
-                 seq_in=False, seq_embed_mode ="embedding", seq_embed_dim=20,
+                 seq_in=False, seq_embed_mode="embedding", seq_embed_dim=20,
                  num_layers=3, drop_rate=0.1,
                  vector_gate=True,
                  ):
 
         super(structure_encoder, self).__init__()
         self.seq_embed_mode = seq_embed_mode
-        if seq_in and seq_embed_mode=="embedding":
+        if seq_in and seq_embed_mode == "embedding":
             self.W_s = nn.Embedding(20, seq_embed_dim)
             node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
         elif seq_in:
             node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
-        
-        #if seq_in and seq_embed_mode=="PhysicsPCA":
+
+        # if seq_in and seq_embed_mode=="PhysicsPCA":
         #    node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
-        #if seq_in and seq_embed_mode=="ESM2":
+        # if seq_in and seq_embed_mode=="ESM2":
         #    node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
-        
+
         self.W_v = nn.Sequential(
             LayerNorm(node_in_dim),
             GVP(node_in_dim, node_h_dim, activations=(None, None))
@@ -88,14 +88,14 @@ class structure_encoder(nn.Module):
         :param seq: if not `None`, int `torch.Tensor` of shape [num_nodes]
                     to be embedded and appended to `h_V`
         '''
-        #print(seq)
+        # print(seq)
         if seq is not None:
-            if len(seq.shape)==1:
-               seq = self.W_s(seq)
-               h_V = (torch.cat([h_V[0], seq], dim=-1), h_V[1])
-            else:#seq representation from ESM2, PhysicsPCA or Atchleyfactor
-               h_V = (torch.cat([h_V[0], seq], dim=-1), h_V[1])
-        
+            if len(seq.shape) == 1:
+                seq = self.W_s(seq)
+                h_V = (torch.cat([h_V[0], seq], dim=-1), h_V[1])
+            else:  # seq representation from ESM2, PhysicsPCA or Atchleyfactor
+                h_V = (torch.cat([h_V[0], seq], dim=-1), h_V[1])
+
         h_V = self.W_v(h_V)
         h_E = self.W_e(h_E)  # in gearnet added h_edge = self.rbf((pos_out - pos_in).norm(dim=-1)), vec_edge why?
         for layer in self.layers:
@@ -108,50 +108,51 @@ class structure_encoder(nn.Module):
         return out
 
 
-
-
 #### this can be move to the outside models.py
 class GVPEncoder(nn.Module):  # embedding table can be tuned
     def __init__(self, configs=None):
         super(GVPEncoder, self).__init__()
-        node_in_dim = [6, 3] #default
+        node_in_dim = [6, 3]  # default
         if configs.model.struct_encoder.use_foldseek:
-            node_in_dim[0] += 10 #foldseek has 10 more node scalar features
-        
+            node_in_dim[0] += 10  # foldseek has 10 more node scalar features
+
         if configs.model.struct_encoder.use_foldseek_vector:
-            node_in_dim[1] += 6 #foldseek_vector has 6 more node vector features
-        
+            node_in_dim[1] += 6  # foldseek_vector has 6 more node vector features
+
         node_in_dim = tuple(node_in_dim)
         if configs.model.struct_encoder.use_rotary_embeddings:
-              edge_in_dim = (configs.model.struct_encoder.num_rbf+2,1) #16+2
+            edge_in_dim = (configs.model.struct_encoder.num_rbf + 2, 1)  # 16+2
         else:
-              edge_in_dim = (configs.model.struct_encoder.num_rbf+configs.model.struct_encoder.num_positional_embeddings, 1) #num_rbf+num_positional_embeddings
-        
+            edge_in_dim = (
+            configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
+            1)  # num_rbf+num_positional_embeddings
+
         node_h_dim = configs.model.struct_encoder.node_h_dim
         # node_h_dim=(100, 16) #default
-        #node_h_dim = (100, 32)  # seems best?
-        edge_h_dim=configs.model.struct_encoder.edge_h_dim
-        #edge_h_dim = (32, 1) #default
+        # node_h_dim = (100, 32)  # seems best?
+        edge_h_dim = configs.model.struct_encoder.edge_h_dim
+        # edge_h_dim = (32, 1) #default
         gvp_num_layers = configs.model.struct_encoder.gvp_num_layers
-        #gvp_num_layers = 3
-        
+        # gvp_num_layers = 3
+
         self.use_seq = configs.model.struct_encoder.use_seq.enable
         if self.use_seq:
             self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
             self.backbone = structure_encoder(node_in_dim, node_h_dim,
-                                                         edge_in_dim, edge_h_dim, seq_in=True,
-                                                         seq_embed_mode=self.seq_embed_mode,
-                                                         seq_embed_dim=configs.model.struct_encoder.use_seq.seq_embed_dim,
-                                                         num_layers=gvp_num_layers)
+                                              edge_in_dim, edge_h_dim, seq_in=True,
+                                              seq_embed_mode=self.seq_embed_mode,
+                                              seq_embed_dim=configs.model.struct_encoder.use_seq.seq_embed_dim,
+                                              num_layers=gvp_num_layers)
         else:
             self.backbone = structure_encoder(node_in_dim, node_h_dim,
-                                                         edge_in_dim, edge_h_dim, seq_in=False,
-                                                         num_layers=gvp_num_layers)
+                                              edge_in_dim, edge_h_dim, seq_in=False,
+                                              num_layers=gvp_num_layers)
 
         # pretrained_state_dict = init_model.state_dict()
         # self.backbone.load_state_dict(pretrained_state_dict,strict=False)
-    
-    def forward(self, graph, esm2_representation=None):  # this batch is torch_geometric batch.batch to indicate the batch
+
+    def forward(self, graph,
+                esm2_representation=None):  # this batch is torch_geometric batch.batch to indicate the batch
         """
         graph: torch_geometric batchdasta
         """
@@ -171,4 +172,3 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
         # graph_feature=scatter_mean(residue_feature, batch, dim=0)
         graph_feature_embedding = global_mean_pool(residue_feature_embedding, graph.batch)
         return graph_feature_embedding, residue_feature_embedding
-
