@@ -298,10 +298,10 @@ def prepare_models():
 
 if __name__ == '__main__':
     import yaml
-    from utils import get_dummy_logger
+    # from utils import get_dummy_logger
     from utils import load_configs
 
-    logger, buffer = get_dummy_logger()
+    # logger, buffer = get_dummy_logger()
 
     config_path = "./config.yaml"
 
@@ -317,7 +317,7 @@ if __name__ == '__main__':
         commitment_weight=main_configs.model.vector_quantization.commitment_weight
     )
 
-    dataset_path = './data/h5'
+    dataset_path = './data/h5' # test for piece of data
     dataset = ProteinGraphDataset(dataset_path)
 
     test_dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=custom_collate)
