@@ -751,6 +751,7 @@ class Dropout(nn.Module):
         s, v = x
         return self.sdropout(s), self.vdropout(v)
 
+
 def prepare_models():
     residue_inner_dim = 4096,
     residue_out_dim = 256,
@@ -782,10 +783,7 @@ def prepare_models():
 
 if __name__ == '__main__':
     import yaml
-    # from utils import get_dummy_logger
     from utils import load_configs
-
-    # logger, buffer = get_dummy_logger()
 
     config_path = "./config.yaml"
 
