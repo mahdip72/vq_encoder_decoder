@@ -173,49 +173,34 @@ class SimpleVQAutoEncoder(nn.Module):
 
 
 class GVPEncoder(nn.Module):  # embedding table can be tuned
-    def __init__(self, configs=None, residue_inner_dim=4096,
+    def __init__(self, residue_inner_dim=4096,
                  residue_out_dim=256,
                  protein_out_dim=256,
                  residue_num_projector=2,
-                 protein_inner_dim=4096, protein_num_projector=2,
+                 protein_inner_dim=4096,
+                 protein_num_projector=2,
                  seqlen=512):
         super(GVPEncoder, self).__init__()
         node_in_dim = [6, 3]  # default
-        if configs.model.struct_encoder.use_foldseek:
-            node_in_dim[0] += 10  # foldseek has 10 more node scalar features
-
-        if configs.model.struct_encoder.use_foldseek_vector:
-            node_in_dim[1] += 6  # foldseek_vector has 6 more node vector features
 
         node_in_dim = tuple(node_in_dim)
-        if configs.model.struct_encoder.use_rotary_embeddings:
-            if configs.model.struct_encoder.rotary_mode == 3:
-                edge_in_dim = (
-                    configs.model.struct_encoder.num_rbf + 8, 1)  # 16+2+3+3 only for mode ==3 add 8D pos_embeddings
-            else:
-                edge_in_dim = (configs.model.struct_encoder.num_rbf + 2, 1)  # 16+2
-        else:
-            edge_in_dim = (
-                configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
-                1)  # num_rbf+num_positional_embeddings
+        edge_in_dim = (
+            16 + 16,
+            1)  # num_rbf+num_positional_embeddings
 
-        # node_h_dim = configs.model.struct_encoder.node_h_dim
         node_h_dim = (100, 16)  # default
         # node_h_dim = (100, 32)  # seems best?
-        # edge_h_dim = configs.model.struct_encoder.edge_h_dim
         edge_h_dim = (32, 1)  # default
-        # gvp_num_layers = configs.model.struct_encoder.gvp_num_layers
         gvp_num_layers = 3
 
-        # self.use_seq = configs.model.struct_encoder.use_seq.enable
         self.use_seq = False
         if self.use_seq:
             self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
-            self.backbone = gvp.models.structure_encoder(node_in_dim, node_h_dim,
-                                                         edge_in_dim, edge_h_dim, seq_in=True,
-                                                         seq_embed_mode=self.seq_embed_mode,
-                                                         seq_embed_dim=configs.model.struct_encoder.use_seq.seq_embed_dim,
-                                                         num_layers=gvp_num_layers)
+            self.backbone = structure_encoder(node_in_dim, node_h_dim,
+                                              edge_in_dim, edge_h_dim, seq_in=True,
+                                              seq_embed_mode=self.seq_embed_mode,
+                                              seq_embed_dim=configs.model.struct_encoder.use_seq.seq_embed_dim,
+                                              num_layers=gvp_num_layers)
         else:
             self.backbone = gvp.models.structure_encoder(node_in_dim, node_h_dim,
                                                          edge_in_dim, edge_h_dim, seq_in=False,
@@ -224,52 +209,27 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
         # pretrained_state_dict = init_model.state_dict()
         # self.backbone.load_state_dict(pretrained_state_dict,strict=False)
 
-        dim_mlp = node_h_dim[0]
-        # self.esm_pool_mode= configs.model.esm_encoder.pool_mode
-        self.esm_pool_mode = 2
-        # self.projectors_protein = MoBYMLP(in_dim=dim_mlp, inner_dim=protein_inner_dim, out_dim=protein_out_dim,
-        #                                   num_layers=protein_num_projector)
-        #
-        # self.projectors_residue = MoBYMLP(in_dim=dim_mlp, inner_dim=residue_inner_dim, out_dim=residue_out_dim,
-        #                                   num_layers=residue_num_projector)
-        if hasattr(configs.model.struct_encoder, "fine_tuning") and not configs.model.struct_encoder.fine_tuning.enable:
-            for name, param in self.backbone.named_parameters():
-                param.requires_grad = False
-
-        # for p in self.backbone.parameters():
-        #    p.requires_grad = False  # fix all previous layers
-
-        # for name, module in model.named_modules():
-        #     print(f"Module Name: {name}")
-        #     print(module)
-        #     print("=" * 50)
-
-    def forward(self, graph, esm2_representation=None,
-                return_embedding=False):  # this batch is torch_geometric batch.batch to indicate the batch
+    def forward(self, graph,
+                esm2_representation=None):  # this batch is torch_geometric batch.batch to indicate the batch
         """
-        graph: torch_geometric batchdata
+        graph: torch_geometric batchdasta
         """
-        nodes = (graph.node_s, graph.node_v)
-        edges = (graph.edge_s, graph.edge_v)
+        nodes = (graph['graph'].node_s, graph['graph'].node_v)
+        edges = (graph['graph'].edge_s, graph['graph'].edge_v)
         if self.use_seq and self.seq_embed_mode != "ESM2":
-            residue_feature_embedding = self.backbone(nodes, graph.edge_index, edges,
+            residue_feature_embedding = self.backbone(nodes, graph['graph'].edge_index, edges,
                                                       seq=graph.seq)
         elif self.use_seq and self.seq_embed_mode == "ESM2":
-            residue_feature_embedding = self.backbone(nodes, graph.edge_index, edges,
+            residue_feature_embedding = self.backbone(nodes, graph['graph'].edge_index, edges,
                                                       seq=esm2_representation
                                                       )
         else:
-            residue_feature_embedding = self.backbone(nodes, graph.edge_index, edges,
+            residue_feature_embedding = self.backbone(nodes, graph['graph'].edge_index, edges,
                                                       seq=None)
 
         # graph_feature=scatter_mean(residue_feature, batch, dim=0)
-        graph_feature_embedding = global_mean_pool(residue_feature_embedding, graph.batch)
-        graph_feature = self.projectors_protein(graph_feature_embedding)
-        residue_feature = self.projectors_residue(residue_feature_embedding)
-        if return_embedding:
-            return graph_feature, residue_feature, graph_feature_embedding, residue_feature_embedding
-        else:
-            return graph_feature, residue_feature
+        graph_feature_embedding = global_mean_pool(residue_feature_embedding, graph['graph'].batch)
+        return graph_feature_embedding, residue_feature_embedding
 
 
 def get_nb_trainable_parameters(model):
@@ -307,7 +267,7 @@ def print_trainable_parameters(model, logging, description=""):
     )
 
 
-def prepare_models(configs, logging, accelerator):
+def prepare_models():
     residue_inner_dim = 4096,
     residue_out_dim = 256,
     protein_out_dim = 256,
@@ -315,14 +275,20 @@ def prepare_models(configs, logging, accelerator):
     protein_inner_dim = 4096,
     protein_num_projector = 2,
     seqlen = 512
-    gvp_model = GVPEncoder()
+    gvp_model = GVPEncoder(residue_inner_dim=4096,
+                           residue_out_dim=256,
+                           protein_out_dim=256,
+                           residue_num_projector=2,
+                           protein_inner_dim=4096,
+                           protein_num_projector=2,
+                           seqlen=512)
 
-    model = SimpleVQAutoEncoder(
-        dim=configs.model.vector_quantization.dim,
-        codebook_size=configs.model.vector_quantization.codebook_size,
-        decay=configs.model.vector_quantization.decay,
-        commitment_weight=configs.model.vector_quantization.commitment_weight
-    )
+    # model = SimpleVQAutoEncoder(
+    #     dim=configs.model.vector_quantization.dim,
+    #     codebook_size=configs.model.vector_quantization.codebook_size,
+    #     decay=configs.model.vector_quantization.decay,
+    #     commitment_weight=configs.model.vector_quantization.commitment_weight
+    # )
 
     # if accelerator.is_main_process:
     #     print_trainable_parameters(model, logging, 'VQ-VAE')
@@ -334,6 +300,7 @@ if __name__ == '__main__':
     import yaml
     from utils import get_dummy_logger
     from utils import load_configs
+
     logger, buffer = get_dummy_logger()
 
     config_path = "./config.yaml"
@@ -358,7 +325,7 @@ if __name__ == '__main__':
     for batch in test_dataloader:
         model = prepare_models()
         output = model(batch)
-        logger.info(f'Output: {output}')
+        print(output)
 
     # create a random input tensor and pass it through the network
     # x = torch.randn(1, 3, 32, 32)
