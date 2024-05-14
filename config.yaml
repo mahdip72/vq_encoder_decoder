@@ -1,52 +1,67 @@
 fix_seed: 0
-checkpoints_every: 4
+checkpoints_every: 8
 tensorboard_log: True
 tqdm_progress_bar: True
 result_path: ./results
-architecture: prot2seq
 
 resume:
   resume: False
   resume_path: ./path/to/checkpoint.pth
   restart_optimizer: True
 
-prot2seq_model:
+model:
   compile_model: False
-  encoder:
-    model_type: esm_v2 # esm_v2, t5
-    model_name:  facebook/esm2_t12_35M_UR50D # facebook/esm2_t33_650M_UR50D, facebook/esm2_t30_150M_UR50D, facebook/esm2_t12_35M_UR50D
-    max_len: 512
-    quantization_4_bit: False # use with tune_embedding enable
-    tune_embedding: False # only for esm
+  vector_quantization:
+    dim: 64
+    codebook_size: 128
+    decay: 0.8
+    commitment_weight : 1.0
+    alpha: 2.0
+  gvp_encoder:
+    use_rotary_embeddings: True
+    use_foldseek: True
+    use_foldseek_vector: True
+    gvp_num_layers: 3
+    top_k: 30 #default 30 The number of edges to draw per node (as destination node).
+    num_rbf: 16   #default 16
+    num_positional_embeddings: 16  #default 16
+    node_h_dim: (100,32) #default (100,32)
+    edge_h_dim: (32,1)   #default (32,1)
+    use_seq:
+       enable: False
+       seq_embed_mode: "embedding" #"embedding","ESM2"
+       seq_embed_dim: 20 #1280 for ESM2
     fine_tune:
       enable: False
       last_layers_trainable: 2
-    lora:
-      enable: False
-      r: 8
-      lora_alpha: 32
-      lora_dropout: 0.05
-  decoder:
+
+  transformer_encoder:
     dimension: 480
     dim_feedforward: 960
     num_heads: 8
-    num_layers: 4
-    max_len: 16
+    num_layers: 8
+    max_len: 512
+    activation_function: gelu
+
+  transformer_decoder:
+    dimension: 480
+    dim_feedforward: 960
+    num_heads: 8
+    num_layers: 8
+    max_len: 512
     activation_function: gelu
 
 train_settings:
   data_path: H:\Datasets\Joint_training
   num_epochs: 32
-  start_metric_epoch: 0
   shuffle: True
-  loss: crossentropy # crossentropy or focal
+  loss: crossentropy
   sample_weight: True
-  task_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 64
-  num_workers: 0
-  grad_accumulation: 8
+  batch_size: 128
+  num_workers: 12
+  grad_accumulation: 1
   max_task_samples: 50000
 
 valid_settings:
@@ -56,16 +71,9 @@ valid_settings:
   device: cuda
   num_workers: 0
 
-test_settings:
-  enable: True
-  data_path: H:\Datasets\Joint_training
-  batch_size: 1
-  device: cuda
-  num_workers: 0
-
 optimizer:
   name: adam
-  lr: 5e-5
+  lr: 1e-3
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -74,7 +82,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 128
-    min_lr: 1e-6
+    warmup: 0
+    min_lr: 1e-5
     gamma: 0.2
     num_restarts: 1
