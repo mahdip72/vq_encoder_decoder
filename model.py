@@ -1,3 +1,5 @@
+import logging as log
+from io import StringIO
 import torch, functools
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,6 +10,7 @@ from torch_geometric.nn import radius, global_mean_pool, global_max_pool
 from data import *
 from torch_geometric.nn import MessagePassing, global_mean_pool, global_max_pool
 from torch_scatter import scatter_add
+
 
 
 def tuple_sum(*args):
@@ -781,9 +784,29 @@ def prepare_models_test(configs, logging):
     return gvp_model
 
 
+def get_dummy_logger():
+    # Create a logger object
+    logger_object = log.getLogger('dummy')
+    logger_object.setLevel(log.INFO)
+
+    # Create a string buffer to hold the logs
+    log_buffer = StringIO()
+
+    # Create a stream handler that writes to the string buffer
+    handler = log.StreamHandler(log_buffer)
+    formatter = log.Formatter('%(asctime)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger_object.addHandler(handler)
+
+    # Optionally disable propagation to prevent logging on the parent logger
+    logger_object.propagate = False
+
+    # Return both logger and buffer so you can inspect logs as needed
+    return logger_object, log_buffer
+
+
 if __name__ == '__main__':
     import yaml
-    from utils import get_dummy_logger
     from utils import load_configs
 
     logger, buffer = get_dummy_logger()
