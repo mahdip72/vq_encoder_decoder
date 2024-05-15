@@ -83,7 +83,7 @@ class ProteinGraphDataset(Dataset):
     def __init__(self, data_path,
                  num_positional_embeddings=16,
                  top_k=30, num_rbf=16, device="cuda",
-                 seq_mode="embedding", use_rotary_embeddings=False,
+                 seq_mode="embedding", use_rotary_embeddings=False,rotary_mode=1,
                  use_foldseek = False,use_foldseek_vector=False
                  ):
         super(ProteinGraphDataset, self).__init__()
@@ -98,7 +98,10 @@ class ProteinGraphDataset(Dataset):
         self.use_foldseek = use_foldseek
         self.use_foldseek_vector = use_foldseek_vector
         if self.use_rotary_embeddings:
-           self.rot_emb = RotaryEmbedding(dim=2)#must be 2
+           if self.rotary_mode==3:
+              self.rot_emb = RotaryEmbedding(dim=8)#must be 5
+           else:
+              self.rot_emb = RotaryEmbedding(dim=2)#must be 2
         
         self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
                               'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
@@ -157,11 +160,13 @@ class ProteinGraphDataset(Dataset):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
         basename = os.path.basename(sample_path)
+        """change this on 4/23/2024
         if "-" in basename:
             pid = os.path.basename(sample_path).split('-')[1]
         else:
             pid = basename.split('.h5')[0]
-
+        """
+        pid = basename.split('.h5')[0]
         sample_dict = {'name': pid,
                        'coords': sample[1].tolist(),
                        'seq': sample[0].decode('utf-8')}
@@ -195,15 +200,23 @@ class ProteinGraphDataset(Dataset):
 
             X_ca = coords[:, 1]
             edge_index = torch_cluster.knn_graph(X_ca, k=self.top_k)
+            E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]
             if self.use_rotary_embeddings:
-                d1 = edge_index[0] - edge_index[1]
-                d2 = edge_index[1] - edge_index[0]
-                d = torch.cat((d1.unsqueeze(-1),d2.unsqueeze(-1)),dim=-1) #[len,2]
-                pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
-            else:
+                if self.rotary_mode==1: #first mode
+                   d1 = edge_index[0] - edge_index[1]
+                   d2 = edge_index[1] - edge_index[0]
+                   d = torch.cat((d1.unsqueeze(-1),d2.unsqueeze(-1)),dim=-1) #[len,2]
+                   pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
+                if self.rotary_mode==2:
+                    d = edge_index.transpose(0,1)
+                    pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
+                if self.rotary_mode==3:
+                    d = edge_index.transpose(0,1) #[len,2]
+                    d = torch.cat((d,E_vectors,-1*E_vectors),dim=-1) #[len,2+3+3]
+                    pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
+            else
                 pos_embeddings = self._positional_embeddings(edge_index)
             
-            E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]
             rbf = _rbf(E_vectors.norm(dim=-1), d_count=self.num_rbf,
                        # device=self.device
                        )

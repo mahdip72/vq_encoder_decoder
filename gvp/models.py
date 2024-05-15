@@ -121,7 +121,10 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
 
         node_in_dim = tuple(node_in_dim)
         if configs.model.struct_encoder.use_rotary_embeddings:
-            edge_in_dim = (configs.model.struct_encoder.num_rbf + 2, 1)  # 16+2
+            if configs.model.struct_encoder.rotary_mode==3:
+                edge_in_dim = (configs.model.struct_encoder.num_rbf+8,1) #16+2+3+3 only for mode ==3 add 8D pos_embeddings
+            else: 
+                edge_in_dim = (configs.model.struct_encoder.num_rbf+2,1) #16+2 
         else:
             edge_in_dim = (
             configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
