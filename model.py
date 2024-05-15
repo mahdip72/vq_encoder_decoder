@@ -706,6 +706,7 @@ def print_trainable_parameters(model, logging, description=""):
         f"{description} trainable params: {trainable_params: ,} || all params: {all_param: ,} || trainable%: {100 * trainable_params / all_param}"
     )
 
+
 class _VDropout(nn.Module):
     '''
     Vector channel dropout where the elements of each
@@ -752,7 +753,22 @@ class Dropout(nn.Module):
         return self.sdropout(s), self.vdropout(v)
 
 
-def prepare_models():
+def prepare_models(configs, logging, accelerator):
+
+    model = SimpleVQAutoEncoder(
+        dim=configs.model.vector_quantization.dim,
+        codebook_size=configs.model.vector_quantization.codebook_size,
+        decay=configs.model.vector_quantization.decay,
+        commitment_weight=configs.model.vector_quantization.commitment_weight
+    )
+
+    if accelerator.is_main_process:
+        print_trainable_parameters(model, logging, 'VQ-VAE')
+
+    return model
+
+
+def prepare_models_test(configs, logging):
     residue_inner_dim = 4096,
     residue_out_dim = 256,
     protein_out_dim = 256,
@@ -760,30 +776,17 @@ def prepare_models():
     protein_inner_dim = 4096,
     protein_num_projector = 2,
     seqlen = 512
-    gvp_model = GVPEncoder(residue_inner_dim=4096,
-                           residue_out_dim=256,
-                           protein_out_dim=256,
-                           residue_num_projector=2,
-                           protein_inner_dim=4096,
-                           protein_num_projector=2,
-                           seqlen=512)
 
-    # model = SimpleVQAutoEncoder(
-    #     dim=configs.model.vector_quantization.dim,
-    #     codebook_size=configs.model.vector_quantization.codebook_size,
-    #     decay=configs.model.vector_quantization.decay,
-    #     commitment_weight=configs.model.vector_quantization.commitment_weight
-    # )
-
-    # if accelerator.is_main_process:
-    #     print_trainable_parameters(model, logging, 'VQ-VAE')
-
+    gvp_model = GVPEncoder()
     return gvp_model
 
 
 if __name__ == '__main__':
     import yaml
+    from utils import get_dummy_logger
     from utils import load_configs
+
+    logger, buffer = get_dummy_logger()
 
     config_path = "./config.yaml"
 
@@ -792,12 +795,7 @@ if __name__ == '__main__':
 
     main_configs = load_configs(config_file)
 
-    net = SimpleVQAutoEncoder(
-        dim=main_configs.model.vector_quantization.dim,
-        codebook_size=main_configs.model.vector_quantization.codebook_size,
-        decay=main_configs.model.vector_quantization.decay,
-        commitment_weight=main_configs.model.vector_quantization.commitment_weight
-    )
+    net = prepare_models_test(main_configs, logger)
 
     dataset_path = './data/h5'  # test for piece of data
     dataset = ProteinGraphDataset(dataset_path)
@@ -805,8 +803,7 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=custom_collate)
 
     for batch in test_dataloader:
-        model = prepare_models()
-        output = model(batch)
+        output = net(batch)
         print(output)
 
     # create a random input tensor and pass it through the network
