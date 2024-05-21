@@ -23,9 +23,10 @@ bash install.sh
 ```
 
 ## To Do
-- [ ] Add and test the LFQ model as an option
 - [x] Connect the config file to the VQ model
-- [ ] Add other features of accelerate training to the project
-- [x] Add the evaluation code to fashionMNIST dataset
 - [x] Connect GVP model to the config file
+- [x] Add the evaluation code to fashionMNIST dataset
+- [ ] Add contact map dataloader to the project
+- [ ] Add and test the LFQ model as an option
+- [ ] Add other features of accelerate training to the project
 - [ ] Create the main VQ model with the GVP encoder and a decoder
