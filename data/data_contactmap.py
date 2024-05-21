@@ -2,6 +2,31 @@ import pcmap
 import pypstruct
 import torch
 import numpy as np
+from torch.utils.data import DataLoader, Dataset
+
+
+class ContactMapDataset(Dataset):
+    """
+    Dataset for protein contact map
+    """
+    def __init__(self, pdb_file, transform=None):
+        self.contactmap = pdb_to_cmap(pdb_file)
+
+    def __len__(self):
+        return len(self.contactmap)
+
+    def __getitem__(self, idx):
+        return self.contactmap[idx]
+
+
+def load_cmap_data(pdb_file, batch_size, shuffle):
+    """
+    Get a contact map data loader for the given PDB file.
+    """
+    cmap_dataset = ContactMapDataset(pdb_file)
+    data_loader = DataLoader(dataset=cmap_dataset, batch_size=batch_size, shuffle=shuffle)
+    return data_loader
+
 
 def get_max_residue(pdb_file):
     """
@@ -13,6 +38,7 @@ def get_max_residue(pdb_file):
     res_list = np.array(structure.atomDictorize["seqRes"])
     res_list = res_list.astype(int)
     return np.max(res_list)
+
 
 def pdb_to_cmap(pdb_file):
     """
