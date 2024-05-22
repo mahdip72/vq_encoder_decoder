@@ -23,7 +23,7 @@ class ContactMapDataset(Dataset):
         return contactmap, pdf_file
 
 
-def load_cmap_data(pdb_dir):
+def prepare_dataloaders(pdb_dir):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
