@@ -2,6 +2,7 @@ import pcmap
 import pypstruct
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 
@@ -10,22 +11,26 @@ class ContactMapDataset(Dataset):
     """
     Dataset for protein contact map
     """
-    def __init__(self, pdb_file, transform=None):
-        self.contactmap = pdb_to_cmap(pdb_file)
+    def __init__(self, pdb_dir, transform=None):
+        self.pdbs = list(Path(pdb_dir).glob("*.pdb"))
 
     def __len__(self):
-        return len(self.contactmap)
+        return len(self.pdbs)
 
     def __getitem__(self, idx):
-        return self.contactmap[idx]
+        pdf_file = str(self.pdbs[idx])
+        contactmap = pdb_to_cmap(pdf_file)
+        return contactmap, pdf_file
 
 
-def load_cmap_data(pdb_file, batch_size, shuffle):
+def load_cmap_data(pdb_dir):
     """
-    Get a contact map data loader for the given PDB file.
+    Get a contact map data loader for the given PDB directory.
+    Batch size = 1 because different proteins may have different numbers of residues.
+    :param pdb_dir: (string) path to PDB directory
     """
-    cmap_dataset = ContactMapDataset(pdb_file)
-    data_loader = DataLoader(dataset=cmap_dataset, batch_size=batch_size, shuffle=shuffle)
+    dataset = ContactMapDataset(pdb_dir)
+    data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     return data_loader
 
 
@@ -80,11 +85,25 @@ def plot_contact_map(contact_map, ax, title=""):
     ax.set_title(title)
 
 
-pdb_file = "../../7xhg_native_clean.pdb"
+if __name__ == "__main__":
 
-cmap0 = pdb_to_cmap(pdb_file)
-print(len(cmap0))
-print(cmap0)
-fig, ax = plt.subplots()
-plot_contact_map(cmap0, ax)
-plt.show()
+    """
+    # Test on PDB directory
+    pdb_dir = "PDB_databases"
+    pdb_list = list(Path(pdb_dir).glob("*.pdb"))
+    print(len(pdb_list))
+    for pdb_file in pdb_list:
+        print(pdb_file)
+        cmap = pdb_to_cmap(pdb_file)
+        fig, ax = plt.subplots()
+        plot_contact_map(cmap, ax, title=str(pdb_file))
+        plt.show()
+    """
+
+    # Test dataloader on PDB directory
+    pdb_dir = "PDB_database"
+    dataloader = load_cmap_data(pdb_dir)
+    for cmap, pdb_file in dataloader:
+        fig, ax = plt.subplots()
+        plot_contact_map(cmap[0], ax, title=str(pdb_file[0]))
+        plt.show()
