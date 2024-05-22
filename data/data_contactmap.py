@@ -60,13 +60,17 @@ def pdb_to_cmap(pdb_file):
     cmap = pcmap.contactMap(pdb_file)
 
     # Convert contact map to a logical tensor
-    cmap_matrix = torch.eye(max_residue)
+    cmap_matrix = torch.zeros((max_residue, max_residue), dtype=torch.uint8)
+
     for root_dict in cmap["data"]:
-        root_id = int(root_dict["root"]["resID"])
+        root_id = int(root_dict["root"]["resID"]) - 1
         for partner_dict in root_dict["partners"]:
-            partner_id = int(partner_dict["resID"])
-            cmap_matrix[root_id - 1][partner_id - 1] = 1
-            cmap_matrix[partner_id - 1][root_id - 1] = 1
+            partner_id = int(partner_dict["resID"]) - 1
+            cmap_matrix[root_id][partner_id] = 1
+            cmap_matrix[partner_id][root_id] = 1
+
+    # Set the diagonal to 1
+    cmap_matrix.fill_diagonal_(1)
 
     return cmap_matrix
 
@@ -89,7 +93,9 @@ if __name__ == "__main__":
     import tqdm
     # Test dataloader on PDB directory
     pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
-    dataloader = load_cmap_data(pdb_dir)
+    #pdb_dir = "PDB_database"
+    #pdb_dir = "../../data/swissprot_pdb_v4"
+    dataloader = prepare_dataloaders(pdb_dir)
     for cmap, pdb_file in tqdm.tqdm(dataloader, total=len(dataloader)):
         # fig, ax = plt.subplots()
         # plot_contact_map(cmap[0], ax, title=str(pdb_file[0]))
