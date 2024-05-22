@@ -99,11 +99,12 @@ if __name__ == "__main__":
         plot_contact_map(cmap, ax, title=str(pdb_file))
         plt.show()
     """
-
+    import tqdm
     # Test dataloader on PDB directory
-    pdb_dir = "PDB_database"
+    pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
     dataloader = load_cmap_data(pdb_dir)
-    for cmap, pdb_file in dataloader:
-        fig, ax = plt.subplots()
-        plot_contact_map(cmap[0], ax, title=str(pdb_file[0]))
-        plt.show()
+    for cmap, pdb_file in tqdm.tqdm(dataloader, total=len(dataloader)):
+        # fig, ax = plt.subplots()
+        # plot_contact_map(cmap[0], ax, title=str(pdb_file[0]))
+        # plt.show()
+        pass
