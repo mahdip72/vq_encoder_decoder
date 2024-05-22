@@ -86,19 +86,6 @@ def plot_contact_map(contact_map, ax, title=""):
 
 
 if __name__ == "__main__":
-
-    """
-    # Test on PDB directory
-    pdb_dir = "PDB_databases"
-    pdb_list = list(Path(pdb_dir).glob("*.pdb"))
-    print(len(pdb_list))
-    for pdb_file in pdb_list:
-        print(pdb_file)
-        cmap = pdb_to_cmap(pdb_file)
-        fig, ax = plt.subplots()
-        plot_contact_map(cmap, ax, title=str(pdb_file))
-        plt.show()
-    """
     import tqdm
     # Test dataloader on PDB directory
     pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
