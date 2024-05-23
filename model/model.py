@@ -811,7 +811,7 @@ if __name__ == '__main__':
 
     logger, buffer = get_dummy_logger()
 
-    config_path = "./config.yaml"
+    config_path = "../config.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
