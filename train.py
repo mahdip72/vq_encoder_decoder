@@ -6,8 +6,8 @@ import torch
 from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils import load_checkpoints
 from accelerate import Accelerator
-from data_test import prepare_dataloaders
-from model import prepare_models
+from data.data_test import prepare_dataloaders
+from model.model import prepare_models
 from tqdm import tqdm
 
 
