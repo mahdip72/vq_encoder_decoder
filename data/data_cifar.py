@@ -70,7 +70,7 @@ if __name__ == "__main__":
     import yaml
     from utils import load_configs
 
-    config_path = "../config.yaml"
+    config_path = "../configs/config_gvp.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
