@@ -1,12 +1,12 @@
-from gvp.data import custom_collate, ProteinGraphDataset
+from model.gvp import custom_collate, ProteinGraphDataset
 from utils import load_configs
 import yaml
-from gvp.models import GVPEncoder
+from model.gvp import GVPEncoder
 from torch.utils.data import DataLoader
 
 if __name__ == '__main__':
     
-    config_path = "../gvp/config_noseq.yaml"  #./config_noseq.yaml
+    config_path = "gvp/config_noseq.yaml"  #./config_noseq.yaml
     with open(config_path) as file:
         config_file = yaml.full_load(file)
         configs = load_configs(config_file)
