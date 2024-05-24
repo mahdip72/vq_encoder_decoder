@@ -36,7 +36,6 @@ class VQVAE(nn.Module):
             nn.Tanh()
         )
 
-
     def forward(self, x):
         x = self.encoder_layers(x)
         x, indices, commit_loss = self.vq_layer(x)
@@ -60,8 +59,8 @@ if __name__ == "__main__":
     for data in testloader:
         images, labels = data
         print(images[0].size())
-        x, indices, commit_loss = model(images)
-        print(x[0].shape)
+        x_test, indices_test, commit_loss_test = model(images)
+        print(x_test[0].shape)
 
         assert images[0].size() == torch.Size([3,32,32])
-        assert x[0].size() == torch.Size([3,32,32])
+        assert x_test[0].size() == torch.Size([3,32,32])
