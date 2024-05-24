@@ -29,4 +29,4 @@ bash install.sh
 - [ ] Add contact map dataloader to the project
 - [ ] Add and test the LFQ model as an option
 - [ ] Add other features of accelerate training to the project
-- [ ] Create the main VQ model with the GVP encoder and a decoder
+- [x] Create the main VQ model with the GVP encoder and a decoder
