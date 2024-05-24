@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 from vector_quantize_pytorch import VectorQuantize
 from data.data import custom_collate, ProteinGraphDataset
 from gvp.models import GVPEncoder
@@ -15,13 +16,17 @@ class VQVAE(nn.Module):
             dim=latent_dim,
             codebook_size=codebook_size,
             decay=decay,
-            commitment_weight=1.0
+            commitment_weight=1.0,
+            # accept_image_fmap=True,
         )
         self.decoder = nn.Conv1d(latent_dim, input_dim, 1)
 
     def forward(self, x, return_vq_only=False):
         x = self.encoder(x)
+
+        x = x.permute(0, 2, 1)
         x, indices, commit_loss = self.vector_quantizer(x)
+        x = x.permute(0, 2, 1)
 
         if return_vq_only:
             return x, indices, commit_loss
@@ -37,10 +42,43 @@ class GVPVQVAE(nn.Module):
         self.vqvae = vqvae
 
         self.configs = configs
+        self.max_size = configs.model.max_length
 
-    def forward(self, x):
-        _, x = self.gvp(graph=x)
-        x = self.vqvae(x)
+    @staticmethod
+    def separate_features(batched_features, batch):
+        # Get the number of nodes in each graph
+        node_counts = batch.bincount().tolist()
+
+        # Split the features tensor into separate tensors for each graph
+        features_list = torch.split(batched_features, node_counts)
+
+        return features_list
+
+    def merge_features(self, features_list):
+        # Pad tensors
+        padded_tensors = []
+        for t in features_list:
+            if t.size(0) < self.max_size:
+                size_diff = self.max_size - t.size(0)
+                pad = torch.zeros(size_diff, t.size(1))
+                t_padded = torch.cat([t, pad], dim=0)
+            else:
+                t_padded = t
+            padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
+
+        # Concatenate tensors
+        result = torch.cat(padded_tensors, dim=0)
+        return result
+
+    def forward(self, batch):
+        _, x = self.gvp(graph=batch['graph'])
+        x = self.separate_features(x, batch['graph'].batch)
+        x = self.merge_features(x)
+
+        # change the shape of x from (batch, num_nodes, node_dim) to (batch, node_dim, num_nodes)
+        x = x.permute(0, 2, 1)
+
+        x, indices, commit_loss = self.vqvae(x)
         return x
 
 
@@ -92,6 +130,6 @@ if __name__ == '__main__':
     test_model.eval()
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         graph = batch["graph"]
-        residue_level_feature = test_model(graph)
+        residue_level_feature = test_model(batch)
         print(residue_level_feature.shape)
         break
