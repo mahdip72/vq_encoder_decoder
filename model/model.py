@@ -12,7 +12,6 @@ from torch_geometric.nn import MessagePassing, global_mean_pool, global_max_pool
 from torch_scatter import scatter_add
 
 
-
 def tuple_sum(*args):
     '''
     Sums any number of tuples (s, V) elementwise.
@@ -715,6 +714,7 @@ class _VDropout(nn.Module):
     Vector channel dropout where the elements of each
     vector channel are dropped together.
     '''
+
     def __init__(self, drop_rate):
         super(_VDropout, self).__init__()
         self.drop_rate = drop_rate
@@ -739,6 +739,7 @@ class Dropout(nn.Module):
     Combined dropout for tuples (s, V).
     Takes tuples (s, V) as input and as output.
     '''
+
     def __init__(self, drop_rate):
         super(Dropout, self).__init__()
         self.sdropout = nn.Dropout(drop_rate)
@@ -757,7 +758,6 @@ class Dropout(nn.Module):
 
 
 def prepare_models(configs, logging, accelerator):
-
     model = SimpleVQAutoEncoder(
         dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
