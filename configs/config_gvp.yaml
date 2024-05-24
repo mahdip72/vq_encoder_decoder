@@ -17,7 +17,7 @@ model:
     decay: 0.8
     commitment_weight : 1.0
     alpha: 2.0
-  gvp_encoder:
+  struct_encoder:
     use_rotary_embeddings: True
     use_foldseek: True
     use_foldseek_vector: True
@@ -34,22 +34,29 @@ model:
     fine_tune:
       enable: False
       last_layers_trainable: 2
+  vqvae:
+    vector_quantization:
+      dim: 64
+      codebook_size: 128
+      decay: 0.8
+      commitment_weight : 1.0
+      alpha: 2.0
 
-  transformer_encoder:
-    dimension: 480
-    dim_feedforward: 960
-    num_heads: 8
-    num_layers: 8
-    max_len: 512
-    activation_function: gelu
-
-  transformer_decoder:
-    dimension: 480
-    dim_feedforward: 960
-    num_heads: 8
-    num_layers: 8
-    max_len: 512
-    activation_function: gelu
+#  transformer_encoder:
+#    dimension: 480
+#    dim_feedforward: 960
+#    num_heads: 8
+#    num_layers: 8
+#    max_len: 512
+#    activation_function: gelu
+#
+#  transformer_decoder:
+#    dimension: 480
+#    dim_feedforward: 960
+#    num_heads: 8
+#    num_layers: 8
+#    max_len: 512
+#    activation_function: gelu
 
 train_settings:
   data_path: H:\Datasets\Joint_training
