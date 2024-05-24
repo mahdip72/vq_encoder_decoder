@@ -6,9 +6,10 @@ from torch_scatter import scatter_mean
 import torch, functools
 from torch import nn
 import torch.nn.functional as F
-from torch_geometric.nn import MessagePassing,global_mean_pool, global_max_pool
+from torch_geometric.nn import MessagePassing, global_mean_pool, global_max_pool
 from torch_scatter import scatter_add
 from . import GVP, GVPConvLayer, LayerNorm, tuple_index
+
 
 class structure_encoder(nn.Module):
     '''
@@ -121,14 +122,15 @@ class GVPEncoder(nn.Module):  # embedding table can be tuned
 
         node_in_dim = tuple(node_in_dim)
         if configs.model.struct_encoder.use_rotary_embeddings:
-            if configs.model.struct_encoder.rotary_mode==3:
-                edge_in_dim = (configs.model.struct_encoder.num_rbf+8,1) #16+2+3+3 only for mode ==3 add 8D pos_embeddings
-            else: 
-                edge_in_dim = (configs.model.struct_encoder.num_rbf+2,1) #16+2 
+            if configs.model.struct_encoder.rotary_mode == 3:
+                edge_in_dim = (
+                configs.model.struct_encoder.num_rbf + 8, 1)  # 16+2+3+3 only for mode ==3 add 8D pos_embeddings
+            else:
+                edge_in_dim = (configs.model.struct_encoder.num_rbf + 2, 1)  # 16+2
         else:
             edge_in_dim = (
-            configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
-            1)  # num_rbf+num_positional_embeddings
+                configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
+                1)  # num_rbf+num_positional_embeddings
 
         node_h_dim = configs.model.struct_encoder.node_h_dim
         # node_h_dim=(100, 16) #default
