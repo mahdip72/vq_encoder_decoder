@@ -32,7 +32,6 @@ class VQVAE(nn.Module):
             nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(self.d_model, 3, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(3),
-            nn.ReLU(),
             nn.Tanh()
         )
 
