@@ -6,15 +6,15 @@ from torch.utils.data import DataLoader
 
 
 class VQVAE(nn.Module):
-    def __init__(self, input_dim, latent_dim, num_embeddings, commitment_cost):
+    def __init__(self, input_dim, latent_dim, codebook_size, decay):
         super(VQVAE, self).__init__()
 
         self.encoder = nn.Conv1d(input_dim, latent_dim, 1)
 
         self.vector_quantizer = VectorQuantize(
             dim=latent_dim,
-            codebook_size=128,
-            decay=0.8,
+            codebook_size=codebook_size,
+            decay=decay,
             commitment_weight=1.0
         )
         self.decoder = nn.Conv1d(latent_dim, input_dim, 1)
@@ -39,7 +39,7 @@ class GVPVQVAE(nn.Module):
         self.configs = configs
 
     def forward(self, x):
-        x = self.gvp(x)
+        _, x = self.gvp(graph=x)
         x = self.vqvae(x)
         return x
 
@@ -51,15 +51,15 @@ def prepare_models(configs):
     :return: (object) model
     """
     gvp = GVPEncoder(configs=configs)
-    # vqvae = VQVAE(
-    #     input_dim=gvp.backbone,
-    #     latent_dim=configs.model.vector_quantization.latent_dim,
-    #     num_embeddings=configs.model.vector_quantization.codebook_size,
-    #     commitment_cost=configs.model.vector_quantization.alpha
-    # )
-    # gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
+    vqvae = VQVAE(
+        input_dim=configs.model.struct_encoder.node_h_dim[0],
+        latent_dim=configs.model.vqvae.vector_quantization.dim,
+        codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+        decay=configs.model.vqvae.vector_quantization.decay
+    )
+    gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
 
-    return gvp
+    return gvp_vqvae
 
 
 if __name__ == '__main__':
@@ -86,12 +86,12 @@ if __name__ == '__main__':
                                   num_rbf=main_configs.model.struct_encoder.num_rbf,
                                   num_positional_embeddings=main_configs.model.struct_encoder.num_positional_embeddings)
 
-    val_loader = DataLoader(dataset, batch_size=main_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
-                            collate_fn=custom_collate)
+    test_loader = DataLoader(dataset, batch_size=main_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
+                             collate_fn=custom_collate)
     struct_embeddings = []
     test_model.eval()
-    for batch in tqdm.tqdm(val_loader, total=len(val_loader)):
+    for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         graph = batch["graph"]
-        _, features_struct = test_model(graph=graph)
-        print(features_struct.shape)
+        residue_level_feature = test_model(graph)
+        print(residue_level_feature.shape)
         break
