@@ -1,6 +1,6 @@
 import torch.nn as nn
 from vector_quantize_pytorch import VectorQuantize
-from gvp.models import GVPEncoder
+from model.gvp import GVPEncoder
 
 
 class LinearVQVAE(nn.Module):
@@ -34,18 +34,34 @@ class LinearVQVAE(nn.Module):
         return x, indices, commit_loss
 
 
+class GVPVQVAE(nn.Module):
+    def __init__(self, gvp, vqvae, configs):
+        super(GVPVQVAE, self).__init__()
+        self.gvp = gvp
+        self.vqvae = vqvae
+
+        self.configs = configs
+
+    def forward(self, x):
+        x = self.gvp(x)
+        x = self.vqvae(x)
+        return x
+
+
 def prepare_models(configs):
     """
     Prepare the VQ-VAE model.
     :param configs: (object) configurations
     :return: (object) model
     """
-    model = LinearVQVAE(
+    gvp = GVPEncoder(configs=configs)
+    vqvae = LinearVQVAE(
         input_dim=configs.model.vector_quantization.input_dim,
         latent_dim=configs.model.vector_quantization.latent_dim,
         num_embeddings=configs.model.vector_quantization.codebook_size,
         commitment_cost=configs.model.vector_quantization.alpha
     )
+
     return model
 
 
