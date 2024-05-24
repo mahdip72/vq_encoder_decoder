@@ -164,12 +164,6 @@ class ProteinGraphDataset(Dataset):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
         basename = os.path.basename(sample_path)
-        """change this on 4/23/2024
-        if "-" in basename:
-            pid = os.path.basename(sample_path).split('-')[1]
-        else:
-            pid = basename.split('.h5')[0]
-        """
         pid = basename.split('.h5')[0]
         sample_dict = {'name': pid,
                        'coords': sample[1].tolist(),
