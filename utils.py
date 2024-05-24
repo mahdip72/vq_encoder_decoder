@@ -243,36 +243,36 @@ def load_configs(config):
         tree_config.model.struct_encoder.use_seq.enable = False
         tree_config.model.struct_encoder.use_seq.seq_embed_mode = "embedding"
         tree_config.model.struct_encoder.use_seq.seq_embed_dim = 20
-    
+
     if not hasattr(tree_config.model.struct_encoder,"top_k"):
        tree_config.model.struct_encoder.top_k = 30 #default
-    
+
     if not hasattr(tree_config.model.struct_encoder,"gvp_num_layers"):
        tree_config.model.struct_encoder.gvp_num_layers = 3 #default
-    
+
     if not hasattr(tree_config.model.struct_encoder,"use_rotary_embeddings"): #configs also have num_rbf and num_positional_embeddings
         tree_config.model.struct_encoder.use_rotary_embeddings=False
-    
+
     if not hasattr(tree_config.model.struct_encoder,"rotary_mode"):
         tree_config.model.struct_encoder.rotary_mode=1
-    
+
     if not hasattr(tree_config.model.struct_encoder,"use_foldseek"): #configs also have num_rbf and num_positional_embeddings
         tree_config.model.struct_encoder.use_foldseek=False
-    
+
     if not hasattr(tree_config.model.struct_encoder,"use_foldseek_vector"): #configs also have num_rbf and num_positional_embeddings
         tree_config.model.struct_encoder.use_foldseek_vector=False
-    
+
     if not hasattr(tree_config.model.struct_encoder,"num_rbf"):
        tree_config.model.struct_encoder.num_rbf = 16 #default
-    
+
     if not hasattr(tree_config.model.struct_encoder,"num_positional_embeddings"):
        tree_config.model.struct_encoder.num_positional_embeddings = 16 #default
-    
+
     if not hasattr(tree_config.model.struct_encoder,"node_h_dim"):
        tree_config.model.struct_encoder.node_h_dim = (100,32) #default
     else:
        tree_config.model.struct_encoder.node_h_dim = ast.literal_eval(tree_config.model.struct_encoder.node_h_dim)
-    
+
     if not hasattr(tree_config.model.struct_encoder,"edge_h_dim"):
        tree_config.model.struct_encoder.edge_h_dim = (32,1) #default
     else:
