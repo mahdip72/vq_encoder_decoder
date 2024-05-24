@@ -128,7 +128,7 @@ def main(dict_config, config_file_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
-    parser.add_argument("--config_path", "-c", help="The location of config file", default='./config_gvp.yaml')
+    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_cifar.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
