@@ -60,7 +60,7 @@ def pdb_to_cmap(pdb_file):
     cmap = pcmap.contactMap(pdb_file)
 
     # Convert contact map to a logical tensor
-    cmap_matrix = torch.zeros((max_residue, max_residue), dtype=torch.uint8)
+    cmap_matrix = torch.eye(max_residue)
 
     for root_dict in cmap["data"]:
         root_id = int(root_dict["root"]["resID"]) - 1
@@ -68,9 +68,6 @@ def pdb_to_cmap(pdb_file):
             partner_id = int(partner_dict["resID"]) - 1
             cmap_matrix[root_id][partner_id] = 1
             cmap_matrix[partner_id][root_id] = 1
-
-    # Set the diagonal to 1
-    cmap_matrix.fill_diagonal_(1)
 
     return cmap_matrix
 
