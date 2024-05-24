@@ -9,7 +9,6 @@ import os
 from torch.utils.data import DataLoader, Dataset
 from utils import load_h5_file
 from torch_geometric.data import Batch, Data
-import time
 from gvp.rotary_embedding import RotaryEmbedding
 
 
