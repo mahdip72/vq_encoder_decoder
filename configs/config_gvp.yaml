@@ -59,22 +59,22 @@ model:
 #    activation_function: gelu
 
 train_settings:
-  data_path: H:\Datasets\Joint_training
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/h5_test/
   num_epochs: 32
   shuffle: True
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 128
-  num_workers: 12
+  batch_size: 1
+  num_workers: 0
   grad_accumulation: 1
   max_task_samples: 50000
 
 valid_settings:
   data_path: H:\Datasets\Joint_training
   do_every: 1
-  batch_size: 8
+  batch_size: 1
   device: cuda
   num_workers: 0
 
