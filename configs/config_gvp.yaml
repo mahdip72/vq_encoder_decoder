@@ -11,12 +11,7 @@ resume:
 
 model:
   compile_model: False
-  vector_quantization:
-    dim: 64
-    codebook_size: 128
-    decay: 0.8
-    commitment_weight : 1.0
-    alpha: 2.0
+  max_length: 512
   struct_encoder:
     use_rotary_embeddings: True
     use_foldseek: True
@@ -66,7 +61,7 @@ train_settings:
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 1
+  batch_size: 4
   num_workers: 0
   grad_accumulation: 1
   max_task_samples: 50000
