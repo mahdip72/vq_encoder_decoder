@@ -12,10 +12,15 @@ import Bio.PDB
 
 class ContactMapDataset(Dataset):
     """
-    Dataset for protein contact map
+    Dataset for converting PDB or mmCIF protein files to contact maps.
     """
-    def __init__(self, pdb_dir, threshold=8, chain="A", transform=None):
-        self.pdbs = list(Path(pdb_dir).glob("*.pdb"))
+    def __init__(self, pdb_dir, threshold=8, chain="A"):
+        """
+        :param pdb_dir: (string or Path) path to directory of PDB or mmCIF files
+        :param threshold: (int) threshold distance for contacting residues
+        :param chain: (string) name of chain to consider for contacts
+        """
+        self.pdbs = list(Path(pdb_dir).glob("*.[pdb cif]*"))
         self.threshold = threshold
         self.chain = chain
 
@@ -33,7 +38,7 @@ def prepare_dataloaders(pdb_dir):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
-    :param pdb_dir: (string) path to PDB directory
+    :param pdb_dir: (string or Path) path to PDB directory
     """
     dataset = ContactMapDataset(pdb_dir)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
@@ -104,16 +109,28 @@ def calc_dist_matrix(chain_one, chain_two):
 
 def pdb_to_cmap(id, pdb_file, threshold=8, chain="A"):
     """
-    Convert a PDB file to a contact map. The contact map is a matrix
+    Construct a contact map from a PDB or mmCIF file. The contact map is a matrix
     such that element ij is 1 if the C-alpha distance between residues i and j
     is less than the threshold, and 0 otherwise.
     :param id: (string) ID of the protein structure
-    :param pdb_file: (String) path to the PDB file
+    :param pdb_file: (String or Path) path to the PDB or mmCIF file
     :param threshold: (int) threshold distance for contacts
     :param chain: (string) name of the chain to consider
     :return: (torch.tensor) contact map
     """
-    structure = Bio.PDB.PDBParser().get_structure(id, pdb_file)
+    structure = Bio.PDB.Structure.Structure("")
+    file_ext = str(pdb_file)[-4:]
+
+    # Parse PDB file
+    if file_ext == ".pdb":
+        structure = Bio.PDB.PDBParser().get_structure(id, pdb_file)
+    # Parse CIF file
+    elif file_ext == ".cif":
+        structure = Bio.PDB.MMCIFParser().get_structure(id, pdb_file)
+    else:
+        return None
+
+    # Construct the contact map
     model = structure[0]
     dist_matrix = calc_dist_matrix(model[chain], model[chain])
     contact_map = dist_matrix < threshold
@@ -139,15 +156,17 @@ if __name__ == "__main__":
     # Test dataloader on PDB directory
     pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
     #pdb_dir = "PDB_database"
-    #pdb_dir = "../../data/swissprot_pdb_v4"
+    #pdb_dir = "../../data/swissprot_pdb_v4_small"
     dataloader = prepare_dataloaders(pdb_dir)
-    #i = 0
+    i = 0
     for cmap, pdb_file in tqdm.tqdm(dataloader, total=len(dataloader)):
+        # Plot the contact maps
         """
-        if i  < 10:
+        if i < 11:
             fig, ax = plt.subplots()
             plot_contact_map(cmap[0], ax, title=str(pdb_file[0]))
             plt.show()
+        
         """
-        #i += 1
+        i += 1
         pass
