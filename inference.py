@@ -10,7 +10,7 @@ def main():
     import yaml
     from utils import load_configs
 
-    config_path = "results/2024-04-22__21-53-27/config.yaml"
+    config_path = "results/2024-04-22__21-53-27/config_gvp.yaml"
     checkpoint_path = "results/2024-04-22__21-53-27/checkpoints/epoch_24.pth"
 
     with open(config_path) as file:
