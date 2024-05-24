@@ -51,19 +51,20 @@ def prepare_models(configs):
     :return: (object) model
     """
     gvp = GVPEncoder(configs=configs)
-    vqvae = VQVAE(
-        input_dim=gvp.backbone,
-        latent_dim=configs.model.vector_quantization.latent_dim,
-        num_embeddings=configs.model.vector_quantization.codebook_size,
-        commitment_cost=configs.model.vector_quantization.alpha
-    )
-    gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
+    # vqvae = VQVAE(
+    #     input_dim=gvp.backbone,
+    #     latent_dim=configs.model.vector_quantization.latent_dim,
+    #     num_embeddings=configs.model.vector_quantization.codebook_size,
+    #     commitment_cost=configs.model.vector_quantization.alpha
+    # )
+    # gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
 
-    return gvp_vqvae
+    return gvp
 
 
 if __name__ == '__main__':
     import yaml
+    import tqdm
     from utils import load_configs
 
     config_path = "../configs/config_gvp.yaml"
@@ -73,25 +74,24 @@ if __name__ == '__main__':
 
     main_configs = load_configs(config_file)
     test_model = prepare_models(main_configs)
-    print(test_model)
+    # print(test_model)
     print("Model loaded successfully!")
 
-    dataset = ProteinGraphDataset(config_file.train_settings.data_path,
-                                  seq_mode=config_file.model.struct_encoder.use_seq.seq_embed_mode,
-                                  use_rotary_embeddings=config_file.model.struct_encoder.use_rotary_embeddings,
-                                  use_foldseek=config_file.model.struct_encoder.use_foldseek,
-                                  use_foldseek_vector=config_file.model.struct_encoder.use_foldseek_vector,
-                                  top_k=config_file.model.struct_encoder.top_k,
-                                  num_rbf=config_file.model.struct_encoder.num_rbf,
-                                  num_positional_embeddings=config_file.model.struct_encoder.num_positional_embeddings)
+    dataset = ProteinGraphDataset(main_configs.train_settings.data_path,
+                                  seq_mode=main_configs.model.struct_encoder.use_seq.seq_embed_mode,
+                                  use_rotary_embeddings=main_configs.model.struct_encoder.use_rotary_embeddings,
+                                  use_foldseek=main_configs.model.struct_encoder.use_foldseek,
+                                  use_foldseek_vector=main_configs.model.struct_encoder.use_foldseek_vector,
+                                  top_k=main_configs.model.struct_encoder.top_k,
+                                  num_rbf=main_configs.model.struct_encoder.num_rbf,
+                                  num_positional_embeddings=main_configs.model.struct_encoder.num_positional_embeddings)
 
-    val_loader = DataLoader(dataset, batch_size=config_file.train_settings.batch_size, num_workers=0, pin_memory=True,
+    val_loader = DataLoader(dataset, batch_size=main_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
                             collate_fn=custom_collate)
     struct_embeddings = []
     test_model.eval()
-    for batch in val_loader:
-        graph = batch["graph"].to('gpu:1')
-        features_struct, _ = test_model(graph=graph)
-        struct_embeddings.extend(features_struct.cpu().detach().numpy())
-        print(struct_embeddings)
+    for batch in tqdm.tqdm(val_loader, total=len(val_loader)):
+        graph = batch["graph"]
+        _, features_struct = test_model(graph=graph)
+        print(features_struct.shape)
         break
