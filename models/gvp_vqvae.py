@@ -12,12 +12,27 @@ class VQVAE(nn.Module):
         self.max_length = configs.model.max_length
 
         self.encoder_layers = nn.Sequential(
-            nn.Conv1d(input_dim, latent_dim, 1),
+            nn.Conv1d(input_dim, input_dim, 1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
+
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+
             nn.Conv1d(latent_dim, latent_dim, 3, padding=1),
+            nn.BatchNorm1d(latent_dim),
             nn.ReLU(),
         )
-        self.norm_1 = nn.LayerNorm(self.max_length)
+        self.norm_1 = nn.BatchNorm1d(latent_dim)
 
         self.vector_quantizer = VectorQuantize(
             dim=latent_dim,
@@ -27,13 +42,25 @@ class VQVAE(nn.Module):
             # accept_image_fmap=True,
         )
         self.decoder_layers = nn.Sequential(
-            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
+            nn.Conv1d(latent_dim, latent_dim, 3, padding=1),
+            nn.BatchNorm1d(latent_dim),
             nn.ReLU(),
+
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+
             nn.Conv1d(input_dim, input_dim, 1),
-
+            nn.BatchNorm1d(input_dim),
         )
-
-        self.norm_2 = nn.LayerNorm(self.max_length)
 
         self.head = nn.Sequential(
             nn.Conv1d(input_dim, 12, 1),
@@ -44,8 +71,6 @@ class VQVAE(nn.Module):
         for layer in self.encoder_layers:
             x = layer(x)
 
-        x = self.norm_1(x)
-
         x = x.permute(0, 2, 1)
         x, indices, commit_loss = self.vector_quantizer(x)
         x = x.permute(0, 2, 1)
@@ -55,8 +80,6 @@ class VQVAE(nn.Module):
 
         for layer in self.decoder_layers:
             x = layer(x)
-
-        x = self.norm_2(x)
 
         for layer in self.head:
             x = layer(x)
