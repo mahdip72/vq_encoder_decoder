@@ -12,23 +12,23 @@ class VQVAE(nn.Module):
         self.max_length = configs.model.max_length
 
         self.encoder_layers = nn.Sequential(
-            nn.Conv1d(input_dim, input_dim, 1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim, input_dim*2, 1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, latent_dim, 3, padding=1),
+            nn.Conv1d(input_dim*2, latent_dim, 3, padding=1),
             nn.BatchNorm1d(latent_dim),
             nn.ReLU(),
         )
@@ -41,29 +41,29 @@ class VQVAE(nn.Module):
             # accept_image_fmap=True,
         )
         self.decoder_layers = nn.Sequential(
-            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(latent_dim, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
+            nn.BatchNorm1d(input_dim*2),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim, input_dim, 1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(input_dim*2, input_dim*2, 1),
+            nn.BatchNorm1d(input_dim*2),
         )
 
         self.head = nn.Sequential(
-            nn.Conv1d(input_dim, 12, 1),
-            nn.Tanh()
+            nn.Conv1d(input_dim*2, 12, 1),
+            # nn.Tanh()
         )
 
     def forward(self, x, return_vq_only=False):
