@@ -7,10 +7,18 @@ from torch.utils.data import DataLoader
 
 
 class VQVAE(nn.Module):
-    def __init__(self, input_dim, latent_dim, codebook_size, decay):
+    def __init__(self, input_dim, latent_dim, codebook_size, decay, configs):
         super(VQVAE, self).__init__()
 
-        self.encoder = nn.Conv1d(input_dim, latent_dim, 1)
+        self.max_length = configs.model.max_length
+
+        self.encoder_layers = nn.Sequential(
+            nn.Conv1d(input_dim, latent_dim, 1),
+            nn.ReLU(),
+            nn.Conv1d(latent_dim, latent_dim, 3, padding=1),
+            nn.ReLU(),
+        )
+        self.norm_1 = nn.LayerNorm(self.max_length)
 
         self.vector_quantizer = VectorQuantize(
             dim=latent_dim,
@@ -19,10 +27,25 @@ class VQVAE(nn.Module):
             commitment_weight=1.0,
             # accept_image_fmap=True,
         )
-        self.decoder = nn.Conv1d(latent_dim, input_dim, 1)
+        self.decoder_layers = nn.Sequential(
+            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(input_dim, input_dim, 1),
+
+        )
+
+        self.norm_2 = nn.LayerNorm(self.max_length)
+
+        self.head = nn.Sequential(
+            nn.Conv1d(input_dim, 12, 1),
+            nn.Tanh()
+        )
 
     def forward(self, x, return_vq_only=False):
-        x = self.encoder(x)
+        for layer in self.encoder_layers:
+            x = layer(x)
+
+        x = self.norm_1(x)
 
         x = x.permute(0, 2, 1)
         x, indices, commit_loss = self.vector_quantizer(x)
@@ -31,7 +54,16 @@ class VQVAE(nn.Module):
         if return_vq_only:
             return x, indices, commit_loss
 
-        x = self.decoder(x)
+        for layer in self.decoder_layers:
+            x = layer(x)
+
+        x = self.norm_2(x)
+
+        for layer in self.head:
+            x = layer(x)
+
+        # make it to be (batch, num_nodes, 12)
+        x = x.permute(0, 2, 1)
         return x, indices, commit_loss
 
 
@@ -42,7 +74,7 @@ class GVPVQVAE(nn.Module):
         self.vqvae = vqvae
 
         self.configs = configs
-        self.max_size = configs.model.max_length
+        self.max_length = configs.model.max_length
 
     @staticmethod
     def separate_features(batched_features, batch):
@@ -58,8 +90,8 @@ class GVPVQVAE(nn.Module):
         # Pad tensors
         padded_tensors = []
         for t in features_list:
-            if t.size(0) < self.max_size:
-                size_diff = self.max_size - t.size(0)
+            if t.size(0) < self.max_length:
+                size_diff = self.max_length - t.size(0)
                 pad = torch.zeros(size_diff, t.size(1))
                 t_padded = torch.cat([t, pad], dim=0)
             else:
@@ -93,7 +125,8 @@ def prepare_models(configs):
         input_dim=configs.model.struct_encoder.node_h_dim[0],
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
-        decay=configs.model.vqvae.vector_quantization.decay
+        decay=configs.model.vqvae.vector_quantization.decay,
+        configs=configs
     )
     gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
 
