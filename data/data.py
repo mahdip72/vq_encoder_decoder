@@ -12,21 +12,27 @@ from torch_geometric.data import Batch, Data
 from gvp.rotary_embedding import RotaryEmbedding
 
 
-def merge_features(features_list, max_length=512):
-    # Pad tensors
+def merge_features_and_create_mask(features_list, max_length=512):
+    # Pad tensors and create mask
     padded_tensors = []
+    mask_tensors = []
     for t in features_list:
         if t.size(0) < max_length:
             size_diff = max_length - t.size(0)
             pad = torch.zeros(size_diff, t.size(1), device=t.device)
             t_padded = torch.cat([t, pad], dim=0)
+            mask = torch.cat([torch.ones(t.size(0), dtype=torch.bool, device=t.device),
+                              torch.zeros(size_diff, dtype=torch.bool, device=t.device)], dim=0)
         else:
             t_padded = t
+            mask = torch.ones(t.size(0), dtype=torch.bool, device=t.device)
         padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
+        mask_tensors.append(mask.unsqueeze(0))  # Add an extra dimension for concatenation
 
-    # Concatenate tensors
+    # Concatenate tensors and masks
     result = torch.cat(padded_tensors, dim=0)
-    return result
+    mask = torch.cat(mask_tensors, dim=0)
+    return result, mask
 
 
 def custom_collate(one_batch):
@@ -38,12 +44,13 @@ def custom_collate(one_batch):
     raw_seqs = [item[1] for item in one_batch]
     plddt_scores = [item[2] for item in one_batch]
     pids = [item[3] for item in one_batch]
-    coords = [torch.Tensor(item[4]).reshape(-1, 12) for item in one_batch]
-    coords = merge_features(coords)
+    coords_list = [torch.Tensor(item[4]).reshape(-1, 12) for item in one_batch]
+    # coords = torch.cat(coords_list, dim=0)
+    coords, masks = merge_features_and_create_mask(coords_list, 512)
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'coords': coords}
+                    'coords': coords, 'masks': masks}
     return batched_data
 
 
