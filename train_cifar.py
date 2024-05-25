@@ -2,7 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from model.vqvae_model import VQVAE
+from models.vqvae_model import VQVAE
 
 
 def train(model, criterion, train_loader, optimizer, epochs):
