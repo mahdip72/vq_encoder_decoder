@@ -1,6 +1,4 @@
-import torch
-from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset
 from sklearn.datasets import make_blobs
 import numpy as np
 import torch
@@ -68,7 +66,7 @@ def main():
 
 if __name__ == "__main__":
     import yaml
-    from utils import load_configs
+    from utils.utils import load_configs
 
     config_path = "../configs/config_gvp.yaml"
 

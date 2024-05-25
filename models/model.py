@@ -9,7 +9,7 @@ from torch_geometric.nn import radius, global_mean_pool, global_max_pool
 from data import *
 from torch_geometric.nn import MessagePassing, global_mean_pool, global_max_pool
 from torch_scatter import scatter_add
-from model.utils import print_trainable_parameters
+from utils.utils import print_trainable_parameters
 
 
 def tuple_sum(*args):
@@ -772,7 +772,7 @@ def get_dummy_logger():
 
 if __name__ == '__main__':
     import yaml
-    from utils import load_configs
+    from utils.utils import load_configs
     from data.data import ProteinGraphDataset, custom_collate
     from torch.utils.data import DataLoader
 

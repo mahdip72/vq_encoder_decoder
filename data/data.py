@@ -7,7 +7,7 @@ import torch_cluster
 import tqdm
 import os
 from torch.utils.data import DataLoader, Dataset
-from utils import load_h5_file
+from utils.utils import load_h5_file
 from torch_geometric.data import Batch, Data
 from gvp.rotary_embedding import RotaryEmbedding
 
@@ -379,13 +379,13 @@ def prepare_dataloaders(logging, accelerator, configs):
                                         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings
                                         )
     # val_dataset = ProteinGraphDataset(configs.valid_settings.data_path, seq_mode=seq_mode,
-    #                                   use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
-    #                                   rotary_mode=configs.model.struct_encoder.rotary_mode,
-    #                                   use_foldseek=configs.model.struct_encoder.use_foldseek,
-    #                                   use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
-    #                                   top_k=configs.model.struct_encoder.top_k,
-    #                                   num_rbf=configs.model.struct_encoder.num_rbf,
-    #                                   num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings
+    #                                   use_rotary_embeddings=configs.models.struct_encoder.use_rotary_embeddings,
+    #                                   rotary_mode=configs.models.struct_encoder.rotary_mode,
+    #                                   use_foldseek=configs.models.struct_encoder.use_foldseek,
+    #                                   use_foldseek_vector=configs.models.struct_encoder.use_foldseek_vector,
+    #                                   top_k=configs.models.struct_encoder.top_k,
+    #                                   num_rbf=configs.models.struct_encoder.num_rbf,
+    #                                   num_positional_embeddings=configs.models.struct_encoder.num_positional_embeddings
     #                                   )
     #
     # train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
@@ -419,7 +419,7 @@ if __name__ == '__main__':
         e_E = graph.edge_index
         print(batch['seq'])
         print(batch['plddt'])
-        # sample = model.sample(h_V, batch.edge_index, h_E, n_samples=100)
+        # sample = models.sample(h_V, batch.edge_index, h_E, n_samples=100)
         # Continue with the rest of your processing...
 
     print('done')

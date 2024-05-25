@@ -1,9 +1,8 @@
 import torch.nn as nn
 import torch
 from vector_quantize_pytorch import VectorQuantize
-from data.data import custom_collate, ProteinGraphDataset
 from gvp.models import GVPEncoder
-from model.utils import print_trainable_parameters
+from utils.utils import print_trainable_parameters
 
 
 class VQVAE(nn.Module):
@@ -111,10 +110,10 @@ class GVPVQVAE(nn.Module):
         x = x.permute(0, 2, 1)
 
         x, indices, commit_loss = self.vqvae(x)
-        return x
+        return x, indices, commit_loss
 
 
-def prepare_models(configs, logging, accelerator):
+def prepare_models(configs, logger, accelerator):
     gvp = GVPEncoder(configs=configs)
     vqvae = VQVAE(
         input_dim=configs.model.struct_encoder.node_h_dim[0],
@@ -126,7 +125,7 @@ def prepare_models(configs, logging, accelerator):
     gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
 
     if accelerator.is_main_process:
-        print_trainable_parameters(gvp_vqvae, logging, 'VQ-VAE')
+        print_trainable_parameters(gvp_vqvae, logger, 'VQ-VAE')
 
     return gvp_vqvae
 
@@ -134,8 +133,10 @@ def prepare_models(configs, logging, accelerator):
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils import load_configs
+    from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
+    from accelerate import Accelerator
+    from data.data import custom_collate, ProteinGraphDataset
 
     config_path = "../configs/config_gvp.yaml"
 
@@ -143,7 +144,11 @@ if __name__ == '__main__':
         config_file = yaml.full_load(file)
 
     main_configs = load_configs(config_file)
-    test_model = prepare_models(main_configs)
+
+    test_logger = get_dummy_logger()
+    accelerator = Accelerator()
+
+    test_model = prepare_models(main_configs, test_logger, accelerator)
     # print(test_model)
     print("Model loaded successfully!")
 
@@ -162,6 +167,6 @@ if __name__ == '__main__':
     test_model.eval()
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         graph = batch["graph"]
-        residue_level_feature = test_model(batch)
-        print(residue_level_feature.shape)
+        output, _, _ = test_model(batch)
+        print(output.shape)
         break

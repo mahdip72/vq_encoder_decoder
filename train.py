@@ -3,13 +3,13 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
-from utils import load_checkpoints
+from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
+from utils.utils import load_checkpoints
 from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
 from data.data import prepare_dataloaders
-# from model.model import prepare_models
-from model.gvp_vqvae import prepare_models
+# from models.models import prepare_models
+from models.gvp_vqvae import prepare_models
 from tqdm import tqdm
 
 
@@ -28,11 +28,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
     total_loss = 0.0
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
     for data in pbar:
-        inputs, labels = data
+        labels = data[4]
         optimizer.zero_grad()
-        outputs, indices, cmt_loss = net(inputs)
+        outputs, indices, cmt_loss = net(data)
 
-        rec_loss = torch.nn.functional.l1_loss(outputs, inputs)
+        rec_loss = torch.nn.functional.l1_loss(outputs, labels)
 
         loss = rec_loss + alpha * cmt_loss
 
@@ -82,7 +82,7 @@ def main(dict_config, config_file_path):
     logging.info('preparing dataloaders are done')
 
     net = prepare_models(configs, logging, accelerator)
-    logging.info('preparing model is done')
+    logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
@@ -95,11 +95,11 @@ def main(dict_config, config_file_path):
 
     net.to(accelerator.device)
 
-    # compile model to train faster and efficiently
+    # compile models to train faster and efficiently
     if configs.model.compile_model:
         net = torch.compile(net)
         if accelerator.is_main_process:
-            logging.info('compile model is done')
+            logging.info('compile models is done')
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
@@ -117,11 +117,11 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
 
-            # Set the path to save the model checkpoint.
+            # Set the path to save the models checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
-                logging.info(f'\tsaving the best model in {model_path}')
+                logging.info(f'\tsaving the best models in {model_path}')
 
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
@@ -129,7 +129,7 @@ def main(dict_config, config_file_path):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
+    parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
     parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_gvp.yaml')
     args = parser.parse_args()
     config_path = args.config_path
