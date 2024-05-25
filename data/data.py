@@ -369,7 +369,7 @@ def prepare_dataloaders(logging, accelerator, configs):
     else:
         seq_mode = "embedding"
 
-    train_dataset = ProteinGraphDataset(configs.train_settings.data_path, seq_mode=seq_mode, \
+    train_dataset = ProteinGraphDataset(configs.train_settings.data_path, seq_mode=seq_mode,
                                         use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
                                         rotary_mode=configs.model.struct_encoder.rotary_mode,
                                         use_foldseek=configs.model.struct_encoder.use_foldseek,

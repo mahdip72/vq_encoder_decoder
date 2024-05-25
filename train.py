@@ -6,7 +6,8 @@ import torch
 from utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils import load_checkpoints
 from accelerate import Accelerator
-from data.data_cifar import prepare_dataloaders
+# from data.data_cifar import prepare_dataloaders
+from data.data import prepare_dataloaders
 # from model.model import prepare_models
 from model.gvp_vqvae import prepare_models
 from tqdm import tqdm
@@ -71,14 +72,14 @@ def main(dict_config, config_file_path):
 
     logging = get_logging(result_path)
 
-    train_dataloader = prepare_dataloaders(configs)
-    logging.info('preparing dataloaders are done')
-
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
         dispatch_batches=True
     )
+
+    train_dataloader = prepare_dataloaders(logging, accelerator, configs)
+    logging.info('preparing dataloaders are done')
 
     net = prepare_models(configs, logging, accelerator)
     logging.info('preparing model is done')
