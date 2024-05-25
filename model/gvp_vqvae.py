@@ -3,7 +3,7 @@ import torch
 from vector_quantize_pytorch import VectorQuantize
 from data.data import custom_collate, ProteinGraphDataset
 from gvp.models import GVPEncoder
-from torch.utils.data import DataLoader
+from utils import print_trainable_parameters
 
 
 class VQVAE(nn.Module):
@@ -114,12 +114,7 @@ class GVPVQVAE(nn.Module):
         return x
 
 
-def prepare_models(configs):
-    """
-    Prepare the VQ-VAE model.
-    :param configs: (object) configurations
-    :return: (object) model
-    """
+def prepare_models(configs, logging, accelerator):
     gvp = GVPEncoder(configs=configs)
     vqvae = VQVAE(
         input_dim=configs.model.struct_encoder.node_h_dim[0],
@@ -130,6 +125,9 @@ def prepare_models(configs):
     )
     gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
 
+    if accelerator.is_main_process:
+        print_trainable_parameters(gvp_vqvae, logging, 'VQ-VAE')
+
     return gvp_vqvae
 
 
@@ -137,6 +135,7 @@ if __name__ == '__main__':
     import yaml
     import tqdm
     from utils import load_configs
+    from torch.utils.data import DataLoader
 
     config_path = "../configs/config_gvp.yaml"
 
