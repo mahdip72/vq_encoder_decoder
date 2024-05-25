@@ -91,7 +91,7 @@ class GVPVQVAE(nn.Module):
         for t in features_list:
             if t.size(0) < self.max_length:
                 size_diff = self.max_length - t.size(0)
-                pad = torch.zeros(size_diff, t.size(1))
+                pad = torch.zeros(size_diff, t.size(1), device=t.device)
                 t_padded = torch.cat([t, pad], dim=0)
             else:
                 t_padded = t
