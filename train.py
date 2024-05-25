@@ -18,8 +18,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
     scheduler = kwargs.pop('scheduler')
     logging = kwargs.pop('logging')
     configs = kwargs.pop('configs')
-    alpha = configs.model.vector_quantization.alpha
-    codebook_size = configs.model.vector_quantization.codebook_size
+    alpha = configs.model.vqvae.vector_quantization.alpha
+    codebook_size = configs.model.vqvae.vector_quantization.codebook_size
 
     optimizer.zero_grad()
 
@@ -129,7 +129,7 @@ def main(dict_config, config_file_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
-    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_cifar.yaml')
+    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_gvp.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
