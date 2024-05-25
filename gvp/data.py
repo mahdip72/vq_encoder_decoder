@@ -214,7 +214,7 @@ class ProteinGraphDataset(Dataset):
                     d = edge_index.transpose(0,1) #[len,2]
                     d = torch.cat((d,E_vectors,-1*E_vectors),dim=-1) #[len,2+3+3]
                     pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
-            else
+            else:
                 pos_embeddings = self._positional_embeddings(edge_index)
             
             rbf = _rbf(E_vectors.norm(dim=-1), d_count=self.num_rbf,
@@ -417,7 +417,7 @@ if __name__ == '__main__':
         e_E = graph.edge_index
         print(batch['seq'])
         print(batch['plddt'])
-        # sample = model.sample(h_V, batch.edge_index, h_E, n_samples=100)
+        # sample = models.sample(h_V, batch.edge_index, h_E, n_samples=100)
         # Continue with the rest of your processing...
 
     print('done')
