@@ -3,7 +3,7 @@ import torch
 from vector_quantize_pytorch import VectorQuantize
 from data.data import custom_collate, ProteinGraphDataset
 from gvp.models import GVPEncoder
-from utils import print_trainable_parameters
+from model.utils import print_trainable_parameters
 
 
 class VQVAE(nn.Module):
