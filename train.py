@@ -28,7 +28,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     total_loss = 0.0
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
     for data in pbar:
-        labels = data[4]
+        labels = data['coords']
         optimizer.zero_grad()
         outputs, indices, cmt_loss = net(data)
 
@@ -75,7 +75,7 @@ def main(dict_config, config_file_path):
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
-        dispatch_batches=True
+        dispatch_batches=False
     )
 
     train_dataloader = prepare_dataloaders(logging, accelerator, configs)
