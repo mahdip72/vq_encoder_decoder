@@ -21,9 +21,11 @@ def custom_collate(one_batch):
     raw_seqs = [item[1] for item in one_batch]
     plddt_scores = [item[2] for item in one_batch]
     pids = [item[3] for item in one_batch]
+    coords = [item[4] for item in one_batch]
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
-    batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids}
+    batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
+                    'coords': coords}
     return batched_data
 
 
@@ -172,7 +174,8 @@ class ProteinGraphDataset(Dataset):
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
         raw_seqs = sample[0].decode('utf-8')
-        return [feature, raw_seqs, plddt_scores, pid]
+        coords = sample[1].tolist()
+        return [feature, raw_seqs, plddt_scores, pid, coords]
 
     def _featurize_as_graph(self, protein):
         name = protein['name']
