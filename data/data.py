@@ -44,9 +44,9 @@ def custom_collate(one_batch):
     raw_seqs = [item[1] for item in one_batch]
     plddt_scores = [item[2] for item in one_batch]
     pids = [item[3] for item in one_batch]
-    coords_list = [torch.Tensor(item[4]).reshape(-1, 12) for item in one_batch]
-    # coords = torch.cat(coords_list, dim=0)
-    coords, masks = merge_features_and_create_mask(coords_list, 512)
+
+    coords = torch.stack([item[4] for item in one_batch])
+    masks = torch.stack([item[5] for item in one_batch])
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
@@ -112,9 +112,9 @@ class ProteinGraphDataset(Dataset):
 
     def __init__(self, data_path,
                  num_positional_embeddings=16,
-                 top_k=30, num_rbf=16, device="cuda",
+                 top_k=30, num_rbf=16,
                  seq_mode="embedding", use_rotary_embeddings=False, rotary_mode=1,
-                 use_foldseek=False, use_foldseek_vector=False
+                 use_foldseek=False, use_foldseek_vector=False, **kwargs
                  ):
         super(ProteinGraphDataset, self).__init__()
 
@@ -184,6 +184,8 @@ class ProteinGraphDataset(Dataset):
             "W": [-0.595, 0.009, 0.672, -2.128, -0.184],
             "Y": [0.260, 0.830, 3.097, -0.838, 1.512]}
 
+        self.max_length = kwargs['configs'].model.max_length
+
     def __len__(self):
         return len(self.h5_samples)
 
@@ -199,8 +201,15 @@ class ProteinGraphDataset(Dataset):
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
         raw_seqs = sample[0].decode('utf-8')
-        coords = sample[1].tolist()
-        return [feature, raw_seqs, plddt_scores, pid, coords]
+        coords_list = sample[1].tolist()
+        coords_list = torch.Tensor(coords_list).reshape(1, -1, 12)
+        coords, masks = merge_features_and_create_mask(coords_list, self.max_length)
+
+        # squeeze coords and masks to return them to 2D
+        coords = coords.squeeze(0)
+        masks = masks.squeeze(0)
+
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks]
 
     def _featurize_as_graph(self, protein):
         name = protein['name']
@@ -402,7 +411,8 @@ def prepare_dataloaders(logging, accelerator, configs):
         use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
         top_k=configs.model.struct_encoder.top_k,
         num_rbf=configs.model.struct_encoder.num_rbf,
-        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings
+        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        configs=configs
     )
 
     # train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
