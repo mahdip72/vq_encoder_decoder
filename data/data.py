@@ -12,6 +12,23 @@ from torch_geometric.data import Batch, Data
 from gvp.rotary_embedding import RotaryEmbedding
 
 
+def merge_features(features_list, max_length=512):
+    # Pad tensors
+    padded_tensors = []
+    for t in features_list:
+        if t.size(0) < max_length:
+            size_diff = max_length - t.size(0)
+            pad = torch.zeros(size_diff, t.size(1), device=t.device)
+            t_padded = torch.cat([t, pad], dim=0)
+        else:
+            t_padded = t
+        padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
+
+    # Concatenate tensors
+    result = torch.cat(padded_tensors, dim=0)
+    return result
+
+
 def custom_collate(one_batch):
     # Unpack the batch
     torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
@@ -21,7 +38,8 @@ def custom_collate(one_batch):
     raw_seqs = [item[1] for item in one_batch]
     plddt_scores = [item[2] for item in one_batch]
     pids = [item[3] for item in one_batch]
-    coords = [item[4] for item in one_batch]
+    coords = [torch.Tensor(item[4]).reshape(-1, 12) for item in one_batch]
+    coords = merge_features(coords)
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
