@@ -2,7 +2,7 @@ import argparse
 import os
 from tqdm import tqdm
 from Bio.PDB import PDBParser
-from utils import write_h5_file, extract_coordinates_plddt
+from gvp.utils import write_h5_file, extract_coordinates_plddt
 from concurrent.futures import as_completed, ProcessPoolExecutor
 
 
