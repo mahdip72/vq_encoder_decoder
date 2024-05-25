@@ -378,29 +378,29 @@ def prepare_dataloaders(logging, accelerator, configs):
                                         num_rbf=configs.model.struct_encoder.num_rbf,
                                         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings
                                         )
-    val_dataset = ProteinGraphDataset(configs.valid_settings.data_path, seq_mode=seq_mode,
-                                      use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
-                                      rotary_mode=configs.model.struct_encoder.rotary_mode,
-                                      use_foldseek=configs.model.struct_encoder.use_foldseek,
-                                      use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
-                                      top_k=configs.model.struct_encoder.top_k,
-                                      num_rbf=configs.model.struct_encoder.num_rbf,
-                                      num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings
-                                      )
-
-    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
-                              shuffle=configs.train_settings.shuffle,
-                              num_workers=configs.train_settings.num_workers,
-                              multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
-                              pin_memory=True,
-                              collate_fn=custom_collate)
-    val_loader = DataLoader(val_dataset, batch_size=configs.valid_settings.batch_size,
-                            num_workers=configs.valid_settings.num_workers,
-                            shuffle=False,
-                            multiprocessing_context='spawn' if configs.valid_settings.num_workers > 0 else None,
-                            pin_memory=True,
-                            collate_fn=custom_collate)
-    return train_loader, val_loader
+    # val_dataset = ProteinGraphDataset(configs.valid_settings.data_path, seq_mode=seq_mode,
+    #                                   use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
+    #                                   rotary_mode=configs.model.struct_encoder.rotary_mode,
+    #                                   use_foldseek=configs.model.struct_encoder.use_foldseek,
+    #                                   use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
+    #                                   top_k=configs.model.struct_encoder.top_k,
+    #                                   num_rbf=configs.model.struct_encoder.num_rbf,
+    #                                   num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings
+    #                                   )
+    #
+    # train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+    #                           shuffle=configs.train_settings.shuffle,
+    #                           num_workers=configs.train_settings.num_workers,
+    #                           multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+    #                           pin_memory=True,
+    #                           collate_fn=custom_collate)
+    # val_loader = DataLoader(val_dataset, batch_size=configs.valid_settings.batch_size,
+    #                         num_workers=configs.valid_settings.num_workers,
+    #                         shuffle=False,
+    #                         multiprocessing_context='spawn' if configs.valid_settings.num_workers > 0 else None,
+    #                         pin_memory=True,
+    #                         collate_fn=custom_collate)
+    return train_dataset
 
 
 if __name__ == '__main__':
