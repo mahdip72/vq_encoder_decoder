@@ -29,10 +29,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
     for data in pbar:
         labels = data['coords']
+        masks = data['masks']
         optimizer.zero_grad()
         outputs, indices, cmt_loss = net(data)
 
-        rec_loss = torch.nn.functional.l1_loss(outputs, labels)
+        masked_outputs = outputs[masks]
+        masked_labels = labels[masks]
+        rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
 
         loss = rec_loss + alpha * cmt_loss
 
