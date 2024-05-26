@@ -16,3 +16,4 @@ uv pip install peft
 uv pip install -U scikit-learn
 uv pip install rdkit-pypi
 uv pip install vector-quantize-pytorch
+uv pip install plotly
