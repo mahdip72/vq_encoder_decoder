@@ -121,7 +121,7 @@ class ProteinGraphDataset(Dataset):
                  ):
         super(ProteinGraphDataset, self).__init__()
 
-        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
         self.num_rbf = num_rbf
         self.num_positional_embeddings = num_positional_embeddings
