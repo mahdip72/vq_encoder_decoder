@@ -192,7 +192,7 @@ class ProteinGraphDataset(Dataset):
 
         self.processor = Protein3DProcessing()
 
-        # Load the fitted pca and scaler models for processing
+        # Load saved pca and scaler models for processing
         self.processor.load_model("model.pkl")
 
     @staticmethod
