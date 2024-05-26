@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch_cluster
 import tqdm
 import os
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from torch_geometric.data import Batch, Data
@@ -290,7 +291,7 @@ class ProteinGraphDataset(Dataset):
         coords_tensor = self.align_coords(coords_tensor)
 
         # Normalize the coordinates
-        coords_tensor = self.normalize_coords(coords_tensor, 100)
+        coords_tensor = self.normalize_coords(coords_tensor, 200)
 
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
@@ -520,23 +521,70 @@ def prepare_dataloaders(logging, accelerator, configs):
     return train_loader
 
 
+def plot_3d_coords(coords: np.ndarray):
+    """
+    Plot 3D coordinates in a scatter plot.
+
+    Parameters:
+    coords (np.ndarray): A numpy array of shape (N, 3) where N is the number of points,
+                         and each point has three coordinates (x, y, z).
+    """
+
+    if coords.shape[1] != 3:
+        raise ValueError("Input array must have shape (N, 3)")
+
+    # Extracting x, y, and z coordinates
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z = coords[:, 2]
+
+    # Create a new figure for plotting
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Scatter plot of the points
+    ax.scatter(x, y, z, c='r', marker='o')
+
+    # Optionally, label the axes
+    ax.set_xlabel('X axis')
+    ax.set_ylabel('Y axis')
+    ax.set_zlabel('Z axis')
+
+    # Show the plot
+    plt.show()
+
+
 if __name__ == '__main__':
+    import yaml
+    import tqdm
+    from utils.utils import load_configs, get_dummy_logger
+    from torch.utils.data import DataLoader
+    from accelerate import Accelerator
 
-    # dataset_path = 'swissprot_pdb_v4'
-    dataset_path = './data/h5'
-    dataset = ProteinGraphDataset(dataset_path)
+    config_path = "../configs/config_gvp.yaml"
 
-    test_dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=custom_collate)
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
 
-    print("Testing on your dataset")
-    for batch in tqdm.tqdm(test_dataloader, total=len(test_dataloader)):
-        graph = batch["graph"].to('cuda')  # Move the batch to the device
-        h_V = (graph.node_s, graph.node_v)
-        h_E = (graph.edge_s, graph.edge_v)
-        e_E = graph.edge_index
-        print(batch['seq'])
-        print(batch['plddt'])
-        # sample = models.sample(h_V, batch.edge_index, h_E, n_samples=100)
-        # Continue with the rest of your processing...
+    test_configs = load_configs(config_file)
 
-    print('done')
+    test_logger = get_dummy_logger()
+    accelerator = Accelerator()
+
+    dataset = ProteinGraphDataset(test_configs.train_settings.data_path,
+                                  seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
+                                  use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
+                                  use_foldseek=test_configs.model.struct_encoder.use_foldseek,
+                                  use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
+                                  top_k=test_configs.model.struct_encoder.top_k,
+                                  num_rbf=test_configs.model.struct_encoder.num_rbf,
+                                  num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
+                                  configs=test_configs)
+
+    test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
+                             collate_fn=custom_collate)
+    struct_embeddings = []
+    for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
+        # graph = batch["graph"]
+        plot_3d_coords(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
+        break
