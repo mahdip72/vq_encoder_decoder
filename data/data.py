@@ -7,6 +7,7 @@ import torch_cluster
 import tqdm
 import os
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from torch_geometric.data import Batch, Data
@@ -554,6 +555,46 @@ def plot_3d_coords(coords: np.ndarray):
     plt.show()
 
 
+def plot_3d_coords_plotly(coords: np.ndarray):
+    """
+    Plot 3D coordinates in a scatter plot.
+
+    Parameters:
+    coords (np.ndarray): A numpy array of shape (N, 3) where N is the number of points,
+                         and each point has three coordinates (x, y, z).
+    """
+
+    if coords.shape[1] != 3:
+        raise ValueError("Input array must have shape (N, 3)")
+
+    # Extracting x, y, and z coordinates
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z = coords[:, 2]
+
+    # Create a 3D scatter plot
+    fig = go.Figure(data=[go.Scatter3d(
+        x=x,
+        y=y,
+        z=z,
+        mode='markers',
+        marker=dict(size=5, color='red')
+    )])
+
+    # Optionally, set titles and labels
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='X axis',
+            yaxis_title='Y axis',
+            zaxis_title='Z axis'
+        ),
+        title="3D Scatter Plot"
+    )
+
+    # Show the plot
+    fig.show()
+
+
 if __name__ == '__main__':
     import yaml
     import tqdm
@@ -586,5 +627,6 @@ if __name__ == '__main__':
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
-        plot_3d_coords(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
+        # plot_3d_coords(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
+        plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
         break
