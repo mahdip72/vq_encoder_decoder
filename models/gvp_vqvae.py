@@ -10,25 +10,26 @@ class VQVAE(nn.Module):
         super(VQVAE, self).__init__()
 
         self.max_length = configs.model.max_length
+        self.pos_embed = nn.Parameter(torch.randn(1, self.max_length, input_dim) * .02)
 
         self.encoder_layers = nn.Sequential(
-            nn.Conv1d(input_dim, input_dim*2, 1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, latent_dim, 3, padding=1),
+            nn.Conv1d(input_dim, latent_dim, 3, padding=1),
             nn.BatchNorm1d(latent_dim),
             nn.ReLU(),
         )
@@ -41,32 +42,40 @@ class VQVAE(nn.Module):
             # accept_image_fmap=True,
         )
         self.decoder_layers = nn.Sequential(
-            nn.Conv1d(latent_dim, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 3, padding=1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
 
-            nn.Conv1d(input_dim*2, input_dim*2, 1),
-            nn.BatchNorm1d(input_dim*2),
+            nn.Conv1d(input_dim, input_dim, 1),
+            nn.BatchNorm1d(input_dim),
         )
 
         self.head = nn.Sequential(
-            nn.Conv1d(input_dim*2, 12, 1),
+            nn.Conv1d(input_dim, 12, 1),
             # nn.Tanh()
         )
 
+    def drop_positional_encoding(self, embedding):
+        embedding = embedding + self.pos_embed
+        return embedding
+
     def forward(self, x, return_vq_only=False):
+        x = x.permute(0, 2, 1)
+        x = self.drop_positional_encoding(x)
+        x = x.permute(0, 2, 1)
+
         for layer in self.encoder_layers:
             x = layer(x)
 
