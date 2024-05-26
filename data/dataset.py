@@ -189,7 +189,11 @@ class ProteinGraphDataset(Dataset):
             "Y": [0.260, 0.830, 3.097, -0.838, 1.512]}
 
         self.max_length = kwargs['configs'].model.max_length
+
         self.processor = Protein3DProcessing()
+
+        # Load the fitted pca and scaler models for processing
+        self.processor.load_model("model.pkl")
 
     @staticmethod
     def normalize_coords(coords: torch.Tensor, divisor: int) -> torch.Tensor:
