@@ -773,7 +773,7 @@ def get_dummy_logger():
 if __name__ == '__main__':
     import yaml
     from utils.utils import load_configs
-    from data.data import ProteinGraphDataset, custom_collate
+    from data.dataset import ProteinGraphDataset, custom_collate
     from torch.utils.data import DataLoader
 
     logger, buffer = get_dummy_logger()

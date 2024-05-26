@@ -7,7 +7,7 @@ from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_o
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
-from data.data import prepare_dataloaders
+from data.dataset import prepare_dataloaders
 # from models.models import prepare_models
 from models.gvp_vqvae import prepare_models
 from tqdm import tqdm

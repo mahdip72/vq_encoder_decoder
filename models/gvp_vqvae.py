@@ -169,7 +169,7 @@ if __name__ == '__main__':
     from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
-    from data.data import custom_collate, ProteinGraphDataset
+    from data.dataset import custom_collate, ProteinGraphDataset
 
     config_path = "../configs/config_gvp.yaml"
 
