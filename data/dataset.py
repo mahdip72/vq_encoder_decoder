@@ -13,6 +13,7 @@ from utils.utils import load_h5_file
 from torch_geometric.data import Batch, Data
 from gvp.rotary_embedding import RotaryEmbedding
 from sklearn.decomposition import PCA
+from data.normalizer import Protein3DProcessing
 
 
 def merge_features_and_create_mask(features_list, max_length=512):
@@ -188,6 +189,7 @@ class ProteinGraphDataset(Dataset):
             "Y": [0.260, 0.830, 3.097, -0.838, 1.512]}
 
         self.max_length = kwargs['configs'].model.max_length
+        self.processor = Protein3DProcessing()
 
     @staticmethod
     def normalize_coords(coords: torch.Tensor, divisor: int) -> torch.Tensor:
@@ -285,14 +287,16 @@ class ProteinGraphDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
-        # Recenter the coordinates center
-        coords_tensor = self.recenter_coords(coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
 
-        # Align the coordinates rotation
-        coords_tensor = self.align_coords(coords_tensor)
-
-        # Normalize the coordinates
-        coords_tensor = self.normalize_coords(coords_tensor, 200)
+        # # Recenter the coordinates center
+        # coords_tensor = self.recenter_coords(coords_tensor)
+        #
+        # # Align the coordinates rotation
+        # coords_tensor = self.align_coords(coords_tensor)
+        #
+        # # Normalize the coordinates
+        # coords_tensor = self.normalize_coords(coords_tensor, 200)
 
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
