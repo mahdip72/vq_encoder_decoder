@@ -193,7 +193,7 @@ class GVPDataset(Dataset):
         self.processor = Protein3DProcessing()
 
         # Load saved pca and scaler models for processing
-        self.processor.load_model("model.pkl")
+        self.processor.load_normalizer("./data/normalizer.pkl")  # todo: load directory from config
 
     @staticmethod
     def normalize_coords(coords: torch.Tensor, divisor: int) -> torch.Tensor:
@@ -291,16 +291,16 @@ class GVPDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
 
-        # # Recenter the coordinates center
-        # coords_tensor = self.recenter_coords(coords_tensor)
-        #
-        # # Align the coordinates rotation
-        # coords_tensor = self.align_coords(coords_tensor)
-        #
-        # # Normalize the coordinates
-        # coords_tensor = self.normalize_coords(coords_tensor, 200)
+        # Recenter the coordinates center
+        coords_tensor = self.recenter_coords(coords_tensor)
+
+        # Align the coordinates rotation
+        coords_tensor = self.align_coords(coords_tensor)
+
+        # Normalize the coordinates
+        coords_tensor = self.normalize_coords(coords_tensor, 200)
 
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
@@ -637,4 +637,4 @@ if __name__ == '__main__':
         # graph = batch["graph"]
         # plot_3d_coords(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
         plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
-        break
+        # break
