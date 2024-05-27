@@ -773,7 +773,7 @@ def get_dummy_logger():
 if __name__ == '__main__':
     import yaml
     from utils.utils import load_configs
-    from data.dataset import ProteinGraphDataset, custom_collate
+    from data.dataset import GVPDataset, custom_collate
     from torch.utils.data import DataLoader
 
     logger, buffer = get_dummy_logger()
@@ -788,7 +788,7 @@ if __name__ == '__main__':
     net = prepare_models_test(main_configs, logger)
 
     dataset_path = './data/h5'  # test for piece of data
-    dataset = ProteinGraphDataset(dataset_path)
+    dataset = GVPDataset(dataset_path)
 
     test_dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=custom_collate)
 

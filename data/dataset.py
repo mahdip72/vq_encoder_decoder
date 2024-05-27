@@ -88,7 +88,7 @@ def _rbf(d, d_min=0., d_max=20., d_count=16, device='cpu'):
     return RBF
 
 
-class ProteinGraphDataset(Dataset):
+class GVPDataset(Dataset):
     """
     This class is a subclass of `torch.utils.data.Dataset` and is used to transform JSON/dictionary-style
     protein structures into featurized protein graphs. The transformation process is described in detail in the
@@ -120,7 +120,7 @@ class ProteinGraphDataset(Dataset):
                  seq_mode="embedding", use_rotary_embeddings=False, rotary_mode=1,
                  use_foldseek=False, use_foldseek_vector=False, **kwargs
                  ):
-        super(ProteinGraphDataset, self).__init__()
+        super(GVPDataset, self).__init__()
 
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
@@ -504,7 +504,7 @@ def prepare_dataloaders(logging, accelerator, configs):
     else:
         seq_mode = "embedding"
 
-    train_dataset = ProteinGraphDataset(
+    train_dataset = GVPDataset(
         configs.train_settings.data_path,
         seq_mode=configs.model.struct_encoder.use_seq.seq_embed_mode,
         use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
@@ -620,15 +620,15 @@ if __name__ == '__main__':
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
 
-    dataset = ProteinGraphDataset(test_configs.train_settings.data_path,
-                                  seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
-                                  use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
-                                  use_foldseek=test_configs.model.struct_encoder.use_foldseek,
-                                  use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
-                                  top_k=test_configs.model.struct_encoder.top_k,
-                                  num_rbf=test_configs.model.struct_encoder.num_rbf,
-                                  num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
-                                  configs=test_configs)
+    dataset = GVPDataset(test_configs.train_settings.data_path,
+                         seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
+                         use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
+                         use_foldseek=test_configs.model.struct_encoder.use_foldseek,
+                         use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
+                         top_k=test_configs.model.struct_encoder.top_k,
+                         num_rbf=test_configs.model.struct_encoder.num_rbf,
+                         num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
+                         configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
                              collate_fn=custom_collate)

@@ -169,7 +169,7 @@ if __name__ == '__main__':
     from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
-    from data.dataset import custom_collate, ProteinGraphDataset
+    from data.dataset import custom_collate, GVPDataset
 
     config_path = "../configs/config_gvp.yaml"
 
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     # print(test_model)
     print("Model loaded successfully!")
 
-    dataset = ProteinGraphDataset(test_configs.train_settings.data_path,
+    dataset = GVPDataset(test_configs.train_settings.data_path,
                                   seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
                                   use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
                                   use_foldseek=test_configs.model.struct_encoder.use_foldseek,
