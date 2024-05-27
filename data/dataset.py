@@ -291,16 +291,16 @@ class GVPDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
-        # coords_tensor = self.processor.normalize_coords(coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
 
         # Recenter the coordinates center
-        coords_tensor = self.recenter_coords(coords_tensor)
+        # coords_tensor = self.recenter_coords(coords_tensor)
 
         # Align the coordinates rotation
-        coords_tensor = self.align_coords(coords_tensor)
+        # coords_tensor = self.align_coords(coords_tensor)
 
         # Normalize the coordinates
-        coords_tensor = self.normalize_coords(coords_tensor, 200)
+        # coords_tensor = self.normalize_coords(coords_tensor, 200)
 
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
