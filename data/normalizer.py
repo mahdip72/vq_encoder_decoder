@@ -7,6 +7,7 @@ from utils.utils import load_h5_file
 from torch.utils.data import DataLoader, Dataset
 import os
 import glob
+import random
 
 
 class NormalizerDataset(Dataset):
@@ -39,6 +40,8 @@ class NormalizerDataset(Dataset):
         super(NormalizerDataset, self).__init__()
 
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
+        random.shuffle(self.h5_samples)
+        # self.h5_samples = self.h5_samples[:300000]
 
     def __len__(self):
         return len(self.h5_samples)
@@ -98,34 +101,41 @@ class Protein3DProcessing:
     def __init__(self, normalizer=None):
         self.normalizer = normalizer
 
-    def fit_normalizer(self, coords_list: list):
+    def fit_normalizer(self, coords_list: list, batch_size: int = 32000):
         """
-        Fit a normalizer on the given list of individually PCA-transformed coordinates.
+        Fit a normalizer on the given list of individually PCA-transformed coordinates using batches.
 
         Parameters:
         -----------
         coords_list : list
             A list of torch.Tensors, each of shape (N, 4, 3) representing the coordinates
             of multiple protein structures.
+        batch_size : int, optional
+            The size of each batch for fitting the normalizer. Default is 32000.
         """
-        # Apply individual PCA to each set of coordinates
-        pca_transformed_coords = []
-        for coords in coords_list:
-            pca = PCA(n_components=3)
-            coords_np = coords.view(-1, 3).cpu().numpy()
-            pca_transformed = pca.fit_transform(coords_np)
-            pca_transformed_coords.append(
-                torch.tensor(pca_transformed, dtype=coords.dtype, device=coords.device).view(coords.shape))
-
-        # Flatten the PCA-transformed coordinates and convert to a 2D array for fitting
-        all_coords = torch.cat([coords.view(-1, 3) for coords in pca_transformed_coords], dim=0)
-        all_coords_np = all_coords.cpu().numpy()
-
-        # Create and fit the normalizer
+        # Initialize the normalizer
         self.normalizer = StandardScaler()
-        self.normalizer.fit(all_coords_np)
 
-    def apply_pca(self, coords: torch.Tensor) -> torch.Tensor:
+        # Apply individual PCA to each set of coordinates and fit the normalizer in batches
+        for i in range(0, len(coords_list), batch_size):
+            batch_coords_list = coords_list[i:i + batch_size]
+            pca_transformed_coords = []
+            for idx, coords in enumerate(batch_coords_list):
+                pca = PCA(n_components=3)
+                coords_np = coords.view(-1, 3).cpu().numpy()
+                pca_transformed = pca.fit_transform(coords_np)
+                pca_transformed_coords.append(
+                    torch.tensor(pca_transformed, dtype=coords.dtype, device=coords.device).view(coords.shape))
+
+            # Flatten the PCA-transformed coordinates and convert to a 2D array for partial fitting
+            batch_coords = torch.cat([coords.view(-1, 3) for coords in pca_transformed_coords], dim=0)
+            batch_coords_np = batch_coords.cpu().numpy()
+
+            # Partially fit the normalizer on the batch
+            self.normalizer.partial_fit(batch_coords_np)
+
+    @staticmethod
+    def apply_pca(coords: torch.Tensor) -> torch.Tensor:
         """
         Apply PCA transformation individually to standardize the rotation of the coordinates.
 
@@ -186,7 +196,7 @@ class Protein3DProcessing:
 
     def denormalize_coords(self, coords: torch.Tensor) -> torch.Tensor:
         """
-        Denormalize the coordinates using the fitted normalizer and reverse individual PCA transformation.
+        Denormalize the coordinates using the fitted normalizer.
 
         Parameters:
         -----------
@@ -207,10 +217,6 @@ class Protein3DProcessing:
         # Denormalize the coordinates
         denormalized_coords_np = self.normalizer.inverse_transform(coords_np)
 
-        # Apply inverse individual PCA transformation
-        # pca = PCA(n_components=3)
-        # original_coords_np = pca.inverse_transform(denormalized_coords_np)
-
         # Convert back to tensor and reshape to original shape
         denormalized_coords_np = torch.tensor(denormalized_coords_np, dtype=coords.dtype, device=coords.device)
         denormalized_coords_np = denormalized_coords_np.view(coords.shape)
@@ -227,6 +233,7 @@ class Protein3DProcessing:
             The file path to save the normalizer.
         """
         joblib.dump({'normalizer': self.normalizer}, file_path)
+        print(f"Normalizer saved to {file_path}")
 
     def load_normalizer(self, file_path: str):
         """
@@ -244,9 +251,8 @@ class Protein3DProcessing:
 def fit_normalizer():
     import yaml
     import tqdm
-    from utils.utils import load_configs, get_dummy_logger
+    from utils.utils import load_configs
     from torch.utils.data import DataLoader
-    from accelerate import Accelerator
 
     config_path = "../configs/config_gvp.yaml"
 
@@ -261,7 +267,7 @@ def fit_normalizer():
 
     coords_list = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
-        coords_list.append(batch.squeeze(0))
+        coords_list.append(batch.squeeze(0).to(torch.float16))
 
     # Create an instance of the class
     processor = Protein3DProcessing()
@@ -281,6 +287,9 @@ def fit_normalizer():
 
     # Denormalize the coordinates to get back the original values
     denormalized_coords = processor.denormalize_coords(normalized_coords)
+
+    print(denormalized_coords)
+    print("Normalizer fitted successfully!")
 
 
 if __name__ == '__main__':
