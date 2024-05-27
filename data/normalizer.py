@@ -208,14 +208,14 @@ class Protein3DProcessing:
         denormalized_coords_np = self.normalizer.inverse_transform(coords_np)
 
         # Apply inverse individual PCA transformation
-        pca = PCA(n_components=3)
-        original_coords_np = pca.inverse_transform(denormalized_coords_np)
+        # pca = PCA(n_components=3)
+        # original_coords_np = pca.inverse_transform(denormalized_coords_np)
 
         # Convert back to tensor and reshape to original shape
-        original_coords = torch.tensor(original_coords_np, dtype=coords.dtype, device=coords.device)
-        original_coords = original_coords.view(coords.shape)
+        denormalized_coords_np = torch.tensor(denormalized_coords_np, dtype=coords.dtype, device=coords.device)
+        denormalized_coords_np = denormalized_coords_np.view(coords.shape)
 
-        return original_coords
+        return denormalized_coords_np
 
     def save_normalizer(self, file_path: str):
         """
