@@ -38,7 +38,7 @@ class NormalizerDataset(Dataset):
     def __init__(self, data_path, **kwargs):
         super(NormalizerDataset, self).__init__()
 
-        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
 
     def __len__(self):
         return len(self.h5_samples)
