@@ -84,19 +84,19 @@ class Protein3DProcessing:
 
     Usage Example:
     --------------
-    >>> import torch
-    >>> coords_list = [
-    >>>     torch.rand((10, 4, 3)),  # Example tensor for one protein structure
-    >>>     torch.rand((15, 4, 3)),  # Example tensor for another protein structure
-    >>>     # Add more tensors as needed
-    >>> ]
-    >>> processor = Protein3DProcessing()
-    >>> processor.fit_normalizer(coords_list)
-    >>> processor.save_model("model.pkl")
-    >>> processor.load_model("model.pkl")
-    >>> new_coords = torch.rand((12, 4, 3))  # Example new protein structure
-    >>> normalized_coords = processor.normalize_coords(new_coords)
-    >>> denormalized_coords = processor.denormalize_coords(normalized_coords)
+    import torch
+    coords_list = [
+        torch.rand((10, 4, 3)),  # Example tensor for one protein structure
+        torch.rand((15, 4, 3)),  # Example tensor for another protein structure
+        # Add more tensors as needed
+    ]
+    processor = Protein3DProcessing()
+    processor.fit_normalizer(coords_list)
+    processor.save_model("model.pkl")
+    processor.load_model("model.pkl")
+    new_coords = torch.rand((12, 4, 3))  # Example new protein structure
+    normalized_coords = processor.normalize_coords(new_coords)
+    denormalized_coords = processor.denormalize_coords(normalized_coords)
     """
 
     def __init__(self, pca=None, normalizer=None):
@@ -251,7 +251,7 @@ class Protein3DProcessing:
         self.pca = model_dict['pca']
 
 
-def main():
+def fit_normalizer():
     import yaml
     import tqdm
     from utils.utils import load_configs, get_dummy_logger
@@ -267,7 +267,7 @@ def main():
 
     dataset = NormalizerDataset(test_configs.train_settings.data_path, configs=test_configs)
 
-    test_loader = DataLoader(dataset, batch_size=1, num_workers=8, pin_memory=True)
+    test_loader = DataLoader(dataset, batch_size=1, num_workers=16, pin_memory=True)
 
     coords_list = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
@@ -294,4 +294,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    fit_normalizer()
