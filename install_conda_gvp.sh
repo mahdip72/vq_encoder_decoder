@@ -19,3 +19,4 @@ conda install --yes matplotlib
 conda install --yes openpyxl
 pip install vector-quantize-pytorch
 pip install plotly
+pip install joblib
