@@ -41,7 +41,7 @@ def load_fashion_mnist_data(batch_size, shuffle):
 def load_cifar10_data(batch_size, shuffle):
     transform = transforms.Compose([
         transforms.ToTensor(),  # Convert images to PyTorch tensors
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize the images
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize the images
     ])
 
     dataset = datasets.CIFAR10(
