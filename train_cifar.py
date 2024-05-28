@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from box import Box
 
 
-def train_loop(model, train_loader, optimizer, epoch, configs, accelerator):
+def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accelerator):
 
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
@@ -38,6 +38,7 @@ def train_loop(model, train_loader, optimizer, epoch, configs, accelerator):
             accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
 
         optimizer.step()
+        scheduler.step()
         optimizer.zero_grad()
 
         # Print loss for each epoch
@@ -116,7 +117,7 @@ def main(dict_config, config_file_path):
     loss = []
     epochs = []
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(net, train_dataloader, optimizer, epoch, configs, accelerator)
+        train_loss = train_loop(net, train_dataloader, optimizer, scheduler, epoch, configs, accelerator)
         loss.append(train_loss)
         epochs.append(epoch)
         """
