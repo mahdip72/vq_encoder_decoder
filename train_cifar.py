@@ -17,35 +17,34 @@ from torch.utils.data import DataLoader
 from box import Box
 
 
-def vqvae_loss(inputs, outputs, commit_loss, alpha):
-    """
-    Calculate the loss for a VQVAE model. Consider both the reconstruction loss
-    and commitment loss.
-    :param inputs: (torch.Tensor) input passed into the encoder
-    :param outputs: (torch.Tensor) output produced by the decoder
-    :param commit_loss: (torch.Tensor) the commitment loss of vector quantization
-    :param alpha: (float) weight of commitment loss compared to reconstruction loss
-    :return: (float) the combined loss calculated for VQVAE model
-    """
-    rec_loss = torch.nn.functional.l1_loss(inputs, outputs)
-    combined_loss = rec_loss + alpha * commit_loss
-    return combined_loss
-
-
 def train_loop(model, train_loader, optimizer, epoch, configs):
 
     alpha = configs.model.vector_quantization.alpha
+    codebook_size = configs.model.vector_quantization.codebook_size
 
     model.train()
     total_loss = 0.0
-    for i, (images, labels) in tqdm(enumerate(train_loader)):
+    pbar = tqdm(enumerate(train_loader), desc=f"Training Epoch {epoch}")
+
+    for i, (images, labels) in pbar:
         optimizer.zero_grad()
         outputs, indices, commit_loss = model(images)
-        loss = vqvae_loss(images, outputs, commit_loss, alpha)
+
+        # Consider both reconstruction loss and commit loss
+        rec_loss = torch.nn.functional.l1_loss(images, outputs)
+        loss = rec_loss + alpha * commit_loss
         loss.backward()
-        total_loss += loss.item()
         optimizer.step()
         optimizer.zero_grad()
+
+        # Print loss for each epoch
+        total_loss += loss.item()
+        batch_avg_loss = total_loss / (pbar.n + 1)
+        pbar.set_description(
+            f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
+            + f"Rec Loss: {rec_loss.item():.3f} | "
+            + f"Cmt Loss: {commit_loss.item():.3f} | "
+            + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
 
     avg_loss = total_loss / len(train_loader)
     return avg_loss
@@ -74,11 +73,9 @@ def main(dict_config, config_file_path):
         torch.random.manual_seed(configs.fix_seed)
         np.random.seed(configs.fix_seed)
 
-    """
     result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
     logging = get_logging(result_path)
-    """
-    logging = get_dummy_logger()
+    # logging = get_dummy_logger()
 
     """
     accelerator = Accelerator(
