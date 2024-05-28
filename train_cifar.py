@@ -145,14 +145,3 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
 
     main(config_file, config_path)
-
-    """
-    # Normalize data to be in the range [-1.0, 1.0]
-    transform = transforms.Compose(
-        [transforms.ToTensor(),
-         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-    # Load CIFAR dataset
-    trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform)
-    trainloader = DataLoader(trainset, batch_size=1, shuffle=True, num_workers=2)
-    """
