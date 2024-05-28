@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from box import Box
 
 
-def train_loop(model, train_loader, optimizer, epoch, configs):
+def train_loop(model, train_loader, optimizer, epoch, configs, accelerator):
 
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
@@ -33,7 +33,10 @@ def train_loop(model, train_loader, optimizer, epoch, configs):
         # Consider both reconstruction loss and commit loss
         rec_loss = torch.nn.functional.l1_loss(images, outputs)
         loss = rec_loss + alpha * commit_loss
-        loss.backward()
+        accelerator.backward(loss)
+        if accelerator.sync_gradients:
+            accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
+
         optimizer.step()
         optimizer.zero_grad()
 
@@ -75,16 +78,12 @@ def main(dict_config, config_file_path):
 
     result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
     logging = get_logging(result_path)
-    # logging = get_dummy_logger()
 
-    """
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
         dispatch_batches=False
     )
-    """
-    accelerator = Accelerator()
 
     # Prepare dataloader, model, and optimizer
     train_dataloader = prepare_dataloaders(configs)
@@ -94,12 +93,11 @@ def main(dict_config, config_file_path):
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
 
-    """
     net, optimizer, train_dataloader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, scheduler
     )
 
-    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+    # net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
 
     net.to(accelerator.device)
 
@@ -109,14 +107,16 @@ def main(dict_config, config_file_path):
         if accelerator.is_main_process:
             logging.info('compile models is done')
 
+    """
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
     """
 
+    # Training loop
     loss = []
     epochs = []
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(net, train_dataloader, optimizer, epoch, configs)
+        train_loss = train_loop(net, train_dataloader, optimizer, epoch, configs, accelerator)
         loss.append(train_loss)
         epochs.append(epoch)
         """
