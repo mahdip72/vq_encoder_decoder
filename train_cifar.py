@@ -17,6 +17,21 @@ from torch.utils.data import DataLoader
 from box import Box
 
 
+def vqvae_loss(inputs, outputs, commit_loss, alpha):
+    """
+    Calculate the loss for a VQVAE model. Consider both the reconstruction loss
+    and commitment loss.
+    :param inputs: (torch.Tensor) input passed into the encoder
+    :param outputs: (torch.Tensor) output produced by the decoder
+    :param commit_loss: (torch.Tensor) the commitment loss of vector quantization
+    :param alpha: (float) weight of commitment loss compared to reconstruction loss
+    :return: (float) the combined loss calculated for VQVAE model
+    """
+    rec_loss = torch.nn.functional.l1_loss(inputs, outputs)
+    combined_loss = rec_loss + alpha * commit_loss
+    return combined_loss
+
+
 def train_loop(model, train_loader, optimizer, epoch, configs):
 
     alpha = configs.model.vector_quantization.alpha
@@ -26,7 +41,7 @@ def train_loop(model, train_loader, optimizer, epoch, configs):
     for i, (images, labels) in tqdm(enumerate(train_loader)):
         optimizer.zero_grad()
         outputs, indices, commit_loss = model(images)
-        loss = alpha * commit_loss
+        loss = vqvae_loss(images, outputs, commit_loss, alpha)
         loss.backward()
         total_loss += loss.item()
         optimizer.step()
