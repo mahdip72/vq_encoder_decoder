@@ -10,6 +10,7 @@ from accelerate import Accelerator
 from data.data_cifar import prepare_dataloaders
 from models.vqvae_model import prepare_models
 from tqdm import tqdm
+import os
 
 import torchvision
 import torchvision.transforms as transforms
@@ -120,7 +121,8 @@ def main(dict_config, config_file_path):
         train_loss = train_loop(net, train_dataloader, optimizer, scheduler, epoch, configs, accelerator)
         loss.append(train_loss)
         epochs.append(epoch)
-        """
+
+        # Save checkpoints
         if epoch % configs.checkpoints_every == 0:
             tools = dict()
             tools['net'] = net
@@ -129,12 +131,11 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
 
-            # Set the path to save the models checkpoint.
+            # Set the path to save the model's checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
-        """
 
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
