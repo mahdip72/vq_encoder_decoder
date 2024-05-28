@@ -133,9 +133,9 @@ def main(dict_config, config_file_path):
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
+        """
 
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
-        """
 
     # Plot loss across all epochs
     plt.plot(epochs, loss)
