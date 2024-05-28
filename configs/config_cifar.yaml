@@ -8,6 +8,7 @@ resume:
   resume: False
   resume_path: ./path/to/checkpoint.pth
   restart_optimizer: True
+  handle_shape_missmatch: False
 
 model:
   compile_model: False

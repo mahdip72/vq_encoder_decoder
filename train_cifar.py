@@ -99,7 +99,8 @@ def main(dict_config, config_file_path):
         net, optimizer, train_dataloader, scheduler
     )
 
-    # net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+    print("START", start_epoch)
 
     net.to(accelerator.device)
 
@@ -117,7 +118,7 @@ def main(dict_config, config_file_path):
     # Training loop
     loss = []
     epochs = []
-    for epoch in range(1, configs.train_settings.num_epochs + 1):
+    for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
         train_loss = train_loop(net, train_dataloader, optimizer, scheduler, epoch, configs, accelerator)
         loss.append(train_loss)
         epochs.append(epoch)
