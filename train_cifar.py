@@ -1,22 +1,152 @@
+import argparse
+import numpy as np
+import matplotlib.pyplot as plt
+import yaml
 import torch
+from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
+from utils.utils import load_checkpoints
+from utils.utils import get_dummy_logger
+from accelerate import Accelerator
+from data.data_cifar import prepare_dataloaders
+from models.vqvae_model import prepare_models
+from tqdm import tqdm
+
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from models.vqvae_model import VQVAE
+from box import Box
 
 
-def train(model, criterion, train_loader, optimizer, epochs):
-    for epoch in range(epochs):
-        for i, (images, labels) in enumerate(train_loader):
-            optimizer.zero_grad()
-            output = model(images)
-            loss = criterion(output, labels)
-            loss.backward()
-            optimizer.step()
+def train_loop(model, train_loader, optimizer, epoch, configs):
+
+    alpha = configs.model.vector_quantization.alpha
+
+    model.train()
+    total_loss = 0.0
+    for i, (images, labels) in tqdm(enumerate(train_loader)):
+        optimizer.zero_grad()
+        outputs, indices, commit_loss = model(images)
+        loss = alpha * commit_loss
+        loss.backward()
+        total_loss += loss.item()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    avg_loss = total_loss / len(train_loader)
+    return avg_loss
+
+
+def load_configs_cifar(configs):
+    """
+    Temporary function for loading CIFAR configs
+    """
+    tree_config = Box(config_file)
+
+    # Convert the necessary values to floats.
+    tree_config.optimizer.lr = float(tree_config.optimizer.lr)
+    tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
+    tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
+    tree_config.optimizer.eps = float(tree_config.optimizer.eps)
+
+    return tree_config
+
+
+def main(dict_config, config_file_path):
+    configs = load_configs_cifar(dict_config)
+
+    if isinstance(configs.fix_seed, int):
+        torch.manual_seed(configs.fix_seed)
+        torch.random.manual_seed(configs.fix_seed)
+        np.random.seed(configs.fix_seed)
+
+    """
+    result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
+    logging = get_logging(result_path)
+    """
+    logging = get_dummy_logger()
+
+    """
+    accelerator = Accelerator(
+        mixed_precision=configs.train_settings.mixed_precision,
+        gradient_accumulation_steps=configs.train_settings.grad_accumulation,
+        dispatch_batches=False
+    )
+    """
+    accelerator = Accelerator()
+
+    # Prepare dataloader, model, and optimizer
+    train_dataloader = prepare_dataloaders(configs)
+    logging.info('preparing dataloaders are done')
+    net = prepare_models(configs, logging, accelerator)
+    logging.info('preparing models is done')
+    optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
+    logging.info('preparing optimizer is done')
+
+    """
+    net, optimizer, train_dataloader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, scheduler
+    )
+
+    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+
+    net.to(accelerator.device)
+
+    # compile models to train faster and efficiently
+    if configs.model.compile_model:
+        net = torch.compile(net)
+        if accelerator.is_main_process:
+            logging.info('compile models is done')
+
+    # Initialize train and valid TensorBoards
+    train_writer, valid_writer = prepare_tensorboard(result_path)
+    """
+
+    loss = []
+    epochs = []
+    for epoch in range(1, configs.train_settings.num_epochs + 1):
+        train_loss = train_loop(net, train_dataloader, optimizer, epoch, configs)
+        loss.append(train_loss)
+        epochs.append(epoch)
+        """
+        if epoch % configs.checkpoints_every == 0:
+            tools = dict()
+            tools['net'] = net
+            tools['optimizer'] = optimizer
+            tools['scheduler'] = scheduler
+
+            accelerator.wait_for_everyone()
+
+            # Set the path to save the models checkpoint.
+            model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+            if accelerator.is_main_process:
+                logging.info(f'\tsaving the best models in {model_path}')
+
+        logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
+        """
+
+    # Plot loss across all epochs
+    plt.plot(epochs, loss)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.show()
+
+    print("Training complete!")
 
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
+    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_cifar.yaml')
+    args = parser.parse_args()
+    config_path = args.config_path
+
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+
+    main(config_file, config_path)
+
+    """
     # Normalize data to be in the range [-1.0, 1.0]
     transform = transforms.Compose(
         [transforms.ToTensor(),
@@ -25,3 +155,4 @@ if __name__ == "__main__":
     # Load CIFAR dataset
     trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform)
     trainloader = DataLoader(trainset, batch_size=1, shuffle=True, num_workers=2)
+    """
