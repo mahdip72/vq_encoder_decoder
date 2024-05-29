@@ -10,7 +10,8 @@ from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
 from data.dataset import prepare_dataloaders
 # from models.models import prepare_models
-from models.gvp_vqvae import prepare_models_gvp_vqvae, prepare_models_vqvae
+from models.gvp_vqvae import prepare_models_gvp_vqvae
+from models.vqvae import prepare_models_vqvae
 from tqdm import tqdm
 
 
