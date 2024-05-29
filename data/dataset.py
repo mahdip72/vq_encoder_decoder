@@ -193,7 +193,7 @@ class GVPDataset(Dataset):
         self.processor = Protein3DProcessing()
 
         # Load saved pca and scaler models for processing
-        self.processor.load_normalizer(kwargs['configs'].normalizer_path)  # todo: load directory from config
+        self.processor.load_normalizer(kwargs['configs'].normalizer_path)
 
     @staticmethod
     def normalize_coords(coords: torch.Tensor, divisor: int) -> torch.Tensor:
