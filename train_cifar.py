@@ -70,6 +70,18 @@ def load_configs_cifar(configs):
     return tree_config
 
 
+def plot_loss(epochs, loss):
+    """
+    Make a plot with loss on the y-axis and epochs on the x-axis.
+    :param epochs: list of epoch numbers
+    :param loss: list of loss values
+    """
+    plt.plot(epochs, loss)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.show()
+
+
 def main(dict_config, config_file_path):
     configs = load_configs_cifar(dict_config)
 
@@ -140,13 +152,9 @@ def main(dict_config, config_file_path):
         logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     # Plot loss across all epochs
-    plt.plot(epochs, loss)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.show()
+    plot_loss(epochs, loss)
 
     logging.info('Training complete!')
-    print('Training complete!')
 
 
 if __name__ == "__main__":
