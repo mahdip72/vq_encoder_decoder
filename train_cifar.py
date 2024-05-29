@@ -59,6 +59,7 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
             + f"Cmt Loss: {commit_loss.item():.3f} | "
             + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
 
+    # todo: check if this is correct with gradient accumulation
     avg_loss = total_loss / len(train_loader)
     avg_rec_loss = total_rec_loss / len(train_loader)
     avg_cmt_loss = total_cmt_loss / len(train_loader)
