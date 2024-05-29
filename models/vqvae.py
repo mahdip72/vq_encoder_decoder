@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch
 from vector_quantize_pytorch import VectorQuantize
-from gvp.models import GVPEncoder
 from utils.utils import print_trainable_parameters
 
 
