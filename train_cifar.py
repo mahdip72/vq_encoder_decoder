@@ -114,7 +114,9 @@ def main(dict_config, config_file_path):
         net, optimizer, train_dataloader, scheduler
     )
 
-    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+    # Load checkpoints if needed
+    with accelerator.main_process_first:
+        net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
 
     net.to(accelerator.device)
 
@@ -145,7 +147,6 @@ def main(dict_config, config_file_path):
             tools['scheduler'] = scheduler
 
             accelerator.wait_for_everyone()
-
             # Set the path to save the model's checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
             if accelerator.is_main_process:
