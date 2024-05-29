@@ -101,7 +101,7 @@ class VQVAE3D(nn.Module):
 
 def prepare_models_vqvae(configs, logger, accelerator):
     vqvae = VQVAE3D(
-        input_dim=200,
+        input_dim=configs.model.vqvae.vector_quantization.dim*2,
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
