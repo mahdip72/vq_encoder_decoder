@@ -115,8 +115,7 @@ def main(dict_config, config_file_path):
     )
 
     # Load checkpoints if needed
-    with accelerator.main_process_first:
-        net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
 
     net.to(accelerator.device)
 
