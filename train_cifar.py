@@ -89,18 +89,17 @@ def main(dict_config, config_file_path):
 
     # Prepare dataloader, model, and optimizer
     train_dataloader = prepare_dataloaders(configs)
-    logging.info('preparing dataloaders are done')
+    logging.info('Finished preparing dataloaders')
     net = prepare_models(configs, logging, accelerator)
-    logging.info('preparing models is done')
+    logging.info('Finished preparing models')
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
-    logging.info('preparing optimizer is done')
+    logging.info('Finished preparing optimizer')
 
     net, optimizer, train_dataloader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, scheduler
     )
 
     net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
-    print("START", start_epoch)
 
     net.to(accelerator.device)
 
@@ -108,7 +107,7 @@ def main(dict_config, config_file_path):
     if configs.model.compile_model:
         net = torch.compile(net)
         if accelerator.is_main_process:
-            logging.info('compile models is done')
+            logging.info('Finished compiling models')
 
     """
     # Initialize train and valid TensorBoards
@@ -146,7 +145,8 @@ def main(dict_config, config_file_path):
     plt.ylabel('Loss')
     plt.show()
 
-    print("Training complete!")
+    logging.info('Training complete!')
+    print('Training complete!')
 
 
 if __name__ == "__main__":
