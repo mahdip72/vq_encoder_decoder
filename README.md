@@ -22,11 +22,31 @@ Then, run the following command to install the required packages inside the cond
 bash install.sh
 ```
 
+### Training
+
+To utilize the accelerator power in you training code such as distributed multi GPU training, 
+you have to set the accelerator config by running accelerate config in the command line. Then, you have to set
+the training settings and hyperparameters inside your target task `configs/config_{task}.yaml` file. Finally,
+you can start your training for downstream tasks using a config file from configs by running the following command:
+```commandline
+accelerate launch train.py --config_path configs/config_file.yaml
+```
+
+Examples
+```commandline
+accelerate launch train_cifar.py --config_path configs/config_cifar.yaml
+```
+
+You might not use accelerator to run the train.py script if you just want to debug your script on single GPU.
+If so, simply after setting the config.yaml file, run the code like `python train.py`.
+It should be noted that accelerate library supports both single gpu and distributed training.
+So, you can use it for your final training.
+
 ## To Do
 - [x] Connect the config file to the VQ model
 - [x] Connect GVP model to the config file
 - [x] Add the evaluation code to fashionMNIST dataset
+- [x] Create the main VQ model with the GVP encoder and a decoder
 - [ ] Add contact map dataloader to the project
 - [ ] Add and test the LFQ model as an option
 - [ ] Add other features of accelerate training to the project
-- [x] Create the main VQ model with the GVP encoder and a decoder
