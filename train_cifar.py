@@ -96,6 +96,9 @@ def main(dict_config, config_file_path):
     result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
     logging = get_logging(result_path)
 
+    # Initialize train and valid TensorBoards
+    train_writer, valid_writer = prepare_tensorboard(result_path)
+
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
@@ -125,11 +128,6 @@ def main(dict_config, config_file_path):
         if accelerator.is_main_process:
             logging.info('Finished compiling models')
 
-    """
-    # Initialize train and valid TensorBoards
-    train_writer, valid_writer = prepare_tensorboard(result_path)
-    """
-
     # Training loop
     loss = []
     epochs = []
@@ -140,11 +138,6 @@ def main(dict_config, config_file_path):
 
         # Save checkpoints
         if epoch % configs.checkpoints_every == 0:
-            tools = dict()
-            tools['net'] = net
-            tools['optimizer'] = optimizer
-            tools['scheduler'] = scheduler
-
             accelerator.wait_for_everyone()
             # Set the path to save the model's checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
@@ -154,6 +147,11 @@ def main(dict_config, config_file_path):
 
         if accelerator.is_main_process:
             logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
+            train_writer.add_scalar('Train/Combined Loss', train_loss, epoch)
+            train_writer.flush()
+
+    train_writer.close()
+    valid_writer.close()
 
     if accelerator.is_main_process:
         # Plot loss across all epochs
