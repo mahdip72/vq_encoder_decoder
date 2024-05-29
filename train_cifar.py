@@ -25,6 +25,8 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
 
     model.train()
     total_loss = 0.0
+    total_rec_loss = 0.0
+    total_cmt_loss = 0.0
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
 
     for images, labels in pbar:
@@ -45,9 +47,12 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
             scheduler.step()
             optimizer.zero_grad()
 
-        # Print loss for each epoch
+        # Keep track of total combined loss, total reconstruction loss, and total commit loss
         total_loss += loss.item()
+        total_rec_loss += rec_loss.item()
+        total_cmt_loss += commit_loss.item()
         batch_avg_loss = total_loss / (pbar.n + 1)
+
         pbar.set_description(
             f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
             + f"Rec Loss: {rec_loss.item():.3f} | "
@@ -55,7 +60,10 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
             + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
 
     avg_loss = total_loss / len(train_loader)
-    return avg_loss
+    avg_rec_loss = total_rec_loss / len(train_loader)
+    avg_cmt_loss = total_cmt_loss / len(train_loader)
+
+    return avg_loss, avg_rec_loss, avg_cmt_loss
 
 
 def load_configs_cifar(configs):
