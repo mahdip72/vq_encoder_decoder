@@ -8,7 +8,7 @@ from utils.utils import load_checkpoints
 from utils.utils import get_dummy_logger
 from accelerate import Accelerator
 from data.data_cifar import prepare_dataloaders
-from models.vqvae_model import prepare_models
+from models.vqvae_cifar import prepare_models
 from tqdm import tqdm
 import os
 
