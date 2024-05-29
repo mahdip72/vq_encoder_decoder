@@ -3,6 +3,7 @@ checkpoints_every: 32
 tensorboard_log: True
 tqdm_progress_bar: True
 result_path: ./results/gvp
+normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
 resume:
   resume: False
@@ -32,7 +33,7 @@ model:
   vqvae:
     vector_quantization:
       dim: 64
-      codebook_size: 64
+      codebook_size: 128
       decay: 0.8
       commitment_weight : 1.0
       alpha: 2.0
@@ -64,7 +65,7 @@ train_settings:
   batch_size: 64
   num_workers: 0
   grad_accumulation: 1
-  max_task_samples: 1000000
+  max_task_samples: 100000
 
 valid_settings:
   data_path: H:\Datasets\Joint_training
