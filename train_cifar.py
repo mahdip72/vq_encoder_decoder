@@ -25,22 +25,25 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
 
     model.train()
     total_loss = 0.0
-    pbar = tqdm(enumerate(train_loader), desc=f"Training Epoch {epoch}")
+    pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
 
-    for i, (images, labels) in pbar:
-        optimizer.zero_grad()
-        outputs, indices, commit_loss = model(images)
+    for images, labels in pbar:
+        loss = torch.Tensor(0)
 
-        # Consider both reconstruction loss and commit loss
-        rec_loss = torch.nn.functional.l1_loss(images, outputs)
-        loss = rec_loss + alpha * commit_loss
-        accelerator.backward(loss)
-        if accelerator.sync_gradients:
-            accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
+        # Train with gradient accumulation
+        with accelerator.accumulate(model):
+            outputs, indices, commit_loss = model(images)
 
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
+            # Consider both reconstruction loss and commit loss
+            rec_loss = torch.nn.functional.l1_loss(images, outputs)
+            loss = rec_loss + alpha * commit_loss
+            accelerator.backward(loss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
+
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
 
         # Print loss for each epoch
         total_loss += loss.item()
