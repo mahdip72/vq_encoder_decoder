@@ -140,7 +140,7 @@ def main(dict_config, config_file_path):
     loss = []
     epochs = []
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(net, train_dataloader, optimizer, scheduler, epoch, configs, accelerator)
+        train_loss, train_rec_loss, train_cmt_loss = train_loop(net, train_dataloader, optimizer, scheduler, epoch, configs, accelerator)
         loss.append(train_loss)
         epochs.append(epoch)
 
@@ -156,6 +156,8 @@ def main(dict_config, config_file_path):
         if accelerator.is_main_process:
             logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
             train_writer.add_scalar('Train/Combined Loss', train_loss, epoch)
+            train_writer.add_scalar('Train/Reconstruction Loss', train_rec_loss, epoch)
+            train_writer.add_scalar('Train/Commitment Loss', train_cmt_loss, epoch)
             train_writer.flush()
 
     train_writer.close()
