@@ -148,11 +148,12 @@ def main(dict_config, config_file_path):
 
             # Set the path to save the model's checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
-            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
+                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
                 logging.info(f'\tsaving the best models in {model_path}')
 
-        logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
+        if accelerator.is_main_process:
+            logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
     # Plot loss across all epochs
     plot_loss(epochs, loss)
