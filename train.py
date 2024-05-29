@@ -49,6 +49,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         accelerator.backward(loss)
         if accelerator.sync_gradients:
             accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
+
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
@@ -66,8 +67,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
 
     avg_loss = total_loss / len(train_loader)
+    avg_rec_loss = total_rec_loss / len(train_loader)
+    avg_cmt_loss = total_cmt_loss / len(train_loader)
 
-    return avg_loss, total_rec_loss, total_cmt_loss
+    return avg_loss, avg_rec_loss, avg_cmt_loss
 
 
 def main(dict_config, config_file_path):
@@ -133,6 +136,7 @@ def main(dict_config, config_file_path):
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
+
         if accelerator.is_main_process:
             logging.info(
                 f'Epoch {epoch}: Train Loss: {train_loss:.4f}, Rec Loss: {train_rec_loss:.4f}, Cmt Loss: {train_cmt_loss:.4f}')
