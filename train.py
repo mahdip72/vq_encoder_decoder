@@ -3,7 +3,8 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
+from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, \
+    save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
@@ -26,18 +27,20 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
     net.train()
     total_loss = 0.0
+    total_rec_loss = 0.0
+    total_cmt_loss = 0.0
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
     for data in pbar:
         labels = data['coords']
         masks = data['masks']
         optimizer.zero_grad()
-        outputs, indices, cmt_loss = net(data)
+        outputs, indices, commit_loss = net(data)
 
         masked_outputs = outputs[masks]
         masked_labels = labels[masks]
         rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
 
-        loss = rec_loss + alpha * cmt_loss
+        loss = rec_loss + alpha * commit_loss
 
         # Gather the losses across all processes for logging (if we use distributed training).
         # avg_loss = accelerator.gather(loss.repeat(kwargs['configs'].train_settings.train_batch_size)).mean()
@@ -50,17 +53,21 @@ def train_loop(net, train_loader, epoch, **kwargs):
         scheduler.step()
         optimizer.zero_grad()
 
+        # Keep track of total combined loss, total reconstruction loss, and total commit loss
         total_loss += loss.item()
+        total_rec_loss += rec_loss.item()
+        total_cmt_loss += commit_loss.item()
         batch_avg_loss = total_loss / (pbar.n + 1)
+
         pbar.set_description(
             f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
             + f"Rec Loss: {rec_loss.item():.3f} | "
-            + f"Cmt Loss: {cmt_loss.item():.3f} | "
+            + f"Cmt Loss: {commit_loss.item():.3f} | "
             + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
 
     avg_loss = total_loss / len(train_loader)
 
-    return avg_loss
+    return avg_loss, total_rec_loss, total_cmt_loss
 
 
 def main(dict_config, config_file_path):
@@ -108,9 +115,10 @@ def main(dict_config, config_file_path):
     train_writer, valid_writer = prepare_tensorboard(result_path)
 
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss = train_loop(net, train_dataloader, epoch,
-                                accelerator=accelerator, optimizer=optimizer, scheduler=scheduler, configs=configs,
-                                logging=logging, train_writer=train_writer)
+        train_loss, train_rec_loss, train_cmt_loss = train_loop(net, train_dataloader, epoch,
+                                                                accelerator=accelerator, optimizer=optimizer,
+                                                                scheduler=scheduler, configs=configs,
+                                                                logging=logging, train_writer=train_writer)
 
         if epoch % configs.checkpoints_every == 0:
             tools = dict()
@@ -125,8 +133,9 @@ def main(dict_config, config_file_path):
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
-
-        logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
+        if accelerator.is_main_process:
+            logging.info(
+                f'Epoch {epoch}: Train Loss: {train_loss:.4f}, Rec Loss: {train_rec_loss:.4f}, Cmt Loss: {train_cmt_loss:.4f}')
 
     print("Training complete!")
 
