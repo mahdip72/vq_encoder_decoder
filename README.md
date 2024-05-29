@@ -22,17 +22,21 @@ Then, run the following command to install the required packages inside the cond
 bash install.sh
 ```
 
-### Training
+## Training
 
 To utilize the accelerator power in you training code such as distributed multi GPU training, 
-you have to set the accelerator config by running accelerate config in the command line. Then, you have to set
+you have to set the accelerator config by running accelerate config in the command line:
+```commandline
+accelerate config
+```
+This command will create an accelerate config file in your environment. Then, you have to set
 the training settings and hyperparameters inside your target task `configs/config_{task}.yaml` file. Finally,
-you can start your training for downstream tasks using a config file from configs by running the following command:
+you can start your training using a config file from configs by running the following command:
 ```commandline
 accelerate launch train.py --config_path configs/config_file.yaml
 ```
 
-Examples
+Example:
 ```commandline
 accelerate launch train_cifar.py --config_path configs/config_cifar.yaml
 ```
