@@ -155,10 +155,10 @@ def main(dict_config, config_file_path):
         if accelerator.is_main_process:
             logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
 
-    # Plot loss across all epochs
-    plot_loss(epochs, loss)
-
-    logging.info('Training complete!')
+    if accelerator.is_main_process:
+        # Plot loss across all epochs
+        plot_loss(epochs, loss)
+        logging.info('Training complete!')
 
 
 if __name__ == "__main__":
