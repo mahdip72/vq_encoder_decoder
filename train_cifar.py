@@ -28,7 +28,6 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
     pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
 
     for images, labels in pbar:
-        loss = torch.Tensor(0)
 
         # Train with gradient accumulation
         with accelerator.accumulate(model):
@@ -37,6 +36,7 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
             # Consider both reconstruction loss and commit loss
             rec_loss = torch.nn.functional.l1_loss(images, outputs)
             loss = rec_loss + alpha * commit_loss
+
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
@@ -62,7 +62,7 @@ def load_configs_cifar(configs):
     """
     Temporary function for loading CIFAR configs
     """
-    tree_config = Box(config_file)
+    tree_config = Box(configs)
 
     # Convert the necessary values to floats.
     tree_config.optimizer.lr = float(tree_config.optimizer.lr)
