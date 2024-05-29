@@ -10,7 +10,7 @@ from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
 from data.dataset import prepare_dataloaders
 # from models.models import prepare_models
-from models.gvp_vqvae import prepare_models
+from models.gvp_vqvae import prepare_models_gvp_vqvae, prepare_models_vqvae
 from tqdm import tqdm
 
 
@@ -94,7 +94,10 @@ def main(dict_config, config_file_path):
     train_dataloader = prepare_dataloaders(logging, accelerator, configs)
     logging.info('preparing dataloaders are done')
 
-    net = prepare_models(configs, logging, accelerator)
+    if configs.model.struct_encoder.enable:
+        net = prepare_models_gvp_vqvae(configs, logging, accelerator)
+    else:
+        net = prepare_models_vqvae(configs, logging, accelerator)
     logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)

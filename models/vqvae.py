@@ -100,7 +100,7 @@ class VQVAE3D(nn.Module):
         return x, indices, commit_loss
 
 
-def prepare_models_vae(configs, logger, accelerator):
+def prepare_models_vqvae(configs, logger, accelerator):
     vqvae = VQVAE3D(
         input_dim=200,
         latent_dim=configs.model.vqvae.vector_quantization.dim,
@@ -133,7 +133,7 @@ if __name__ == '__main__':
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
 
-    test_model = prepare_models_vae(test_configs, test_logger, accelerator)
+    test_model = prepare_models_vqvae(test_configs, test_logger, accelerator)
     # print(test_model)
     print("Model loaded successfully!")
 
@@ -152,7 +152,6 @@ if __name__ == '__main__':
     struct_embeddings = []
     test_model.eval()
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
-        graph = batch["graph"]
         output, _, _ = test_model(batch)
         print(output.shape)
         break
