@@ -144,9 +144,7 @@ class GVPVQVAE(nn.Module):
         return x, indices, commit_loss
 
 
-def prepare_models(configs, logger, accelerator):
-    from torchsummary import summary
-
+def prepare_models_gvp_vqvae(configs, logger, accelerator):
     gvp = GVPEncoder(configs=configs)
     vqvae = VQVAE(
         input_dim=configs.model.struct_encoder.node_h_dim[0],
@@ -158,7 +156,7 @@ def prepare_models(configs, logger, accelerator):
     gvp_vqvae = GVPVQVAE(gvp, vqvae, configs)
 
     if accelerator.is_main_process:
-        print_trainable_parameters(gvp_vqvae, logger, 'VQ-VAE')
+        print_trainable_parameters(gvp_vqvae, logger, 'GVP-VQ-VAE')
 
     return gvp_vqvae
 
@@ -181,19 +179,19 @@ if __name__ == '__main__':
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
 
-    test_model = prepare_models(test_configs, test_logger, accelerator)
+    test_model = prepare_models_gvp_vqvae(test_configs, test_logger, accelerator)
     # print(test_model)
     print("Model loaded successfully!")
 
     dataset = GVPDataset(test_configs.train_settings.data_path,
-                                  seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
-                                  use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
-                                  use_foldseek=test_configs.model.struct_encoder.use_foldseek,
-                                  use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
-                                  top_k=test_configs.model.struct_encoder.top_k,
-                                  num_rbf=test_configs.model.struct_encoder.num_rbf,
-                                  num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
-                                  configs=test_configs)
+                         seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
+                         use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
+                         use_foldseek=test_configs.model.struct_encoder.use_foldseek,
+                         use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
+                         top_k=test_configs.model.struct_encoder.top_k,
+                         num_rbf=test_configs.model.struct_encoder.num_rbf,
+                         num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
+                         configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
                              collate_fn=custom_collate)
