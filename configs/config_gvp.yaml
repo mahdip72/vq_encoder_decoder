@@ -14,6 +14,7 @@ model:
   compile_model: False
   max_length: 1024
   struct_encoder:
+    enable: False
     use_rotary_embeddings: True
     use_foldseek: True
     use_foldseek_vector: True
@@ -62,8 +63,8 @@ train_settings:
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 64
-  num_workers: 0
+  batch_size: 256
+  num_workers: 8
   grad_accumulation: 1
   max_task_samples: 100000
 
