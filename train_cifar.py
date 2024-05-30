@@ -22,30 +22,37 @@ def train_loop(model, train_loader, epoch, **kwargs):
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
-    alpha = configs.model.vector_quantization.alpha
-    codebook_size = configs.model.vector_quantization.codebook_size
 
     optimizer.zero_grad()
 
     model.train()
+    train_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    pbar = tqdm(train_loader)
+    counter = 0
+    global_step = kwargs.get('global_step', 0)
 
-    # Hide tqdm printed output for all processes other than the main process
-    if not accelerator.is_main_process:
-        pbar.disable = True
+    # Initialize the progress bar using tqdm
+    progress_bar = tqdm(range(0, int(np.ceil(len(train_loader) / accum_iter))),
+                        leave=False, disable=not accelerator.is_main_process)
+    progress_bar.set_description(f"Epoch {epoch}")
 
-    for images, labels in pbar:
+    # Training loop
+    for images, labels in train_loader:
 
         # Train with gradient accumulation
         with accelerator.accumulate(model):
+            optimizer.zero_grad()
             outputs, indices, commit_loss = model(images)
 
             # Consider both reconstruction loss and commit loss
             rec_loss = torch.nn.functional.l1_loss(images, outputs)
             loss = rec_loss + alpha * commit_loss
+
+            # Gather the losses across all processes for logging (if we use distributed training).
+            avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
+            train_loss += avg_loss.item() / accum_iter
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -55,24 +62,46 @@ def train_loop(model, train_loader, epoch, **kwargs):
             scheduler.step()
             optimizer.zero_grad()
 
-        # Keep track of total combined loss, total reconstruction loss, and total commit loss
-        total_loss += loss.item()
-        total_rec_loss += rec_loss.item()
-        total_cmt_loss += commit_loss.item()
-        batch_avg_loss = total_loss / (pbar.n + 1)
+        if accelerator.sync_gradients:
+            progress_bar.update(1)
+            global_step += 1
+            counter += 1
 
-        pbar.set_description(
-            f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
-            + f"Rec Loss: {rec_loss.item():.3f} | "
-            + f"Cmt Loss: {commit_loss.item():.3f} | "
-            + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
+            # Keep track of total combined loss, total reconstruction loss, and total commit loss
+            total_loss += loss.item()
+            total_rec_loss += rec_loss.item()
+            total_cmt_loss += commit_loss.item()
+            train_loss = 0
+            batch_avg_loss = total_loss / (progress_bar.n + 1)
 
-    # todo: check if this is correct with gradient accumulation
-    avg_loss = total_loss / len(train_loader)
-    avg_rec_loss = total_rec_loss / len(train_loader)
-    avg_cmt_loss = total_cmt_loss / len(train_loader)
+            progress_bar.set_description(f"epoch {epoch} "
+                                         + f"[loss: {total_loss / counter:.3f}, "
+                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
-    return avg_loss, avg_rec_loss, avg_cmt_loss
+        progress_bar.set_postfix(
+            {
+                "lr": optimizer.param_groups[0]['lr'],
+                "step_loss": loss.detach().item(),
+                "rec_loss": rec_loss.detach().item(),
+                "cmt_loss": commit_loss.detach().item(),
+                "activation": indices.unique().numel() / codebook_size * 100,
+                "global_step": global_step
+            }
+        )
+
+    avg_loss = total_loss / counter
+    avg_rec_loss = total_rec_loss / counter
+    avg_cmt_loss = total_cmt_loss / counter
+
+    return_dict = {
+        "loss": avg_loss,
+        "rec_loss": avg_rec_loss,
+        "cmt_loss": avg_cmt_loss,
+        "counter": counter,
+        "global_step": global_step
+    }
+    return return_dict
 
 
 def load_configs_cifar(configs):
