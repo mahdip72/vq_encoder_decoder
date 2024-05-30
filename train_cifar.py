@@ -125,10 +125,8 @@ def main(dict_config, config_file_path):
         np.random.seed(configs.fix_seed)
 
     result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
-    logging = get_logging(result_path)
 
-    # Initialize train and valid TensorBoards
-    train_writer, valid_writer = prepare_tensorboard(result_path)
+    logging = get_logging(result_path)
 
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
@@ -164,42 +162,55 @@ def main(dict_config, config_file_path):
         if accelerator.is_main_process:
             logging.info('Finished compiling models')
 
+    # Initialize train and valid TensorBoards
+    train_writer, valid_writer = prepare_tensorboard(result_path)
+
+    # Log number of train steps per epoch
+    if accelerator.is_main_process:
+        train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
+        logging.info(f'Number of train steps per epoch: {int(train_steps)}')
+
     # Training loop
-    loss = []
-    epochs = []
+    # Keep track of global step across all processes; useful for continuing training from a checkpoint.
     global_step=0
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
-        train_loss, train_rec_loss, train_cmt_loss = train_loop(net, train_dataloader, epoch,
+        training_loop_reports = train_loop(net, train_dataloader, epoch,
                                                                 accelerator=accelerator,
                                                                 optimizer=optimizer,
                                                                 scheduler=scheduler, configs=configs,
                                                                 logging=logging, global_step=global_step,
                                                                 train_writer=train_writer)
-        loss.append(train_loss)
-        epochs.append(epoch)
+
+        if accelerator.is_main_process:
+            logging.info(
+                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - '
+                f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
+                f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
+                f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
+
+        global_step = training_loop_reports["global_step"]
 
         # Save checkpoints
         if epoch % configs.checkpoints_every == 0:
             accelerator.wait_for_everyone()
             # Set the path to save the model's checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+
             if accelerator.is_main_process:
                 save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
                 logging.info(f'\tsaving the best models in {model_path}')
 
+        # Add Losses to TensorBoard
         if accelerator.is_main_process:
-            logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}')
-            train_writer.add_scalar('Train/Combined Loss', train_loss, epoch)
-            train_writer.add_scalar('Train/Reconstruction Loss', train_rec_loss, epoch)
-            train_writer.add_scalar('Train/Commitment Loss', train_cmt_loss, epoch)
+            train_writer.add_scalar('Train/Combined Loss', training_loop_reports['loss'], epoch)
+            train_writer.add_scalar('Train/Reconstruction Loss', training_loop_reports["rec_loss"], epoch)
+            train_writer.add_scalar('Train/Commitment Loss', training_loop_reports["cmt_loss"], epoch)
             train_writer.flush()
 
     train_writer.close()
     valid_writer.close()
 
     if accelerator.is_main_process:
-        # Plot loss across all epochs
-        plot_loss(epochs, loss)
         logging.info('Training complete!')
 
 
