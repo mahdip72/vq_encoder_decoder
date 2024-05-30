@@ -132,7 +132,6 @@ def main(dict_config, config_file_path):
     else:
         train_dataloader = prepare_vqvae_dataloaders(logging, accelerator, configs)
 
-    # train_dataloader = prepare_dataloaders(logging, accelerator, configs)
     logging.info('preparing dataloaders are done')
 
     if getattr(configs.model, "struct_encoder", False):
