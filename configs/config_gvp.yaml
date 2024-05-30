@@ -33,27 +33,23 @@ model:
       last_layers_trainable: 2
   vqvae:
     vector_quantization:
-      dim: 64
-      codebook_size: 128
+      dim: 128
+      codebook_size: 256
       decay: 0.8
       commitment_weight : 1.0
       alpha: 2.0
-
-#  transformer_encoder:
-#    dimension: 480
-#    dim_feedforward: 960
-#    num_heads: 8
-#    num_layers: 8
-#    max_len: 512
-#    activation_function: gelu
-#
-#  transformer_decoder:
-#    dimension: 480
-#    dim_feedforward: 960
-#    num_heads: 8
-#    num_layers: 8
-#    max_len: 512
-#    activation_function: gelu
+    encoder:
+      dimension: 320
+      dim_feedforward: 640
+      num_heads: 4
+      num_layers: 4
+      activation_function: gelu
+    decoder:
+      dimension: 320
+      dim_feedforward: 640
+      num_heads: 4
+      num_layers: 4
+      activation_function: gelu
 
 train_settings:
   data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
@@ -64,7 +60,7 @@ train_settings:
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
   batch_size: 256
-  num_workers: 8
+  num_workers: 6
   grad_accumulation: 1
   max_task_samples: 100000
 
@@ -77,7 +73,7 @@ valid_settings:
 
 optimizer:
   name: adam
-  lr: 1e-3
+  lr: 1e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -87,6 +83,6 @@ optimizer:
   grad_clip_norm: 1
   decay:
     warmup: 0
-    min_lr: 1e-5
+    min_lr: 5e-6
     gamma: 0.2
     num_restarts: 1
