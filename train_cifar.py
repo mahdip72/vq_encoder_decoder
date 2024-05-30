@@ -13,10 +13,19 @@ import os
 from box import Box
 
 
-def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accelerator):
-
+def train_loop(model, train_loader, epoch, **kwargs):
+    accelerator = kwargs.pop('accelerator')
+    optimizer = kwargs.pop('optimizer')
+    scheduler = kwargs.pop('scheduler')
+    logging = kwargs.pop('logging')
+    configs = kwargs.pop('configs')
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
+    accum_iter = configs.train_settings.grad_accumulation
+    alpha = configs.model.vector_quantization.alpha
+    codebook_size = configs.model.vector_quantization.codebook_size
+
+    optimizer.zero_grad()
 
     model.train()
     total_loss = 0.0
@@ -144,8 +153,14 @@ def main(dict_config, config_file_path):
     # Training loop
     loss = []
     epochs = []
+    global_step=0
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
-        train_loss, train_rec_loss, train_cmt_loss = train_loop(net, train_dataloader, optimizer, scheduler, epoch, configs, accelerator)
+        train_loss, train_rec_loss, train_cmt_loss = train_loop(net, train_dataloader, epoch,
+                                                                accelerator=accelerator,
+                                                                optimizer=optimizer,
+                                                                scheduler=scheduler, configs=configs,
+                                                                logging=logging, global_step=global_step,
+                                                                train_writer=train_writer)
         loss.append(train_loss)
         epochs.append(epoch)
 
