@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 32
 tensorboard_log: True
 tqdm_progress_bar: True
-result_path: ./results/gvp
+result_path: ./results/vqvae
 normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
 resume:
@@ -13,24 +13,6 @@ resume:
 model:
   compile_model: False
   max_length: 1024
-  struct_encoder:
-    enable: False
-    use_rotary_embeddings: True
-    use_foldseek: True
-    use_foldseek_vector: True
-    gvp_num_layers: 3
-    top_k: 30 #default 30 The number of edges to draw per node (as destination node).
-    num_rbf: 16   #default 16
-    num_positional_embeddings: 16  #default 16
-    node_h_dim: (100,32) #default (100,32)
-    edge_h_dim: (32,1)   #default (32,1)
-    use_seq:
-       enable: False
-       seq_embed_mode: "embedding" #"embedding","ESM2"
-       seq_embed_dim: 20 #1280 for ESM2
-    fine_tune:
-      enable: False
-      last_layers_trainable: 2
   vqvae:
     vector_quantization:
       dim: 64
@@ -40,8 +22,16 @@ model:
       alpha: 1.0
     encoder:
       dimension: 320
+      dim_feedforward: 480
+      num_heads: 4
+      num_layers: 6
+      activation_function: gelu
     decoder:
       dimension: 320
+      dim_feedforward: 480
+      num_heads: 4
+      num_layers: 6
+      activation_function: gelu
 
 train_settings:
   data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
