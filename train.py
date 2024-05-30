@@ -36,9 +36,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
     global_step = kwargs.get('global_step', 0)
 
     # Initialize the progress bar using tqdm
-    progress_bar = tqdm(range(global_step, int(np.ceil(len(train_loader) / accum_iter))),
+    progress_bar = tqdm(range(0, int(np.ceil(len(train_loader) / accum_iter))),
                         leave=False, disable=not accelerator.is_main_process)
-    progress_bar.set_description(f"Epoch: {epoch} - Steps")
+    progress_bar.set_description(f"Epoch {epoch}")
 
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
@@ -76,8 +76,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_cmt_loss += commit_loss.item()
             train_loss = 0
 
-            progress_bar.set_description(f"Epoch: {epoch} - Steps ["
-                                         + f"loss: {total_loss / counter:.3f}, "
+            progress_bar.set_description(f"epoch {epoch} "
+                                         + f"[loss: {total_loss / counter:.3f}, "
                                          + f"rec loss: {total_rec_loss / counter:.3f}, "
                                          + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
@@ -96,7 +96,14 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
-    return avg_loss, avg_rec_loss, avg_cmt_loss, counter
+    return_dict = {
+        "loss": avg_loss,
+        "rec_loss": avg_rec_loss,
+        "cmt_loss": avg_cmt_loss,
+        "counter": counter,
+        "global_step": global_step
+    }
+    return return_dict
 
 
 def main(dict_config, config_file_path):
@@ -155,16 +162,24 @@ def main(dict_config, config_file_path):
         train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
         logging.info(f'number of train steps per epoch: {int(train_steps)}')
 
+    # Use this to keep track of the global step across all processes.
+    # This is useful for continuing training from a checkpoint.
+    global_step = 0
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss, train_rec_loss, train_cmt_loss, train_counter = train_loop(net, train_dataloader, epoch,
-                                                                               accelerator=accelerator,
-                                                                               optimizer=optimizer,
-                                                                               scheduler=scheduler, configs=configs,
-                                                                               logging=logging,
-                                                                               train_writer=train_writer)
+        training_loop_reports = train_loop(net, train_dataloader, epoch,
+                                           accelerator=accelerator,
+                                           optimizer=optimizer,
+                                           scheduler=scheduler, configs=configs,
+                                           logging=logging, global_step=global_step,
+                                           train_writer=train_writer)
         if accelerator.is_main_process:
             logging.info(
-                f'Epoch {epoch} - {train_counter} steps: loss {train_loss:.4f}, rec loss {train_rec_loss:.4f}, cmt loss: {train_cmt_loss:.4f}')
+                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - '
+                f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
+                f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
+                f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
+
+        global_step = training_loop_reports["global_step"]
 
         if epoch % configs.checkpoints_every == 0:
             tools = dict()
