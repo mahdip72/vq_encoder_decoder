@@ -30,7 +30,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
+    pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}", leave=False)
     for data in pbar:
         labels = data['coords']
         masks = data['masks']
