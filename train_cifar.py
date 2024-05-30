@@ -1,6 +1,5 @@
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
 import yaml
 import torch
 from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
@@ -10,14 +9,12 @@ from data.data_cifar import prepare_dataloaders
 from models.vqvae_cifar import prepare_models
 from tqdm import tqdm
 import os
-from box import Box
 
 
 def train_loop(model, train_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
-    logging = kwargs.pop('logging')
     configs = kwargs.pop('configs')
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
@@ -72,7 +69,6 @@ def train_loop(model, train_loader, epoch, **kwargs):
             total_rec_loss += rec_loss.item()
             total_cmt_loss += commit_loss.item()
             train_loss = 0
-            batch_avg_loss = total_loss / (progress_bar.n + 1)
 
             progress_bar.set_description(f"epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "
@@ -102,18 +98,6 @@ def train_loop(model, train_loader, epoch, **kwargs):
         "global_step": global_step
     }
     return return_dict
-
-
-def plot_loss(epochs, loss):
-    """
-    Make a plot with loss on the y-axis and epochs on the x-axis.
-    :param epochs: list of epoch numbers
-    :param loss: list of loss values
-    """
-    plt.plot(epochs, loss)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.show()
 
 
 def main(dict_config, config_file_path):
