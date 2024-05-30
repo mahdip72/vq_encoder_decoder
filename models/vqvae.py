@@ -120,7 +120,7 @@ if __name__ == '__main__':
     from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
-    from data.dataset import custom_collate, GVPDataset
+    from data.dataset import VQVAEDataset
 
     config_path = "../configs/config_gvp.yaml"
 
@@ -133,21 +133,11 @@ if __name__ == '__main__':
     accelerator = Accelerator()
 
     test_model = prepare_models_vqvae(test_configs, test_logger, accelerator)
-    # print(test_model)
-    print("Model loaded successfully!")
 
-    dataset = GVPDataset(test_configs.train_settings.data_path,
-                         seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
-                         use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
-                         use_foldseek=test_configs.model.struct_encoder.use_foldseek,
-                         use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
-                         top_k=test_configs.model.struct_encoder.top_k,
-                         num_rbf=test_configs.model.struct_encoder.num_rbf,
-                         num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
-                         configs=test_configs)
+    dataset = VQVAEDataset(test_configs.train_settings.data_path, configs=test_configs)
 
-    test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
-                             collate_fn=custom_collate)
+    test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size,
+                             num_workers=test_configs.train_settings.num_workers, pin_memory=True)
     struct_embeddings = []
     test_model.eval()
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
