@@ -104,21 +104,6 @@ def train_loop(model, train_loader, epoch, **kwargs):
     return return_dict
 
 
-def load_configs_cifar(configs):
-    """
-    Temporary function for loading CIFAR configs
-    """
-    tree_config = Box(configs)
-
-    # Convert the necessary values to floats.
-    tree_config.optimizer.lr = float(tree_config.optimizer.lr)
-    tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
-    tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
-    tree_config.optimizer.eps = float(tree_config.optimizer.eps)
-
-    return tree_config
-
-
 def plot_loss(epochs, loss):
     """
     Make a plot with loss on the y-axis and epochs on the x-axis.
@@ -132,7 +117,7 @@ def plot_loss(epochs, loss):
 
 
 def main(dict_config, config_file_path):
-    configs = load_configs_cifar(dict_config)
+    configs = load_configs(dict_config)
 
     if isinstance(configs.fix_seed, int):
         torch.manual_seed(configs.fix_seed)
