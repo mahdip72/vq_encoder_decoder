@@ -5,16 +5,11 @@ import yaml
 import torch
 from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils.utils import load_checkpoints
-from utils.utils import get_dummy_logger
 from accelerate import Accelerator
 from data.data_cifar import prepare_dataloaders
 from models.vqvae_cifar import prepare_models
 from tqdm import tqdm
 import os
-
-import torchvision
-import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
 from box import Box
 
 
