@@ -27,7 +27,11 @@ def train_loop(model, train_loader, optimizer, scheduler, epoch, configs, accele
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
+    pbar = tqdm(train_loader)
+
+    # Hide tqdm printed output for all processes other than the main process
+    if not accelerator.is_main_process:
+        pbar.disable = True
 
     for images, labels in pbar:
 
@@ -116,11 +120,16 @@ def main(dict_config, config_file_path):
 
     # Prepare dataloader, model, and optimizer
     train_dataloader = prepare_dataloaders(configs)
-    logging.info('Finished preparing dataloaders')
+    if accelerator.is_main_process:
+        logging.info('Finished preparing dataloaders')
+
     net = prepare_models(configs, logging, accelerator)
-    logging.info('Finished preparing models')
+    if accelerator.is_main_process:
+        logging.info('Finished preparing models')
+
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
-    logging.info('Finished preparing optimizer')
+    if accelerator.is_main_process:
+        logging.info('Finished preparing optimizer')
 
     net, optimizer, train_dataloader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, scheduler
