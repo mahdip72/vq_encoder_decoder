@@ -27,49 +27,72 @@ def train_loop(net, train_loader, epoch, **kwargs):
     optimizer.zero_grad()
 
     net.train()
+    train_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    pbar = tqdm(train_loader, desc=f"Training Epoch {epoch}", leave=False)
-    for data in pbar:
-        labels = data['coords']
-        masks = data['masks']
-        optimizer.zero_grad()
-        outputs, indices, commit_loss = net(data)
+    counter = 0
+    global_step = kwargs.get('global_step', 0)
 
-        masked_outputs = outputs[masks]
-        masked_labels = labels[masks]
-        rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
+    # Initialize the progress bar using tqdm
+    progress_bar = tqdm(train_loader, desc=f"Training Epoch {epoch}", leave=False)
+    progress_bar.set_description(f"Epoch: {epoch} - Steps")
 
-        loss = rec_loss + alpha * commit_loss
+    for data in progress_bar:
+        with accelerator.accumulate(net):
+            labels = data['coords']
+            masks = data['masks']
+            optimizer.zero_grad()
+            outputs, indices, commit_loss = net(data)
 
-        # Gather the losses across all processes for logging (if we use distributed training).
-        # avg_loss = accelerator.gather(loss.repeat(kwargs['configs'].train_settings.train_batch_size)).mean()
-        # train_loss += avg_loss.item() / kwargs['configs'].train_settings.grad_accumulation
+            masked_outputs = outputs[masks]
+            masked_labels = labels[masks]
+            rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
 
-        accelerator.backward(loss)
+            loss = rec_loss + alpha * commit_loss
+
+            # Gather the losses across all processes for logging (if we use distributed training).
+            avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
+            train_loss += avg_loss.item() / configs.train_settings.grad_accumulation
+
+            accelerator.backward(loss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
+
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+
         if accelerator.sync_gradients:
-            accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
+            progress_bar.update(1)
+            global_step += 1
+            counter += 1
 
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
+            # Keep track of total combined loss, total reconstruction loss, and total commit loss
+            total_loss += loss.item()
+            total_rec_loss += rec_loss.item()
+            total_cmt_loss += commit_loss.item()
+            train_loss = 0
 
-        # Keep track of total combined loss, total reconstruction loss, and total commit loss
-        total_loss += loss.item()
-        total_rec_loss += rec_loss.item()
-        total_cmt_loss += commit_loss.item()
-        batch_avg_loss = total_loss / (pbar.n + 1)
+            progress_bar.set_description(f"Epoch: {epoch} - Steps ["
+                                         + f"loss: {total_loss / counter:.3f}, "
+                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
-        pbar.set_description(
-            f"Epoch: {epoch}, Batch Avg Loss: {batch_avg_loss:.3f} | "
-            + f"Rec Loss: {rec_loss.item():.3f} | "
-            + f"Cmt Loss: {commit_loss.item():.3f} | "
-            + f"Active %: {indices.unique().numel() / codebook_size * 100:.3f}")
+        progress_bar.set_postfix(
+            {
+                "lr": optimizer.param_groups[0]['lr'],
+                "step_loss": loss.detach().item(),
+                "rec_loss": rec_loss.detach().item(),
+                "cmt_loss": commit_loss.detach().item(),
+                "activation": indices.unique().numel() / codebook_size * 100,
+                "global_step": global_step
+            }
+        )
 
-    avg_loss = total_loss / len(train_loader)
-    avg_rec_loss = total_rec_loss / len(train_loader)
-    avg_cmt_loss = total_cmt_loss / len(train_loader)
+    avg_loss = total_loss / counter
+    avg_rec_loss = total_rec_loss / counter
+    avg_cmt_loss = total_cmt_loss / counter
 
     return avg_loss, avg_rec_loss, avg_cmt_loss
 
