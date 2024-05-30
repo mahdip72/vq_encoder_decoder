@@ -31,8 +31,10 @@ class VQVAE3DResNet(nn.Module):
         self.max_length = configs.model.max_length
 
         # Define the number of residual blocks for encoder and decoder
-        self.num_encoder_blocks = 8
-        self.num_decoder_blocks = 8
+        self.num_encoder_blocks = configs.model.vqvae.residual_encoder.num_blocks
+        self.num_decoder_blocks = configs.model.vqvae.residual_decoder.num_blocks
+        self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
+        self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
         # Encoder
         self.initial_conv = nn.Sequential(
@@ -42,7 +44,7 @@ class VQVAE3DResNet(nn.Module):
         )
 
         self.encoder_blocks = nn.Sequential(
-            *[ResidualBlock(input_dim, input_dim) for _ in range(self.num_encoder_blocks)],
+            *[ResidualBlock(self.encoder_dim, self.encoder_dim) for _ in range(self.num_encoder_blocks)],
             nn.Conv1d(input_dim, latent_dim, 3, padding=1),
             nn.BatchNorm1d(latent_dim),
             nn.ReLU()
@@ -60,7 +62,7 @@ class VQVAE3DResNet(nn.Module):
             nn.Conv1d(latent_dim, input_dim, 3, padding=1),
             nn.BatchNorm1d(input_dim),
             nn.ReLU(),
-            *[ResidualBlock(input_dim, input_dim) for _ in range(self.num_decoder_blocks)]
+            *[ResidualBlock(self.decoder_dim, self.decoder_dim) for _ in range(self.num_decoder_blocks)]
         )
 
         self.final_conv = nn.Sequential(
@@ -268,7 +270,7 @@ class VQVAE3DTransformer(nn.Module):
 
 def prepare_models_vqvae(configs, logger, accelerator):
     vqvae = VQVAE3DResNet(
-        input_dim=configs.model.vqvae.vector_quantization.dim*4,
+        input_dim=configs.model.vqvae.vector_quantization.dim*2,
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,

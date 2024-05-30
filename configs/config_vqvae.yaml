@@ -15,11 +15,11 @@ model:
   max_length: 1024
   vqvae:
     vector_quantization:
-      dim: 64
+      dim: 128
       codebook_size: 128
       decay: 0.8
       commitment_weight : 1.0
-      alpha: 1.0
+      alpha: 2.0
     encoder:
       dimension: 320
       dim_feedforward: 480
@@ -32,6 +32,12 @@ model:
       num_heads: 4
       num_layers: 6
       activation_function: gelu
+    residual_encoder:
+      dimension: 256
+      num_blocks: 8
+    residual_decoder:
+      dimension: 256
+      num_blocks: 8
 
 train_settings:
   data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
@@ -41,10 +47,10 @@ train_settings:
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
   device: cuda
-  batch_size: 128
+  batch_size: 256
   num_workers: 6
   grad_accumulation: 1
-  max_task_samples: 5000
+  max_task_samples: 50000
 
 valid_settings:
   data_path: H:\Datasets\Joint_training
@@ -55,7 +61,7 @@ valid_settings:
 
 optimizer:
   name: adam
-  lr: 1e-4
+  lr: 1e-3
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
