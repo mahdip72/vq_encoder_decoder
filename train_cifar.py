@@ -124,7 +124,8 @@ def main(dict_config, config_file_path):
     )
 
     # Prepare dataloader, model, and optimizer
-    train_dataloader = prepare_dataloaders(configs)
+    train_dataloader, val_dataloader = prepare_dataloaders(configs)
+    print("DATA SIZE", len(train_dataloader), len(val_dataloader))
     if accelerator.is_main_process:
         logging.info('Finished preparing dataloaders')
 

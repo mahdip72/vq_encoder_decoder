@@ -38,14 +38,21 @@ def load_fashion_mnist_data(batch_size, shuffle):
     return data_loader
 
 
-def load_cifar10_data(batch_size, shuffle):
+def load_cifar10_data(train, batch_size, shuffle):
+    """
+    Load a CIFAR 10 dataloader with the given arguments.
+    :param train: (bool) True for train dataset, False for test dataset
+    :batch_size: (int) size of each batch
+    :shuffle: (bool) whether to shuffle the dataset
+    :return: (DataLoader) dataloader for the CIFAR 10 dataset
+    """
     transform = transforms.Compose([
         transforms.ToTensor(),  # Convert images to PyTorch tensors
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize the images
     ])
 
     dataset = datasets.CIFAR10(
-        root="~/data/cifar10", train=True, download=True, transform=transform
+        root="~/data/cifar10", train=train, download=True, transform=transform
     )
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return data_loader
@@ -53,8 +60,9 @@ def load_cifar10_data(batch_size, shuffle):
 
 def prepare_dataloaders(configs):
     # train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
-    train_dataloader = load_cifar10_data(batch_size=configs.train_settings.batch_size, shuffle=True)
-    return train_dataloader
+    train_dataloader = load_cifar10_data(train=True, batch_size=configs.train_settings.batch_size, shuffle=True)
+    test_dataloader = load_cifar10_data(train=False, batch_size=configs.train_settings.batch_size, shuffle=True)
+    return train_dataloader, test_dataloader
 
 
 def main():
