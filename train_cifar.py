@@ -15,6 +15,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
+    train_writer = kwargs.pop('train_writer')
     configs = kwargs.pop('configs')
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
@@ -74,6 +75,10 @@ def train_loop(model, train_loader, epoch, **kwargs):
                                          + f"[loss: {total_loss / counter:.3f}, "
                                          + f"rec loss: {total_rec_loss / counter:.3f}, "
                                          + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+
+            # Add learning rate to TensorBoard for each global step
+            if accelerator.is_main_process:
+                train_writer.add_scalar('Train/Learning Rate', optimizer.param_groups[0]['lr'], global_step)
 
         progress_bar.set_postfix(
             {
