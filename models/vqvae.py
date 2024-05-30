@@ -3,13 +3,95 @@ import torch
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv1d(input_dim, hidden_dim, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm1d(hidden_dim)
+        self.conv2 = nn.Conv1d(hidden_dim, input_dim, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm1d(input_dim)
+
+    def forward(self, x):
+        residual = x
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += residual
+        return F.relu(out)
+
+
+class VQVAE3DResNet(nn.Module):
+    def __init__(self, input_dim, latent_dim, codebook_size, decay, configs):
+        super(VQVAE3DResNet, self).__init__()
+
+        self.max_length = configs.model.max_length
+
+        # Define the number of residual blocks for encoder and decoder
+        self.num_encoder_blocks = 8
+        self.num_decoder_blocks = 8
+
+        # Encoder
+        self.initial_conv = nn.Sequential(
+            nn.Conv1d(12, input_dim, 1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU()
+        )
+
+        self.encoder_blocks = nn.Sequential(
+            *[ResidualBlock(input_dim, input_dim) for _ in range(self.num_encoder_blocks)],
+            nn.Conv1d(input_dim, latent_dim, 3, padding=1),
+            nn.BatchNorm1d(latent_dim),
+            nn.ReLU()
+        )
+
+        self.vector_quantizer = VectorQuantize(
+            dim=latent_dim,
+            codebook_size=codebook_size,
+            decay=decay,
+            commitment_weight=1.0,
+        )
+
+        # Decoder
+        self.decoder_blocks = nn.Sequential(
+            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),
+            *[ResidualBlock(input_dim, input_dim) for _ in range(self.num_decoder_blocks)]
+        )
+
+        self.final_conv = nn.Sequential(
+            nn.Conv1d(input_dim, 12, 1),
+        )
+
+    def forward(self, batch, return_vq_only=False):
+        x = batch['coords'].permute(0, 2, 1)
+
+        x = self.initial_conv(x)
+        x = self.encoder_blocks(x)
+
+        x = x.permute(0, 2, 1)
+        x, indices, commit_loss = self.vector_quantizer(x)
+        x = x.permute(0, 2, 1)
+
+        if return_vq_only:
+            return x, indices, commit_loss
+
+        x = self.decoder_blocks(x)
+        x = self.final_conv(x)
+
+        x = x.permute(0, 2, 1)
+        return x, indices, commit_loss
+
 
 class VQVAE3D(nn.Module):
     def __init__(self, input_dim, latent_dim, codebook_size, decay, configs):
         super(VQVAE3D, self).__init__()
 
         self.max_length = configs.model.max_length
-        self.pos_embed = nn.Parameter(torch.randn(1, self.max_length, 12) * .02)
 
         self.encoder_layers = nn.Sequential(
             nn.Conv1d(12, input_dim, 1),
@@ -66,17 +148,9 @@ class VQVAE3D(nn.Module):
             # nn.Tanh()
         )
 
-    def drop_positional_encoding(self, embedding):
-        embedding = embedding + self.pos_embed
-        return embedding
-
     def forward(self, batch, return_vq_only=False):
         # change the shape of x from (batch, num_nodes, node_dim) to (batch, node_dim, num_nodes)
         x = batch['coords'].permute(0, 2, 1)
-
-        x = x.permute(0, 2, 1)
-        x = self.drop_positional_encoding(x)
-        x = x.permute(0, 2, 1)
 
         for layer in self.encoder_layers:
             x = layer(x)
@@ -193,9 +267,9 @@ class VQVAE3DTransformer(nn.Module):
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
-    vqvae = VQVAE3DTransformer(
-        # input_dim=configs.model.vqvae.vector_quantization.dim*4,
-        # latent_dim=configs.model.vqvae.vector_quantization.dim,
+    vqvae = VQVAE3DResNet(
+        input_dim=configs.model.vqvae.vector_quantization.dim*4,
+        latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
