@@ -597,11 +597,6 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
         logging.info(f"train directory: {configs.train_settings.data_path}")
         # logging.info(f"valid directory: {configs.valid_settings.data_path}")
 
-    if hasattr(configs.model.struct_encoder, "use_seq") and configs.model.struct_encoder.use_seq.enable:
-        seq_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
-    else:
-        seq_mode = "embedding"
-
     train_dataset = VQVAEDataset(configs.train_settings.data_path, configs=configs)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,

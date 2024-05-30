@@ -3,7 +3,7 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, \
+from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
@@ -107,7 +107,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
 
 def main(dict_config, config_file_path):
-    configs = load_configs(dict_config)
+
+    if getattr(dict_config["model"], "struct_encoder", False):
+        configs = load_configs_gvp(dict_config)
+    else:
+        configs = load_configs(dict_config)
 
     if isinstance(configs.fix_seed, int):
         torch.manual_seed(configs.fix_seed)
@@ -121,10 +125,9 @@ def main(dict_config, config_file_path):
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
-        dispatch_batches=False
     )
 
-    if configs.model.struct_encoder.enable:
+    if getattr(configs.model, "struct_encoder", False):
         train_dataloader = prepare_gvp_vqvae_dataloaders(logging, accelerator, configs)
     else:
         train_dataloader = prepare_vqvae_dataloaders(logging, accelerator, configs)
@@ -132,7 +135,7 @@ def main(dict_config, config_file_path):
     # train_dataloader = prepare_dataloaders(logging, accelerator, configs)
     logging.info('preparing dataloaders are done')
 
-    if configs.model.struct_encoder.enable:
+    if getattr(configs.model, "struct_encoder", False):
         net = prepare_models_gvp_vqvae(configs, logging, accelerator)
     else:
         net = prepare_models_vqvae(configs, logging, accelerator)
@@ -200,7 +203,7 @@ def main(dict_config, config_file_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
-    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_gvp.yaml')
+    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_vqvae.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 

@@ -159,10 +159,12 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
                         min_size = min(model_state_dict[name].size(1), param.size(1))
                         model_state_dict[name][:, :min_size].copy_(param[:, :min_size])
                     if accelerator.is_main_process:
-                        logging.info(f'Copied overlapping parts of this layer: {name}, Checkpoint shape: {param.size()}, Model shape: {model_state_dict[name].size()}')
+                        logging.info(
+                            f'Copied overlapping parts of this layer: {name}, Checkpoint shape: {param.size()}, Model shape: {model_state_dict[name].size()}')
                 else:
                     if accelerator.is_main_process:
-                        logging.info(f'Ignore {name} layer, missmatch: Checkpoint shape: {param.size()}, Model shape: {model_state_dict[name].size()}')
+                        logging.info(
+                            f'Ignore {name} layer, missmatch: Checkpoint shape: {param.size()}, Model shape: {model_state_dict[name].size()}')
 
         loading_log = net.load_state_dict(model_state_dict, strict=False)
         if accelerator.is_main_process:
@@ -271,50 +273,74 @@ def load_configs(config):
     tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
     tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
     tree_config.optimizer.eps = float(tree_config.optimizer.eps)
-    
-    #set configs value to default if doesn't have the attr
+
+    return tree_config
+
+
+def load_configs_gvp(config):
+    """
+        Load the configuration file and convert the necessary values to floats.
+
+        Args:
+            config (dict): The configuration dictionary.
+
+        Returns:
+            The updated configuration dictionary with float values.
+        """
+
+    # Convert the dictionary to a Box object for easier access to the values.
+    tree_config = Box(config)
+
+    # Convert the necessary values to floats.
+    tree_config.optimizer.lr = float(tree_config.optimizer.lr)
+    tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
+    tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
+    tree_config.optimizer.eps = float(tree_config.optimizer.eps)
+
+    # set configs value to default if doesn't have the attr
     if not hasattr(tree_config.model.struct_encoder, "use_seq"):
         tree_config.model.struct_encoder.use_seq = None
         tree_config.model.struct_encoder.use_seq.enable = False
         tree_config.model.struct_encoder.use_seq.seq_embed_mode = "embedding"
         tree_config.model.struct_encoder.use_seq.seq_embed_dim = 20
 
-    if not hasattr(tree_config.model.struct_encoder,"top_k"):
-       tree_config.model.struct_encoder.top_k = 30 #default
+    if not hasattr(tree_config.model.struct_encoder, "top_k"):
+        tree_config.model.struct_encoder.top_k = 30  # default
 
-    if not hasattr(tree_config.model.struct_encoder,"gvp_num_layers"):
-       tree_config.model.struct_encoder.gvp_num_layers = 3 #default
+    if not hasattr(tree_config.model.struct_encoder, "gvp_num_layers"):
+        tree_config.model.struct_encoder.gvp_num_layers = 3  # default
 
-    if not hasattr(tree_config.model.struct_encoder,"use_rotary_embeddings"): #configs also have num_rbf and num_positional_embeddings
-        tree_config.model.struct_encoder.use_rotary_embeddings=False
+    if not hasattr(tree_config.model.struct_encoder,
+                   "use_rotary_embeddings"):  # configs also have num_rbf and num_positional_embeddings
+        tree_config.model.struct_encoder.use_rotary_embeddings = False
 
-    if not hasattr(tree_config.model.struct_encoder,"rotary_mode"):
-        tree_config.model.struct_encoder.rotary_mode=1
+    if not hasattr(tree_config.model.struct_encoder, "rotary_mode"):
+        tree_config.model.struct_encoder.rotary_mode = 1
 
-    if not hasattr(tree_config.model.struct_encoder,"use_foldseek"): #configs also have num_rbf and num_positional_embeddings
-        tree_config.model.struct_encoder.use_foldseek=False
+    if not hasattr(tree_config.model.struct_encoder,
+                   "use_foldseek"):  # configs also have num_rbf and num_positional_embeddings
+        tree_config.model.struct_encoder.use_foldseek = False
 
-    if not hasattr(tree_config.model.struct_encoder,"use_foldseek_vector"): #configs also have num_rbf and num_positional_embeddings
-        tree_config.model.struct_encoder.use_foldseek_vector=False
+    if not hasattr(tree_config.model.struct_encoder,
+                   "use_foldseek_vector"):  # configs also have num_rbf and num_positional_embeddings
+        tree_config.model.struct_encoder.use_foldseek_vector = False
 
-    if not hasattr(tree_config.model.struct_encoder,"num_rbf"):
-       tree_config.model.struct_encoder.num_rbf = 16 #default
+    if not hasattr(tree_config.model.struct_encoder, "num_rbf"):
+        tree_config.model.struct_encoder.num_rbf = 16  # default
 
-    if not hasattr(tree_config.model.struct_encoder,"num_positional_embeddings"):
-       tree_config.model.struct_encoder.num_positional_embeddings = 16 #default
+    if not hasattr(tree_config.model.struct_encoder, "num_positional_embeddings"):
+        tree_config.model.struct_encoder.num_positional_embeddings = 16  # default
 
-    if not hasattr(tree_config.model.struct_encoder,"node_h_dim"):
-       tree_config.model.struct_encoder.node_h_dim = (100,32) #default
+    if not hasattr(tree_config.model.struct_encoder, "node_h_dim"):
+        tree_config.model.struct_encoder.node_h_dim = (100, 32)  # default
     else:
-       tree_config.model.struct_encoder.node_h_dim = ast.literal_eval(tree_config.model.struct_encoder.node_h_dim)
+        tree_config.model.struct_encoder.node_h_dim = ast.literal_eval(tree_config.model.struct_encoder.node_h_dim)
 
-    if not hasattr(tree_config.model.struct_encoder,"edge_h_dim"):
-       tree_config.model.struct_encoder.edge_h_dim = (32,1) #default
+    if not hasattr(tree_config.model.struct_encoder, "edge_h_dim"):
+        tree_config.model.struct_encoder.edge_h_dim = (32, 1)  # default
     else:
-       tree_config.model.struct_encoder.edge_h_dim = ast.literal_eval(tree_config.model.struct_encoder.edge_h_dim)
-    
-    
-    
+        tree_config.model.struct_encoder.edge_h_dim = ast.literal_eval(tree_config.model.struct_encoder.edge_h_dim)
+
     return tree_config
 
 
@@ -355,5 +381,3 @@ def load_h5_file(file_path):
         n_ca_c_o_coord = f['N_CA_C_O_coord'][:]
         plddt_scores = f['plddt_scores'][:]
     return seq, n_ca_c_o_coord, plddt_scores
-
-
