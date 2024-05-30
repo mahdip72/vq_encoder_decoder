@@ -49,6 +49,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Gather the losses across all processes for logging (if we use distributed training).
+            # TODO: what is the point of train_loss?
             avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
             train_loss += avg_loss.item() / accum_iter
 
@@ -105,6 +106,59 @@ def train_loop(model, train_loader, epoch, **kwargs):
     return return_dict
 
 
+def valid_loop(model, valid_loader, epoch, **kwargs):
+    accelerator = kwargs.pop('accelerator')
+    optimizer = kwargs.pop('optimizer')
+    scheduler = kwargs.pop('scheduler')
+    valid_writer = kwargs.pop('valid_writer')
+    configs = kwargs.pop('configs')
+    alpha = configs.model.vector_quantization.alpha
+    codebook_size = configs.model.vector_quantization.codebook_size
+    accum_iter = configs.train_settings.grad_accumulation
+
+    model.eval()
+    valid_loss = 0.0
+    total_loss = 0.0
+    total_rec_loss = 0.0
+    total_cmt_loss = 0.0
+    counter = 0
+    global_step = kwargs.get('global_step', 0)
+
+    # Validation loop
+    for images, labels in valid_loader:
+        outputs, indices, commit_loss = model(images)
+
+        # Consider both reconstruction loss and commit loss
+        rec_loss = torch.nn.functional.l1_loss(images, outputs)
+        loss = rec_loss + alpha * commit_loss
+
+        # Gather the losses across all processes for logging (if we use distributed training).
+        avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
+        valid_loss += avg_loss.item() / accum_iter
+
+        # global_step += 1
+        counter += 1
+
+        # Keep track of total combined loss, total reconstruction loss, and total commit loss
+        total_loss += loss.item()
+        total_rec_loss += rec_loss.item()
+        total_cmt_loss += commit_loss.item()
+        valid_loss = 0
+
+    avg_loss = total_loss / counter
+    avg_rec_loss = total_rec_loss / counter
+    avg_cmt_loss = total_cmt_loss / counter
+
+    return_dict = {
+        "loss": avg_loss,
+        "rec_loss": avg_rec_loss,
+        "cmt_loss": avg_cmt_loss,
+        "counter": counter,
+        "global_step": global_step
+    }
+    return return_dict
+
+
 def main(dict_config, config_file_path):
     configs = load_configs(dict_config)
 
@@ -124,8 +178,8 @@ def main(dict_config, config_file_path):
     )
 
     # Prepare dataloader, model, and optimizer
-    train_dataloader, val_dataloader = prepare_dataloaders(configs)
-    print("DATA SIZE", len(train_dataloader), len(val_dataloader))
+    train_dataloader, valid_dataloader = prepare_dataloaders(configs)
+
     if accelerator.is_main_process:
         logging.info('Finished preparing dataloaders')
 
@@ -160,10 +214,11 @@ def main(dict_config, config_file_path):
         train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
         logging.info(f'Number of train steps per epoch: {int(train_steps)}')
 
-    # Training loop
     # Keep track of global step across all processes; useful for continuing training from a checkpoint.
     global_step=0
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
+
+        # Training
         training_loop_reports = train_loop(net, train_dataloader, epoch,
                                                                 accelerator=accelerator,
                                                                 optimizer=optimizer,
@@ -180,6 +235,14 @@ def main(dict_config, config_file_path):
 
         global_step = training_loop_reports["global_step"]
 
+        # Validation
+        valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
+                                                                accelerator=accelerator,
+                                                                optimizer=optimizer,
+                                                                scheduler=scheduler, configs=configs,
+                                                                logging=logging, global_step=global_step,
+                                                                valid_writer=valid_writer)
+
         # Save checkpoints
         if epoch % configs.checkpoints_every == 0:
             accelerator.wait_for_everyone()
@@ -190,11 +253,18 @@ def main(dict_config, config_file_path):
                 save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
                 logging.info(f'\tsaving the best models in {model_path}')
 
-        # Add Losses to TensorBoard
+        # Add train losses to TensorBoard
         if accelerator.is_main_process:
             train_writer.add_scalar('Train/Combined Loss', training_loop_reports['loss'], epoch)
             train_writer.add_scalar('Train/Reconstruction Loss', training_loop_reports["rec_loss"], epoch)
             train_writer.add_scalar('Train/Commitment Loss', training_loop_reports["cmt_loss"], epoch)
+            train_writer.flush()
+
+        # Add validation losses to TensorBoard
+        if accelerator.is_main_process:
+            train_writer.add_scalar('Validation/Combined Loss', valid_loop_reports['loss'], epoch)
+            train_writer.add_scalar('Validation/Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
+            train_writer.add_scalar('Validation/Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
             train_writer.flush()
 
     train_writer.close()
