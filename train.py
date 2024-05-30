@@ -23,6 +23,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     configs = kwargs.pop('configs')
     alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
+    accum_iter = configs.train_settings.grad_accumulation
 
     optimizer.zero_grad()
 
@@ -35,10 +36,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
     global_step = kwargs.get('global_step', 0)
 
     # Initialize the progress bar using tqdm
-    progress_bar = tqdm(train_loader, desc=f"Training Epoch {epoch}", leave=False)
+    progress_bar = tqdm(range(global_step, int(np.ceil(len(train_loader) / accum_iter))),
+                        leave=False, disable=not accelerator.is_main_process)
     progress_bar.set_description(f"Epoch: {epoch} - Steps")
 
-    for data in progress_bar:
+    for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             labels = data['coords']
             masks = data['masks']
@@ -53,7 +55,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
-            train_loss += avg_loss.item() / configs.train_settings.grad_accumulation
+            train_loss += avg_loss.item() / accum_iter
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -94,7 +96,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
-    return avg_loss, avg_rec_loss, avg_cmt_loss
+    return avg_loss, avg_rec_loss, avg_cmt_loss, counter
 
 
 def main(dict_config, config_file_path):
@@ -149,11 +151,20 @@ def main(dict_config, config_file_path):
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
 
+    if accelerator.is_main_process:
+        train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
+        logging.info(f'number of train steps per epoch: {int(train_steps)}')
+
     for epoch in range(1, configs.train_settings.num_epochs + 1):
-        train_loss, train_rec_loss, train_cmt_loss = train_loop(net, train_dataloader, epoch,
-                                                                accelerator=accelerator, optimizer=optimizer,
-                                                                scheduler=scheduler, configs=configs,
-                                                                logging=logging, train_writer=train_writer)
+        train_loss, train_rec_loss, train_cmt_loss, train_counter = train_loop(net, train_dataloader, epoch,
+                                                                               accelerator=accelerator,
+                                                                               optimizer=optimizer,
+                                                                               scheduler=scheduler, configs=configs,
+                                                                               logging=logging,
+                                                                               train_writer=train_writer)
+        if accelerator.is_main_process:
+            logging.info(
+                f'Epoch {epoch} - {train_counter} steps: loss {train_loss:.4f}, rec loss {train_rec_loss:.4f}, cmt loss: {train_cmt_loss:.4f}')
 
         if epoch % configs.checkpoints_every == 0:
             tools = dict()
@@ -168,10 +179,6 @@ def main(dict_config, config_file_path):
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
-
-        if accelerator.is_main_process:
-            logging.info(
-                f'Epoch {epoch}: Train Loss: {train_loss:.4f}, Rec Loss: {train_rec_loss:.4f}, Cmt Loss: {train_cmt_loss:.4f}')
 
     print("Training complete!")
 
