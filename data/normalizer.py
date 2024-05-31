@@ -210,6 +210,8 @@ class Protein3DProcessing:
         """
         if self.normalizer is None:
             raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first.")
+        # Detach the tensor
+        coords = coords.detach()
 
         # Flatten the coordinates and convert to a 2D array for denormalization
         coords_np = coords.view(-1, 3).cpu().numpy()
