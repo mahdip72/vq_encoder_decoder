@@ -14,6 +14,7 @@ from data.dataset import prepare_vqvae_dataloaders, prepare_gvp_vqvae_dataloader
 from models.gvp_vqvae import prepare_models_gvp_vqvae
 from models.vqvae import prepare_models_vqvae
 from tqdm import tqdm
+import time
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -232,15 +233,18 @@ def main(dict_config, config_file_path):
     # This is useful for continuing training from a checkpoint.
     global_step = 0
     for epoch in range(1, configs.train_settings.num_epochs + 1):
+        start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
                                            accelerator=accelerator,
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
                                            logging=logging, global_step=global_step,
                                            writer=train_writer)
+        end_time = time.time()
+        training_time = end_time - start_time
         if accelerator.is_main_process:
             logging.info(
-                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - '
+                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
@@ -261,18 +265,21 @@ def main(dict_config, config_file_path):
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
 
-        valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
-                                        accelerator=accelerator,
-                                        optimizer=optimizer,
-                                        scheduler=scheduler, configs=configs,
-                                        logging=logging, global_step=global_step,
-                                        writer=valid_writer)
-
-        if accelerator.is_main_process:
-            logging.info(
-                f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - '
-                f'loss {valid_loop_reports["loss"]:.4f}, '
-                f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
+        if epoch % configs.valid_settings.do_every == 0:
+            start_time = time.time()
+            valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
+                                            accelerator=accelerator,
+                                            optimizer=optimizer,
+                                            scheduler=scheduler, configs=configs,
+                                            logging=logging, global_step=global_step,
+                                            writer=valid_writer)
+            end_time = time.time()
+            valid_time = end_time - start_time
+            if accelerator.is_main_process:
+                logging.info(
+                    f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
+                    f'loss {valid_loop_reports["loss"]:.4f}, '
+                    f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
 
     print("Training complete!")
 
