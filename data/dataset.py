@@ -3,15 +3,12 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torch_cluster
 import tqdm
 import os
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
-from torch_geometric.data import Batch, Data
-from gvp.rotary_embedding import RotaryEmbedding
 from sklearn.decomposition import PCA
 from data.normalizer import Protein3DProcessing
 
@@ -40,6 +37,8 @@ def merge_features_and_create_mask(features_list, max_length=512):
 
 
 def custom_collate(one_batch):
+    from torch_geometric.data import Batch
+
     # Unpack the batch
     torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
 
@@ -121,6 +120,7 @@ class GVPDataset(Dataset):
                  use_foldseek=False, use_foldseek_vector=False, **kwargs
                  ):
         super(GVPDataset, self).__init__()
+        from gvp.rotary_embedding import RotaryEmbedding
 
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
@@ -313,6 +313,9 @@ class GVPDataset(Dataset):
         return [feature, raw_seqs, plddt_scores, pid, coords, masks]
 
     def _featurize_as_graph(self, protein):
+        import torch_cluster
+        from torch_geometric.data import Data
+
         name = protein['name']
         with torch.no_grad():
             # x=N, C-alpha, C, and O atoms
@@ -454,6 +457,8 @@ class GVPDataset(Dataset):
     def _foldseek(x):
         # From Fast and accurate protein structure search with Foldseek
         # x is X_ca coordinates
+        import torch_cluster
+
         x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         j, i = torch_cluster.knn_graph(x, k=1)
         mask = torch.zeros_like(i, dtype=torch.bool)
