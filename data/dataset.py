@@ -559,7 +559,7 @@ class VQVAEDataset(Dataset):
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
-        # logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
 
     if hasattr(configs.model.struct_encoder, "use_seq") and configs.model.struct_encoder.use_seq.enable:
         seq_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
@@ -578,6 +578,17 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
         configs=configs
     )
 
+    valid_dataset = GVPDataset(
+        configs.valid_settings.data_path,
+        seq_mode=configs.model.struct_encoder.use_seq.seq_embed_mode,
+        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
+        use_foldseek=configs.model.struct_encoder.use_foldseek,
+        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
+        top_k=configs.model.struct_encoder.top_k,
+        num_rbf=configs.model.struct_encoder.num_rbf,
+        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        configs=configs
+    )
     # train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
     #                           shuffle=configs.train_settings.shuffle,
     #                           num_workers=configs.train_settings.num_workers,
@@ -588,16 +599,20 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size, num_workers=0,
                               pin_memory=False,
                               collate_fn=custom_collate)
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=0,
+                              pin_memory=False,
+                              collate_fn=custom_collate)
 
-    return train_loader
+    return train_loader, valid_loader
 
 
 def prepare_vqvae_dataloaders(logging, accelerator, configs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
-        # logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
 
     train_dataset = VQVAEDataset(configs.train_settings.data_path, configs=configs)
+    valid_dataset = VQVAEDataset(configs.valid_settings.data_path, configs=configs)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               shuffle=configs.train_settings.shuffle,
@@ -605,7 +620,13 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
                               # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
                               pin_memory=True)
 
-    return train_loader
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              shuffle=False,
+                              num_workers=configs.valid_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True)
+
+    return train_loader, valid_loader
 
 
 def plot_3d_coords(coords: np.ndarray):
