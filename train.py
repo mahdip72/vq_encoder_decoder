@@ -123,12 +123,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    valid_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
     counter = 0
-    global_step = kwargs.get('global_step', 0)
 
     # Initialize the progress bar using tqdm
     progress_bar = tqdm(range(0, int(len(valid_loader))),
