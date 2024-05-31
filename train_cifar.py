@@ -24,7 +24,10 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    train_loss = 0.0
+    train_total_loss = 0.0
+    train_rec_loss = 0.0
+    train_cmt_loss = 0.0
+
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
@@ -50,9 +53,13 @@ def train_loop(model, train_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Gather the losses across all processes for logging (if we use distributed training).
-            # TODO: what is the point of train_loss?
-            avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
-            train_loss += avg_loss.item() / accum_iter
+            avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_rec_loss += avg_rec_loss.item() / accum_iter
+
+            avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_cmt_loss += avg_cmt_loss.item() / accum_iter
+
+            train_total_loss = train_rec_loss + alpha * train_cmt_loss
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -68,10 +75,13 @@ def train_loop(model, train_loader, epoch, **kwargs):
             counter += 1
 
             # Keep track of total combined loss, total reconstruction loss, and total commit loss
-            total_loss += loss.item()
-            total_rec_loss += rec_loss.item()
-            total_cmt_loss += commit_loss.item()
-            train_loss = 0
+            total_loss += train_total_loss
+            total_rec_loss += train_rec_loss
+            total_cmt_loss += train_cmt_loss
+
+            train_total_loss = 0.0
+            train_rec_loss = 0.0
+            train_cmt_loss = 0.0
 
             progress_bar.set_description(f"epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "
@@ -110,8 +120,6 @@ def train_loop(model, train_loader, epoch, **kwargs):
 def valid_loop(model, valid_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
-    scheduler = kwargs.pop('scheduler')
-    valid_writer = kwargs.pop('valid_writer')
     configs = kwargs.pop('configs')
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
@@ -119,10 +127,13 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    valid_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
+
+    valid_total_loss = 0.0
+    valid_rec_loss = 0.0
+    valid_cmt_loss = 0.0
     counter = 0
     global_step = kwargs.get('global_step', 0)
 
@@ -144,14 +155,27 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             rec_loss = torch.nn.functional.l1_loss(images, outputs)
             loss = rec_loss + alpha * commit_loss
 
+            # Gather the losses across all processes for logging (if we use distributed training).
+            avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.valid_settings.batch_size)).mean()
+            valid_rec_loss += avg_rec_loss.item() / accum_iter
+
+            avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.valid_settings.batch_size)).mean()
+            valid_cmt_loss += avg_cmt_loss.item() / accum_iter
+
+            valid_total_loss = valid_rec_loss + alpha * valid_cmt_loss
+
         # global_step += 1
         progress_bar.update(1)
         counter += 1
 
         # Keep track of total combined loss, total reconstruction loss, and total commit loss
-        total_loss += loss.item()
-        total_rec_loss += rec_loss.item()
-        total_cmt_loss += commit_loss.item()
+        total_loss += valid_total_loss
+        total_rec_loss += valid_rec_loss
+        total_cmt_loss += valid_cmt_loss
+
+        valid_total_loss = 0.0
+        valid_rec_loss = 0.0
+        valid_cmt_loss = 0.0
 
         progress_bar.set_description(f"validation epoch {epoch} "
                                      + f"[loss: {total_loss / counter:.3f}, "
