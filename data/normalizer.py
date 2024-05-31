@@ -177,7 +177,8 @@ class Protein3DProcessing:
             The normalized coordinates with the same shape as the input.
         """
         if self.normalizer is None:
-            raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first.")
+            raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first "
+                             "or load a saved one using load_normalizer.")
 
         # Detach the tensor
         coords = coords.detach()
