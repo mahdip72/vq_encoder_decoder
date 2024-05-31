@@ -136,6 +136,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
         with torch.inference_mode():
             optimizer.zero_grad()
             outputs, indices, commit_loss = model(images)
+            images = images.to(accelerator.device)
+            outputs = outputs.to(accelerator.device)
 
             # Consider both reconstruction loss and commit loss
             rec_loss = torch.nn.functional.l1_loss(images, outputs)
