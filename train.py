@@ -10,8 +10,6 @@ from utils.utils import load_checkpoints
 from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
 # from models.models import prepare_models
-from models.gvp_vqvae import prepare_models_gvp_vqvae
-from models.vqvae import prepare_models_vqvae
 from tqdm import tqdm
 import time
 
@@ -201,8 +199,10 @@ def main(dict_config, config_file_path):
     logging.info('preparing dataloaders are done')
 
     if getattr(configs.model, "struct_encoder", False):
+        from models.gvp_vqvae import prepare_models_gvp_vqvae
         net = prepare_models_gvp_vqvae(configs, logging, accelerator)
     else:
+        from models.vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
     logging.info('preparing models is done')
 
