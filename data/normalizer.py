@@ -179,6 +179,9 @@ class Protein3DProcessing:
         if self.normalizer is None:
             raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first.")
 
+        # Detach the tensor
+        coords = coords.detach()
+
         # Apply individual PCA transformation
         coords_pca = self.apply_pca(coords)
 
