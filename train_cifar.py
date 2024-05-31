@@ -9,6 +9,7 @@ from data.data_cifar import prepare_dataloaders
 from models.vqvae_cifar import prepare_models
 from tqdm import tqdm
 import os
+import time
 
 
 def train_loop(model, train_loader, epoch, **kwargs):
@@ -23,7 +24,6 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    model.train()
     train_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
@@ -37,6 +37,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
     progress_bar.set_description(f"Epoch {epoch}")
 
     # Training loop
+    model.train()
     for images, labels in train_loader:
 
         # Train with gradient accumulation
@@ -230,16 +231,19 @@ def main(dict_config, config_file_path):
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
 
         # Training
+        start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
                                                                 accelerator=accelerator,
                                                                 optimizer=optimizer,
                                                                 scheduler=scheduler, configs=configs,
                                                                 logging=logging, global_step=global_step,
                                                                 train_writer=train_writer)
+        end_time = time.time()
+        training_time = end_time - start_time
 
         if accelerator.is_main_process:
             logging.info(
-                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - '
+                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
@@ -247,12 +251,21 @@ def main(dict_config, config_file_path):
         global_step = training_loop_reports["global_step"]
 
         # Validation
-        valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
-                                                                accelerator=accelerator,
-                                                                optimizer=optimizer,
-                                                                scheduler=scheduler, configs=configs,
-                                                                logging=logging, global_step=global_step,
-                                                                valid_writer=valid_writer)
+        if epoch % configs.valid_settings.do_every == 0:
+            start_time = time.time()
+            valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
+                                                                    accelerator=accelerator,
+                                                                    optimizer=optimizer,
+                                                                    scheduler=scheduler, configs=configs,
+                                                                    logging=logging, global_step=global_step,
+                                                                    valid_writer=valid_writer)
+            end_time = time.time()
+            valid_time = end_time - start_time
+            if accelerator.is_main_process:
+                logging.info(
+                    f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
+                    f'loss {valid_loop_reports["loss"]:.4f}, '
+                    f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
 
         # Save checkpoints
         if epoch % configs.checkpoints_every == 0:
