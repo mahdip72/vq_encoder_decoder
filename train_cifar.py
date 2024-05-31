@@ -116,7 +116,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     codebook_size = configs.model.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
 
-    model.eval()
+    optimizer.zero_grad()
+
     valid_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
@@ -124,26 +125,35 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     counter = 0
     global_step = kwargs.get('global_step', 0)
 
+    progress_bar = tqdm(range(0, int(len(valid_loader))),
+                        leave=False, disable=not accelerator.is_main_process)
+    progress_bar.set_description(f"Validation epoch {epoch}")
+
     # Validation loop
+    model.eval()
     for images, labels in valid_loader:
-        outputs, indices, commit_loss = model(images)
 
-        # Consider both reconstruction loss and commit loss
-        rec_loss = torch.nn.functional.l1_loss(images, outputs)
-        loss = rec_loss + alpha * commit_loss
+        with torch.inference_mode():
+            optimizer.zero_grad()
+            outputs, indices, commit_loss = model(images)
 
-        # Gather the losses across all processes for logging (if we use distributed training).
-        avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
-        valid_loss += avg_loss.item() / accum_iter
+            # Consider both reconstruction loss and commit loss
+            rec_loss = torch.nn.functional.l1_loss(images, outputs)
+            loss = rec_loss + alpha * commit_loss
 
         # global_step += 1
+        progress_bar.update(1)
         counter += 1
 
         # Keep track of total combined loss, total reconstruction loss, and total commit loss
         total_loss += loss.item()
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
-        valid_loss = 0
+
+        progress_bar.set_description(f"validation epoch {epoch} "
+                                     + f"[loss: {total_loss / counter:.3f}, "
+                                     + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                     + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
@@ -154,7 +164,6 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
-        "global_step": global_step
     }
     return return_dict
 
