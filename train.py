@@ -8,6 +8,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
+from data.normalizer import Protein3DProcessing
 # from data.data_cifar import prepare_dataloaders
 # from models.models import prepare_models
 from tqdm import tqdm
@@ -24,14 +25,19 @@ def train_loop(net, train_loader, epoch, **kwargs):
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
 
+    processor = Protein3DProcessing()
+    processor.load_normalizer(configs.normalizer_path)
+
     optimizer.zero_grad()
 
     train_total_loss = 0.0
     train_rec_loss = 0.0
+    train_denormalized_rec_loss = 0.0
     train_cmt_loss = 0.0
 
     total_loss = 0.0
     total_rec_loss = 0.0
+    total_denormalized_rec_loss = 0.0
     total_cmt_loss = 0.0
     counter = 0
     global_step = kwargs.get('global_step', 0)
@@ -55,9 +61,16 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
+            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 12)
+            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 12)
+            denormalized_rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
+
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
             train_rec_loss += avg_rec_loss.item() / accum_iter
+
+            avg_denormalized_rec_loss = accelerator.gather(denormalized_rec_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_denormalized_rec_loss += avg_denormalized_rec_loss.item() / accum_iter
 
             avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
             train_cmt_loss += avg_cmt_loss.item() / accum_iter
@@ -80,10 +93,12 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # Keep track of total combined loss, total reconstruction loss, and total commit loss
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
+            total_denormalized_rec_loss += train_denormalized_rec_loss
             total_cmt_loss += train_cmt_loss
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
+            train_denormalized_rec_loss = 0.0
             train_cmt_loss = 0.0
 
             progress_bar.set_description(f"epoch {epoch} "
@@ -104,11 +119,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
+    avg_denormalized_rec_loss = total_denormalized_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
+        "denormalized_rec_loss": avg_denormalized_rec_loss,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
@@ -120,11 +137,14 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     optimizer = kwargs.pop('optimizer')
     configs = kwargs.pop('configs')
     alpha = configs.model.vqvae.vector_quantization.alpha
+    processor = Protein3DProcessing()
+    processor.load_normalizer(configs.normalizer_path)
 
     optimizer.zero_grad()
 
     total_loss = 0.0
     total_rec_loss = 0.0
+    total_denormalized_rec_loss = 0.0
     total_cmt_loss = 0.0
     counter = 0
 
@@ -144,8 +164,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
             rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
-
             loss = rec_loss + alpha * commit_loss
+
+            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 12)
+            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 12)
+            denormalized_rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
 
         progress_bar.update(1)
         counter += 1
@@ -153,6 +176,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         # Keep track of total combined loss, total reconstruction loss, and total commit loss
         total_loss += loss.item()
         total_rec_loss += rec_loss.item()
+        total_denormalized_rec_loss += denormalized_rec_loss.item()
         total_cmt_loss += commit_loss.item()
 
         progress_bar.set_description(f"validation epoch {epoch} "
@@ -162,11 +186,13 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
+    avg_denormalized_rec_loss = total_denormalized_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
+        "denormalized_rec_loss": avg_denormalized_rec_loss,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
     }
@@ -252,6 +278,7 @@ def main(dict_config, config_file_path):
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
+                f'denormalized rec loss {training_loop_reports["denormalized_rec_loss"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
@@ -284,7 +311,8 @@ def main(dict_config, config_file_path):
                 logging.info(
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
                     f'loss {valid_loop_reports["loss"]:.4f}, '
-                    f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
+                    f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
+                    f'denormalized rec loss {valid_loop_reports["denormalized_rec_loss"]:.4f}')
 
     print("Training complete!")
 
