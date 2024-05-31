@@ -26,7 +26,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    train_loss = 0.0
+    train_total_loss = 0.0
+    train_rec_loss = 0.0
+    train_cmt_loss = 0.0
+
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
@@ -53,8 +56,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Gather the losses across all processes for logging (if we use distributed training).
-            avg_loss = accelerator.gather(loss.repeat(configs.train_settings.batch_size)).mean()
-            train_loss += avg_loss.item() / accum_iter
+            avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_rec_loss += avg_rec_loss.item() / accum_iter
+
+            avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_cmt_loss += avg_cmt_loss.item() / accum_iter
+
+            train_total_loss = train_rec_loss + alpha * train_cmt_loss
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -70,10 +78,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
             counter += 1
 
             # Keep track of total combined loss, total reconstruction loss, and total commit loss
-            total_loss += loss.item()
-            total_rec_loss += rec_loss.item()
-            total_cmt_loss += commit_loss.item()
-            train_loss = 0
+            total_loss += train_total_loss
+            total_rec_loss += train_rec_loss
+            total_cmt_loss += train_cmt_loss
+
+            train_total_loss = 0.0
+            train_rec_loss = 0.0
+            train_cmt_loss = 0.0
 
             progress_bar.set_description(f"epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "
@@ -106,14 +117,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
 
 def valid_loop(net, valid_loader, epoch, **kwargs):
-    accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
-    scheduler = kwargs.pop('scheduler')
-    logging = kwargs.pop('logging')
     configs = kwargs.pop('configs')
     alpha = configs.model.vqvae.vector_quantization.alpha
-    codebook_size = configs.model.vqvae.vector_quantization.codebook_size
-    accum_iter = configs.train_settings.grad_accumulation
 
     optimizer.zero_grad()
 
