@@ -3,7 +3,8 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, \
+from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_logging, prepare_optimizer, \
+    prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
@@ -27,7 +28,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    net.train()
     train_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
@@ -40,6 +40,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                         leave=False, disable=not accelerator.is_main_process)
     progress_bar.set_description(f"Epoch {epoch}")
 
+    net.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             labels = data['coords']
@@ -106,8 +107,71 @@ def train_loop(net, train_loader, epoch, **kwargs):
     return return_dict
 
 
-def main(dict_config, config_file_path):
+def valid_loop(net, valid_loader, epoch, **kwargs):
+    accelerator = kwargs.pop('accelerator')
+    optimizer = kwargs.pop('optimizer')
+    scheduler = kwargs.pop('scheduler')
+    logging = kwargs.pop('logging')
+    configs = kwargs.pop('configs')
+    alpha = configs.model.vqvae.vector_quantization.alpha
+    codebook_size = configs.model.vqvae.vector_quantization.codebook_size
+    accum_iter = configs.train_settings.grad_accumulation
 
+    optimizer.zero_grad()
+
+    valid_loss = 0.0
+    total_loss = 0.0
+    total_rec_loss = 0.0
+    total_cmt_loss = 0.0
+    counter = 0
+    global_step = kwargs.get('global_step', 0)
+
+    # Initialize the progress bar using tqdm
+    progress_bar = tqdm(range(0, int(len(valid_loader))),
+                        leave=False, disable=not accelerator.is_main_process)
+    progress_bar.set_description(f"Validation epoch {epoch}")
+
+    net.eval()
+    for i, data in enumerate(valid_loader):
+        with torch.inference_mode():
+            labels = data['coords']
+            masks = data['masks']
+            optimizer.zero_grad()
+            outputs, indices, commit_loss = net(data)
+
+            masked_outputs = outputs[masks]
+            masked_labels = labels[masks]
+            rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
+
+            loss = rec_loss + alpha * commit_loss
+
+        progress_bar.update(1)
+        counter += 1
+
+        # Keep track of total combined loss, total reconstruction loss, and total commit loss
+        total_loss += loss.item()
+        total_rec_loss += rec_loss.item()
+        total_cmt_loss += commit_loss.item()
+
+        progress_bar.set_description(f"validation epoch {epoch} "
+                                     + f"[loss: {total_loss / counter:.3f}, "
+                                     + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                     + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+
+    avg_loss = total_loss / counter
+    avg_rec_loss = total_rec_loss / counter
+    avg_cmt_loss = total_cmt_loss / counter
+
+    return_dict = {
+        "loss": avg_loss,
+        "rec_loss": avg_rec_loss,
+        "cmt_loss": avg_cmt_loss,
+        "counter": counter,
+    }
+    return return_dict
+
+
+def main(dict_config, config_file_path):
     if getattr(dict_config["model"], "struct_encoder", False):
         configs = load_configs_gvp(dict_config)
     else:
@@ -128,9 +192,9 @@ def main(dict_config, config_file_path):
     )
 
     if getattr(configs.model, "struct_encoder", False):
-        train_dataloader = prepare_gvp_vqvae_dataloaders(logging, accelerator, configs)
+        train_dataloader, valid_dataloader = prepare_gvp_vqvae_dataloaders(logging, accelerator, configs)
     else:
-        train_dataloader = prepare_vqvae_dataloaders(logging, accelerator, configs)
+        train_dataloader, valid_dataloader = prepare_vqvae_dataloaders(logging, accelerator, configs)
 
     logging.info('preparing dataloaders are done')
 
@@ -143,8 +207,8 @@ def main(dict_config, config_file_path):
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
 
-    net, optimizer, train_dataloader, scheduler = accelerator.prepare(
-        net, optimizer, train_dataloader, scheduler
+    net, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, valid_dataloader, scheduler
     )
 
     net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
@@ -173,7 +237,7 @@ def main(dict_config, config_file_path):
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
                                            logging=logging, global_step=global_step,
-                                           train_writer=train_writer)
+                                           writer=train_writer)
         if accelerator.is_main_process:
             logging.info(
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - '
@@ -197,12 +261,26 @@ def main(dict_config, config_file_path):
             if accelerator.is_main_process:
                 logging.info(f'\tsaving the best models in {model_path}')
 
+        valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
+                                        accelerator=accelerator,
+                                        optimizer=optimizer,
+                                        scheduler=scheduler, configs=configs,
+                                        logging=logging, global_step=global_step,
+                                        writer=valid_writer)
+
+        if accelerator.is_main_process:
+            logging.info(
+                f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - '
+                f'loss {valid_loop_reports["loss"]:.4f}, '
+                f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
+
     print("Training complete!")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
-    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_vqvae.yaml')
+    parser.add_argument("--config_path", "-c", help="The location of config file",
+                        default='./configs/config_vqvae.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
