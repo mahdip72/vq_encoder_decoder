@@ -9,7 +9,6 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
 # from data.data_cifar import prepare_dataloaders
-from data.dataset import prepare_vqvae_dataloaders, prepare_gvp_vqvae_dataloaders
 # from models.models import prepare_models
 from models.gvp_vqvae import prepare_models_gvp_vqvae
 from models.vqvae import prepare_models_vqvae
@@ -193,8 +192,10 @@ def main(dict_config, config_file_path):
     )
 
     if getattr(configs.model, "struct_encoder", False):
+        from data.dataset import prepare_gvp_vqvae_dataloaders
         train_dataloader, valid_dataloader = prepare_gvp_vqvae_dataloaders(logging, accelerator, configs)
     else:
+        from data.dataset import prepare_vqvae_dataloaders
         train_dataloader, valid_dataloader = prepare_vqvae_dataloaders(logging, accelerator, configs)
 
     logging.info('preparing dataloaders are done')
