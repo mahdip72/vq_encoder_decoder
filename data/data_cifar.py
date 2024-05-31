@@ -61,7 +61,7 @@ def load_cifar10_data(train, batch_size, shuffle):
 def prepare_dataloaders(configs):
     # train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
     train_dataloader = load_cifar10_data(train=True, batch_size=configs.train_settings.batch_size, shuffle=True)
-    test_dataloader = load_cifar10_data(train=False, batch_size=configs.train_settings.batch_size, shuffle=True)
+    test_dataloader = load_cifar10_data(train=False, batch_size=configs.valid_settings.batch_size, shuffle=True)
     return train_dataloader, test_dataloader
 
 
