@@ -7,7 +7,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
-from utils.metrics import GDTTS, RMSD
+from utils.metrics import GDTTS
 from accelerate import Accelerator
 from data.normalizer import Protein3DProcessing
 # from data.data_cifar import prepare_dataloaders
