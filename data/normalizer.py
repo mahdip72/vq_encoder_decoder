@@ -243,7 +243,7 @@ class Protein3DProcessing:
             raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first.")
 
         # Flatten the coordinates and convert to a 2D array for denormalization
-        coords_np = coords.view(-1, 3).cpu().numpy()
+        coords_np = coords.view(-1, 3).detach().cpu().numpy()
 
         # Denormalize the coordinates
         denormalized_coords_np = self.normalizer.inverse_transform(coords_np)
