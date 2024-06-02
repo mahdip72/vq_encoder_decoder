@@ -743,6 +743,47 @@ def plot_3d_coords_plotly(coords: np.ndarray):
     fig.show()
 
 
+def plot_3d_coords_lines_plotly(coords: np.ndarray):
+    """
+    Plot 3D coordinates in a scatter plot and connect each pair of points with a line.
+
+    Parameters:
+    coords (np.ndarray): A numpy array of shape (N, 3) where N is the number of points,
+                         and each point has three coordinates (x, y, z).
+    """
+    import plotly.graph_objects as go
+
+    if coords.shape[1] != 3:
+        raise ValueError("Input array must have shape (N, 3)")
+
+    # Extracting x, y, and z coordinates
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z = coords[:, 2]
+
+    # Create a 3D scatter plot
+    fig = go.Figure(data=[go.Scatter3d(
+        x=x,
+        y=y,
+        z=z,
+        mode='lines+markers',  # This will create lines between points
+        marker=dict(size=5, color='red')
+    )])
+
+    # Optionally, set titles and labels
+    fig.update_layout(
+        title="3D Scatter Plot with Lines",
+        scene=dict(
+            xaxis_title="X axis",
+            yaxis_title="Y axis",
+            zaxis_title="Z axis"
+        )
+    )
+
+    # Show the plot
+    fig.show()
+
+
 if __name__ == '__main__':
     import yaml
     import tqdm
@@ -775,11 +816,14 @@ if __name__ == '__main__':
     # test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True,
     #                          collate_fn=custom_collate)
 
-    test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
-        # plot_3d_coords(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
+        # batch['coords'] = dataset.processor.denormalize_coords(batch['coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
+        # plot_3d_coords_lines_plotly(batch["coords"][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
+        # plot_3d_coords(batch["coords"][batch["masks"].squeeze(0)].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
-        # break
-        pass
+        # plot_3d_coords_lines_plotly(batch["coords"][7, ...][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
+        break
+        # pass
