@@ -124,9 +124,10 @@ class VQVAE(nn.Module):
     def __init__(self, dim, codebook_size, decay, commitment_weight, configs):
         super().__init__()
         self.d_model = dim
+        self.num_layers = configs.model.num_layers
 
         self.encoder_layers = nn.Sequential(
-            *get_layers(True, configs.model.encoder.num_layers, configs)
+            *get_layers(True, self.num_layers, configs)
         )
 
         self.vq_layer = VectorQuantize(
@@ -138,7 +139,7 @@ class VQVAE(nn.Module):
         )
 
         self.decoder_layers = nn.Sequential(
-            *get_layers(False, configs.model.decoder.num_layers, configs)
+            *get_layers(False, self.num_layers, configs)
         )
 
     def forward(self, x):

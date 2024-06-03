@@ -12,10 +12,10 @@ resume:
 
 model:
   compile_model: False
+  num_layers: 4
 
   encoder:
     dim: 8
-    num_layers: 5
 
   vector_quantization:
     dim: 16
@@ -26,7 +26,6 @@ model:
 
   decoder:
     dim: 8
-    num_layers: 5
 
 train_settings:
   num_epochs: 32
