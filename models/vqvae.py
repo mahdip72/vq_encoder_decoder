@@ -2,9 +2,6 @@ import torch.nn as nn
 import torch
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
-
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -25,7 +22,7 @@ class ResidualBlock(nn.Module):
 
 
 class VQVAE3DResNet(nn.Module):
-    def __init__(self, input_dim, latent_dim, codebook_size, decay, configs):
+    def __init__(self, latent_dim, codebook_size, decay, configs):
         super(VQVAE3DResNet, self).__init__()
 
         self.max_length = configs.model.max_length
@@ -38,16 +35,24 @@ class VQVAE3DResNet(nn.Module):
 
         # Encoder
         self.initial_conv = nn.Sequential(
-            nn.Conv1d(12, input_dim, 1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(12, self.encoder_dim, 1),
+            nn.BatchNorm1d(self.encoder_dim),
             nn.ReLU()
         )
 
         self.encoder_blocks = nn.Sequential(
             *[ResidualBlock(self.encoder_dim, self.encoder_dim) for _ in range(self.num_encoder_blocks)],
-            nn.Conv1d(input_dim, latent_dim, 3, padding=1),
-            nn.BatchNorm1d(latent_dim),
-            nn.ReLU()
+        )
+
+        self.encoder_head = nn.Sequential(
+            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
+            nn.BatchNorm1d(self.encoder_dim),
+            nn.ReLU(),
+            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
+            nn.BatchNorm1d(self.encoder_dim),
+            nn.ReLU(),
+
+            nn.Conv1d(self.encoder_dim, latent_dim, 1),
         )
 
         self.vector_quantizer = VectorQuantize(
@@ -59,14 +64,21 @@ class VQVAE3DResNet(nn.Module):
 
         # Decoder
         self.decoder_blocks = nn.Sequential(
-            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
+            nn.Conv1d(latent_dim, self.decoder_dim, 3, padding=1),
+            nn.BatchNorm1d(self.decoder_dim),
             nn.ReLU(),
             *[ResidualBlock(self.decoder_dim, self.decoder_dim) for _ in range(self.num_decoder_blocks)]
         )
 
-        self.final_conv = nn.Sequential(
-            nn.Conv1d(input_dim, 12, 1),
+        self.decoder_head = nn.Sequential(
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm1d(self.decoder_dim),
+            nn.ReLU(),
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm1d(self.decoder_dim),
+            nn.ReLU(),
+
+            nn.Conv1d(self.decoder_dim, 12, 1),
         )
 
     def forward(self, batch, return_vq_only=False):
@@ -74,6 +86,8 @@ class VQVAE3DResNet(nn.Module):
 
         x = self.initial_conv(x)
         x = self.encoder_blocks(x)
+        for layer in self.encoder_head:
+            x = layer(x)
 
         x = x.permute(0, 2, 1)
         x, indices, commit_loss = self.vector_quantizer(x)
@@ -83,7 +97,8 @@ class VQVAE3DResNet(nn.Module):
             return x, indices, commit_loss
 
         x = self.decoder_blocks(x)
-        x = self.final_conv(x)
+        for layer in self.decoder_head:
+            x = layer(x)
 
         x = x.permute(0, 2, 1)
         return x, indices, commit_loss
@@ -184,7 +199,7 @@ class VQVAE3DTransformer(nn.Module):
         # Projecting the input to the dimension expected by the Transformer
         self.input_projection = nn.Linear(12, configs.model.vqvae.encoder.dimension)
 
-        self.pos_embed = nn.Parameter(torch.randn(1, self.max_length, configs.model.vqvae.encoder.dimension) * .02)
+        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, configs.model.vqvae.encoder.dimension) * .02)
 
         # Transformer Encoder
         self.encoder_layer = nn.TransformerEncoderLayer(
@@ -197,6 +212,8 @@ class VQVAE3DTransformer(nn.Module):
 
         # Projecting the output of the Transformer to the dimension expected by the VQ layer
         self.vq_in_projection = nn.Linear(configs.model.vqvae.encoder.dimension, configs.model.vqvae.vector_quantization.dim)
+
+        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, configs.model.vqvae.encoder.dimension) * .02)
 
         # Vector Quantizer
         self.vector_quantizer = VectorQuantize(
@@ -221,8 +238,9 @@ class VQVAE3DTransformer(nn.Module):
         # Projecting the output back to the original dimension
         self.output_projection = nn.Linear(configs.model.vqvae.encoder.dimension, 12)
 
-    def drop_positional_encoding(self, embedding):
-        embedding = embedding + self.pos_embed
+    @staticmethod
+    def drop_positional_encoding(embedding, pos_embed):
+        embedding = embedding + pos_embed
         return embedding
 
     def forward(self, batch, return_vq_only=False):
@@ -231,8 +249,8 @@ class VQVAE3DTransformer(nn.Module):
         # Apply input projection
         x = self.input_projection(x)
 
-        # Apply positional encoding
-        x = self.drop_positional_encoding(x)
+        # Apply positional encoding to encoder
+        x = self.drop_positional_encoding(x, self.pos_embed_encoder)
 
         # Permute for Transformer [batch, sequence, feature]
         x = x.permute(1, 0, 2)
@@ -253,6 +271,9 @@ class VQVAE3DTransformer(nn.Module):
         # Apply vq_out_projection
         x = self.vq_out_projection(x)
 
+        # Apply positional encoding to decoder
+        x = self.drop_positional_encoding(x, self.pos_embed_decoder)
+
         # Permute for Transformer Decoder [sequence, batch, feature]
         x = x.permute(1, 0, 2)
 
@@ -270,7 +291,6 @@ class VQVAE3DTransformer(nn.Module):
 
 def prepare_models_vqvae(configs, logger, accelerator):
     vqvae = VQVAE3DResNet(
-        input_dim=configs.model.vqvae.vector_quantization.dim*2,
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
