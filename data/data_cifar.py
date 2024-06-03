@@ -38,7 +38,7 @@ def load_fashion_mnist_data(batch_size, shuffle):
     return data_loader
 
 
-def load_cifar10_data(train, batch_size, shuffle):
+def load_cifar10_data(train, batch_size, shuffle, num_workers):
     """
     Load a CIFAR 10 dataloader with the given arguments.
     :param train: (bool) True for train dataset, False for test dataset
@@ -54,14 +54,21 @@ def load_cifar10_data(train, batch_size, shuffle):
     dataset = datasets.CIFAR10(
         root="~/data/cifar10", train=train, download=True, transform=transform
     )
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     return data_loader
 
 
 def prepare_dataloaders(configs):
+
     # train_dataloader = load_fashion_mnist_data(batch_size=configs.train_settings.batch_size, shuffle=True)
-    train_dataloader = load_cifar10_data(train=True, batch_size=configs.train_settings.batch_size, shuffle=True)
-    test_dataloader = load_cifar10_data(train=False, batch_size=configs.valid_settings.batch_size, shuffle=True)
+    train_dataloader = load_cifar10_data(train=True,
+                                         batch_size=configs.train_settings.batch_size,
+                                         shuffle=configs.train_settings.shuffle,
+                                         num_workers=configs.train_settings.num_workers)
+    test_dataloader = load_cifar10_data(train=False,
+                                        batch_size=configs.valid_settings.batch_size,
+                                        shuffle=configs.valid_settings.shuffle,
+                                        num_workers=configs.valid_settings.num_workers)
     return train_dataloader, test_dataloader
 
 

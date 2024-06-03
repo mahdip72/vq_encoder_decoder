@@ -36,7 +36,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     # Initialize the progress bar using tqdm
     progress_bar = tqdm(range(0, int(np.ceil(len(train_loader) / accum_iter))),
-                        leave=False, disable=not accelerator.is_main_process)
+                        leave=False,
+                        disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
     progress_bar.set_description(f"Epoch {epoch}")
 
     # Training loop
@@ -89,7 +90,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
                                          + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
             # Add learning rate to TensorBoard for each global step
-            if accelerator.is_main_process:
+            if accelerator.is_main_process and configs.tensorboard_log:
                 train_writer.add_scalar('Train/Learning Rate', optimizer.param_groups[0]['lr'], global_step)
 
         progress_bar.set_postfix(
@@ -138,7 +139,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     global_step = kwargs.get('global_step', 0)
 
     progress_bar = tqdm(range(0, int(len(valid_loader))),
-                        leave=False, disable=not accelerator.is_main_process)
+                        leave=False,
+                        disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     # Validation loop
@@ -243,7 +245,9 @@ def main(dict_config, config_file_path):
             logging.info('Finished compiling models')
 
     # Initialize train and valid TensorBoards
-    train_writer, valid_writer = prepare_tensorboard(result_path)
+    train_writer, valid_writer = None, None
+    if configs.tensorboard_log:
+        train_writer, valid_writer = prepare_tensorboard(result_path)
 
     # Log number of train steps per epoch
     if accelerator.is_main_process:
@@ -274,6 +278,13 @@ def main(dict_config, config_file_path):
 
         global_step = training_loop_reports["global_step"]
 
+        # Add train losses to TensorBoard
+        if accelerator.is_main_process and configs.tensorboard_log:
+            train_writer.add_scalar('Train/Combined Loss', training_loop_reports['loss'], epoch)
+            train_writer.add_scalar('Train/Reconstruction Loss', training_loop_reports["rec_loss"], epoch)
+            train_writer.add_scalar('Train/Commitment Loss', training_loop_reports["cmt_loss"], epoch)
+            train_writer.flush()
+
         # Validation
         if epoch % configs.valid_settings.do_every == 0:
             start_time = time.time()
@@ -291,6 +302,18 @@ def main(dict_config, config_file_path):
                     f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
 
+            # Add validation losses to TensorBoard
+            if accelerator.is_main_process and configs.tensorboard_log:
+                train_writer.add_scalars('Reconstruction Loss', {
+                    'Train': training_loop_reports["rec_loss"],
+                    'Validation': valid_loop_reports["rec_loss"]
+                }, epoch)
+
+                valid_writer.add_scalar('Validation/Combined Loss', valid_loop_reports['loss'], epoch)
+                valid_writer.add_scalar('Validation/Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
+                valid_writer.add_scalar('Validation/Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
+                valid_writer.flush()
+
         # Save checkpoints
         if epoch % configs.checkpoints_every == 0:
             accelerator.wait_for_everyone()
@@ -300,20 +323,6 @@ def main(dict_config, config_file_path):
             if accelerator.is_main_process:
                 save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
                 logging.info(f'\tsaving the best models in {model_path}')
-
-        # Add train losses to TensorBoard
-        if accelerator.is_main_process:
-            train_writer.add_scalar('Train/Combined Loss', training_loop_reports['loss'], epoch)
-            train_writer.add_scalar('Train/Reconstruction Loss', training_loop_reports["rec_loss"], epoch)
-            train_writer.add_scalar('Train/Commitment Loss', training_loop_reports["cmt_loss"], epoch)
-            train_writer.flush()
-
-        # Add validation losses to TensorBoard
-        if accelerator.is_main_process:
-            valid_writer.add_scalar('Validation/Combined Loss', valid_loop_reports['loss'], epoch)
-            valid_writer.add_scalar('Validation/Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
-            valid_writer.add_scalar('Validation/Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
-            valid_writer.flush()
 
     train_writer.close()
     valid_writer.close()
