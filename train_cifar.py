@@ -304,6 +304,11 @@ def main(dict_config, config_file_path):
 
             # Add validation losses to TensorBoard
             if accelerator.is_main_process and configs.tensorboard_log:
+                train_writer.add_scalars('Reconstruction Loss', {
+                    'Train': training_loop_reports["rec_loss"],
+                    'Validation': valid_loop_reports["rec_loss"]
+                }, epoch)
+
                 valid_writer.add_scalar('Validation/Combined Loss', valid_loop_reports['loss'], epoch)
                 valid_writer.add_scalar('Validation/Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
                 valid_writer.add_scalar('Validation/Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
