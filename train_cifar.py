@@ -256,6 +256,7 @@ def main(dict_config, config_file_path):
 
     # Keep track of global step across all processes; useful for continuing training from a checkpoint.
     global_step=0
+    min_val_loss = float('inf') # Keep track of minimum validation loss (for saving checkpoints)
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
 
         # Training
@@ -303,21 +304,29 @@ def main(dict_config, config_file_path):
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}')
 
             # Add validation losses to TensorBoard
+            valid_loss = valid_loop_reports['loss']
             if accelerator.is_main_process and configs.tensorboard_log:
-                valid_writer.add_scalar('Combined Loss', valid_loop_reports['loss'], epoch)
+                valid_writer.add_scalar('Combined Loss', valid_loss, epoch)
                 valid_writer.add_scalar('Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
                 valid_writer.add_scalar('Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
                 valid_writer.flush()
 
-        # Save checkpoints
-        if epoch % configs.checkpoints_every == 0:
-            accelerator.wait_for_everyone()
-            # Set the path to save the model's checkpoint.
-            model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+            # Save checkpoints only if current validation loss is less than previous minimum validation loss
+            if epoch % configs.checkpoints_every == 0:
 
-            if accelerator.is_main_process:
-                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
-                logging.info(f'\tsaving the best models in {model_path}')
+                if valid_loss < min_val_loss:
+                    min_val_loss = valid_loss
+                    accelerator.wait_for_everyone()
+                    # Set the path to save the model's checkpoint.
+                    model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+
+                    if accelerator.is_main_process:
+                        save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+                        logging.info(f'\tsaving the best models in {model_path}')
+
+                else:
+                    if accelerator.is_main_process:
+                        logging.info(f'\tvalidation loss higher than previous minimum; did not save model')
 
     train_writer.close()
     valid_writer.close()
