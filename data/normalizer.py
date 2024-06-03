@@ -121,11 +121,8 @@ class Protein3DProcessing:
             batch_coords_list = coords_list[i:i + batch_size]
             pca_transformed_coords = []
             for idx, coords in enumerate(batch_coords_list):
-                pca = PCA(n_components=3)
-                coords_np = coords.view(-1, 3).cpu().numpy()
-                pca_transformed = pca.fit_transform(coords_np)
-                pca_transformed_coords.append(
-                    torch.tensor(pca_transformed, dtype=coords.dtype, device=coords.device).view(coords.shape))
+                transformed_coords = self.apply_pca(coords)
+                pca_transformed_coords.append(transformed_coords)
 
             # Flatten the PCA-transformed coordinates and convert to a 2D array for partial fitting
             batch_coords = torch.cat([coords.view(-1, 3) for coords in pca_transformed_coords], dim=0)
@@ -134,8 +131,7 @@ class Protein3DProcessing:
             # Partially fit the normalizer on the batch
             self.normalizer.partial_fit(batch_coords_np)
 
-    @staticmethod
-    def apply_pca(coords: torch.Tensor) -> torch.Tensor:
+    def apply_pca(self, coords: torch.Tensor) -> torch.Tensor:
         """
         Apply PCA transformation individually to standardize the rotation of the coordinates.
 
@@ -149,18 +145,52 @@ class Protein3DProcessing:
         torch.Tensor
             The PCA-transformed coordinates with the same shape as the input.
         """
-        # Flatten the coordinates and convert to a 2D array for transformation
-        coords_np = coords.view(-1, 3).cpu().numpy()
+        # Center the coordinates
+        centered_coords = self.recenter_coords(coords)
 
-        # Apply individual PCA transformation
+        # Apply PCA
         pca = PCA(n_components=3)
-        transformed_coords_np = pca.fit_transform(coords_np)
+        pca.fit(centered_coords.view(-1, 3).cpu().numpy())
+
+        # Ensure the PCA components form a proper rotation matrix (Determinant = 1)
+        rotation_matrix = pca.components_.T
+        # Convert it to fp32 for numerical stability
+        rotation_matrix = rotation_matrix.astype(np.float32)
+        if np.linalg.det(rotation_matrix) < 0:
+            rotation_matrix[:, -1] = -rotation_matrix[:, -1]
+
+        # Correct orthonormality using SVD
+        u, _, vh = np.linalg.svd(rotation_matrix)
+        corrected_rotation_matrix = np.dot(u, vh)
+
+        # Apply the rotation matrix to the centered coordinates
+        transformed_coords_np = centered_coords.cpu().numpy().dot(corrected_rotation_matrix)
 
         # Convert back to tensor and reshape to original shape
         transformed_coords = torch.tensor(transformed_coords_np, dtype=coords.dtype, device=coords.device)
-        transformed_coords = transformed_coords.view(coords.shape)
 
         return transformed_coords
+
+    @staticmethod
+    def recenter_coords(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Recenter the coordinates of a protein structure to its geometric center.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The recentered coordinates.
+        """
+        # Get the geometric center of the coordinates
+        center = torch.mean(coords, dim=0, keepdim=True)
+        # Subtract the center from the coordinates
+        recentered_coords = coords - center
+        return recentered_coords
 
     def normalize_coords(self, coords: torch.Tensor) -> torch.Tensor:
         """
@@ -177,7 +207,8 @@ class Protein3DProcessing:
             The normalized coordinates with the same shape as the input.
         """
         if self.normalizer is None:
-            raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first.")
+            raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first "
+                             "or load a saved one using load_normalizer.")
 
         # Apply individual PCA transformation
         coords_pca = self.apply_pca(coords)
@@ -212,7 +243,7 @@ class Protein3DProcessing:
             raise ValueError("Normalizer has not been fitted. Please call fit_normalizer() first.")
 
         # Flatten the coordinates and convert to a 2D array for denormalization
-        coords_np = coords.view(-1, 3).cpu().numpy()
+        coords_np = coords.view(-1, 3).detach().cpu().numpy()
 
         # Denormalize the coordinates
         denormalized_coords_np = self.normalizer.inverse_transform(coords_np)
@@ -267,7 +298,7 @@ def fit_normalizer():
 
     coords_list = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
-        coords_list.append(batch.squeeze(0).to(torch.float16))
+        coords_list.append(batch.squeeze(0).to(torch.float32))
 
     # Create an instance of the class
     processor = Protein3DProcessing()
