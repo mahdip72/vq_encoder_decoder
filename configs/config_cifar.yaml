@@ -45,7 +45,7 @@ valid_settings:
   do_every: 1
   shuffle: True
   batch_size: 8
-  num_workers: 0
+  num_workers: 12
 
 optimizer:
   name: adam
