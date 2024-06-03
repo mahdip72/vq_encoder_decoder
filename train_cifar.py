@@ -36,7 +36,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     # Initialize the progress bar using tqdm
     progress_bar = tqdm(range(0, int(np.ceil(len(train_loader) / accum_iter))),
-                        leave=False, disable=not accelerator.is_main_process)
+                        leave=False,
+                        disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
     progress_bar.set_description(f"Epoch {epoch}")
 
     # Training loop
@@ -138,7 +139,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     global_step = kwargs.get('global_step', 0)
 
     progress_bar = tqdm(range(0, int(len(valid_loader))),
-                        leave=False, disable=not accelerator.is_main_process)
+                        leave=False,
+                        disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     # Validation loop
