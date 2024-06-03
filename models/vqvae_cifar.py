@@ -12,6 +12,111 @@ from accelerate import Accelerator
 from box import Box
 
 
+def add_encoder_layer(module_list, first_layer, last_layer, configs):
+    """
+    Add a layer to the encoder with 2D convolution, 2D batch normalization, ReLU activation,
+    and 2D max pooling. If the layer is the first layer, the number of input channels must be 3.
+    If the layer is the last layer, the number of output channels must match the dimension of the
+    vector quantization layer.
+
+    :param module_list: (list) list to which to add nn.Modules
+    :param first_layer: (bool) True if the layer is the first layer, False otherwise
+    :param last_layer: (bool) True if the layer is the last layer, False otherwise
+    :param configs: (Box) configurations for the model
+    :return: None
+    """
+
+    in_channels = 0
+    out_channels = 0
+
+    # in_channels = 3 for first layer, encoder.dim for all other layers
+    if first_layer:
+        in_channels = 3
+    else:
+        in_channels = configs.model.encoder.dim
+
+    # out_channels = vq.dim for last layer, encoder.dim for all other layers
+    if last_layer:
+        out_channels = configs.model.vector_quantization.dim
+    else:
+        out_channels = configs.model.encoder.dim
+
+    module_list.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
+    module_list.append(nn.BatchNorm2d(out_channels))
+    module_list.append(nn.ReLU())
+    module_list.append(nn.MaxPool2d(kernel_size=2, stride=2))
+
+def add_decoder_layer(module_list, first_layer, last_layer, configs):
+    """
+    Add a layer to the decoder with upsample, 2D convolution, 2D batch normalization,
+    and ReLU activation. If the layer is the first layer, the number of input channels must match
+    the dimension of the vector quantization layer. If the layer is the last layer, the number of
+    output channels must be 3, and the activation function must be tanh to get outputs in the range
+    [-1, 1].
+
+    :param module_list: (list) list to which to add nn.Modules
+    :param first_layer: (bool) True if the layer is the first layer, False otherwise
+    :param last_layer: (bool) True if the layer is the last layer, False otherwise
+    :param configs: (Box) configurations for the model
+    :return: None
+    """
+
+    in_channels = 0
+    out_channels = 0
+
+    # in_channels = vq.dim for first layer, decoder.dim for all other layers
+    if first_layer:
+        in_channels = configs.model.vector_quantization.dim
+    else:
+        in_channels = configs.model.decoder.dim
+
+    # out_channels = 3 for last layer, decoder.dim for all other layers
+    if last_layer:
+        out_channels = 3
+    else:
+        out_channels = configs.model.decoder.dim
+
+    module_list.append(nn.Upsample(scale_factor=2, mode='nearest'))
+    module_list.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
+    module_list.append(nn.BatchNorm2d(out_channels))
+
+    # Add activation function
+    if last_layer:
+        module_list.append(nn.Tanh())
+    else:
+        module_list.append(nn.ReLU())
+
+
+
+def get_layers(encoder, num_layers, configs):
+    """
+    Get a list of layers for either the encoder or the decoder of a VQVAE model.
+    :param encoder: (bool) True for encoder, False for decoder
+    :param num_layers: (int) number of layers to include
+    :param configs: (Box) configurations for the model
+    :return: (list[nn.Module]) list of layers
+    """
+
+    layers = []
+
+    # Add layers to ModuleList
+    for i in range(num_layers):
+        first_layer = False # Whether current layer is the first layer
+        last_layer = False # Whether current layer is the last layer
+
+        if i == 0:
+            first_layer = True
+        if i >= num_layers - 1:
+            last_layer = True
+
+        if encoder:
+            add_encoder_layer(layers, first_layer, last_layer, configs)
+        else:
+            add_decoder_layer(layers, first_layer, last_layer, configs)
+
+    return layers
+
+
 class VQVAE(nn.Module):
     """
     A simple VQVAE models for images
@@ -21,10 +126,7 @@ class VQVAE(nn.Module):
         self.d_model = dim
 
         self.encoder_layers = nn.Sequential(
-            nn.Conv2d(3, self.d_model, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(self.d_model),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            *get_layers(True, configs.model.encoder.num_layers, configs)
         )
 
         self.vq_layer = VectorQuantize(
@@ -36,10 +138,7 @@ class VQVAE(nn.Module):
         )
 
         self.decoder_layers = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.Conv2d(self.d_model, 3, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(3),
-            nn.Tanh()
+            *get_layers(False, configs.model.decoder.num_layers, configs)
         )
 
     def forward(self, x):

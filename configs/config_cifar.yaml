@@ -14,8 +14,8 @@ model:
   compile_model: False
 
   encoder:
-    dimension: 480
-    num_layers: 8
+    dim: 8
+    num_layers: 5
 
   vector_quantization:
     dim: 16
@@ -25,12 +25,8 @@ model:
     alpha: 2.0
 
   decoder:
-    dimension: 480
-    dim_feedforward: 960
-    num_heads: 8
-    num_layers: 8
-    max_len: 512
-    activation_function: gelu
+    dim: 8
+    num_layers: 5
 
 train_settings:
   num_epochs: 32
@@ -42,7 +38,7 @@ train_settings:
 
 valid_settings:
   data_path: H:\Datasets\Joint_training
-  do_every: 2
+  do_every: 1
   shuffle: True
   batch_size: 128
   num_workers: 8
