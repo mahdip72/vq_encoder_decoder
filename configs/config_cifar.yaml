@@ -37,15 +37,15 @@ train_settings:
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
   batch_size: 128
-  num_workers: 12
+  num_workers: 8
   grad_accumulation: 1
 
 valid_settings:
   data_path: H:\Datasets\Joint_training
   do_every: 1
   shuffle: True
-  batch_size: 8
-  num_workers: 12
+  batch_size: 128
+  num_workers: 8
 
 optimizer:
   name: adam
