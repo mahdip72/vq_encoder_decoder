@@ -90,7 +90,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
                                          + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
             # Add learning rate to TensorBoard for each global step
-            if accelerator.is_main_process:
+            if accelerator.is_main_process and configs.tensorboard_log:
                 train_writer.add_scalar('Train/Learning Rate', optimizer.param_groups[0]['lr'], global_step)
 
         progress_bar.set_postfix(
@@ -245,7 +245,9 @@ def main(dict_config, config_file_path):
             logging.info('Finished compiling models')
 
     # Initialize train and valid TensorBoards
-    train_writer, valid_writer = prepare_tensorboard(result_path)
+    train_writer, valid_writer = None, None
+    if configs.tensorboard_log:
+        train_writer, valid_writer = prepare_tensorboard(result_path)
 
     # Log number of train steps per epoch
     if accelerator.is_main_process:
@@ -304,14 +306,14 @@ def main(dict_config, config_file_path):
                 logging.info(f'\tsaving the best models in {model_path}')
 
         # Add train losses to TensorBoard
-        if accelerator.is_main_process:
+        if accelerator.is_main_process and configs.tensorboard_log:
             train_writer.add_scalar('Train/Combined Loss', training_loop_reports['loss'], epoch)
             train_writer.add_scalar('Train/Reconstruction Loss', training_loop_reports["rec_loss"], epoch)
             train_writer.add_scalar('Train/Commitment Loss', training_loop_reports["cmt_loss"], epoch)
             train_writer.flush()
 
         # Add validation losses to TensorBoard
-        if accelerator.is_main_process:
+        if accelerator.is_main_process and configs.tensorboard_log:
             valid_writer.add_scalar('Validation/Combined Loss', valid_loop_reports['loss'], epoch)
             valid_writer.add_scalar('Validation/Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
             valid_writer.add_scalar('Validation/Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
