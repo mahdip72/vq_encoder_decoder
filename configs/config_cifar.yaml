@@ -43,6 +43,7 @@ train_settings:
 valid_settings:
   data_path: H:\Datasets\Joint_training
   do_every: 1
+  shuffle: True
   batch_size: 8
   num_workers: 0
 
