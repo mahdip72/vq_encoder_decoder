@@ -195,15 +195,27 @@ class VQVAE3DTransformer(nn.Module):
         super(VQVAE3DTransformer, self).__init__()
 
         self.max_length = configs.model.max_length
+        self.encoder_dim = configs.model.vqvae.encoder.dimension
+        self.decoder_dim = configs.model.vqvae.decoder.dimension
 
         # Projecting the input to the dimension expected by the Transformer
-        self.input_projection = nn.Linear(12, configs.model.vqvae.encoder.dimension)
+        # self.input_projection = nn.Linear(12, self.encoder_dim)
 
-        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, configs.model.vqvae.encoder.dimension) * .02)
+        self.input_projection = nn.Sequential(
+            nn.Conv1d(12, int(self.encoder_dim/2), 1),
+            nn.Conv1d(int(self.encoder_dim/2), int(self.encoder_dim/2), 3, padding=1),
+            nn.BatchNorm1d(int(self.encoder_dim/2)),
+            nn.ReLU(),
+            nn.Conv1d(int(self.encoder_dim/2), self.encoder_dim, 3, padding=1),
+            nn.BatchNorm1d(self.encoder_dim),
+            nn.ReLU()
+        )
+
+        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
 
         # Transformer Encoder
         self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=configs.model.vqvae.encoder.dimension,
+            d_model=self.encoder_dim,
             nhead=configs.model.vqvae.encoder.num_heads,
             dim_feedforward=configs.model.vqvae.encoder.dim_feedforward,
             activation=configs.model.vqvae.encoder.activation_function
@@ -211,9 +223,9 @@ class VQVAE3DTransformer(nn.Module):
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=configs.model.vqvae.encoder.num_layers)
 
         # Projecting the output of the Transformer to the dimension expected by the VQ layer
-        self.vq_in_projection = nn.Linear(configs.model.vqvae.encoder.dimension, configs.model.vqvae.vector_quantization.dim)
+        self.vq_in_projection = nn.Linear(self.encoder_dim, configs.model.vqvae.vector_quantization.dim)
 
-        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, configs.model.vqvae.encoder.dimension) * .02)
+        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
 
         # Vector Quantizer
         self.vector_quantizer = VectorQuantize(
@@ -224,11 +236,11 @@ class VQVAE3DTransformer(nn.Module):
         )
 
         # Projecting the output of the VQ layer back to the decoder dimension
-        self.vq_out_projection = nn.Linear(configs.model.vqvae.vector_quantization.dim, configs.model.vqvae.encoder.dimension)
+        self.vq_out_projection = nn.Linear(configs.model.vqvae.vector_quantization.dim, self.decoder_dim)
 
         # Transformer Decoder
         self.decoder_layer = nn.TransformerEncoderLayer(
-            d_model=configs.model.vqvae.decoder.dimension,
+            d_model=self.decoder_dim,
             nhead=configs.model.vqvae.decoder.num_heads,
             dim_feedforward=configs.model.vqvae.decoder.dim_feedforward,
             activation=configs.model.vqvae.encoder.activation_function
@@ -236,7 +248,17 @@ class VQVAE3DTransformer(nn.Module):
         self.decoder = nn.TransformerEncoder(self.decoder_layer, num_layers=configs.model.vqvae.decoder.num_layers)
 
         # Projecting the output back to the original dimension
-        self.output_projection = nn.Linear(configs.model.vqvae.encoder.dimension, 12)
+        # self.output_projection = nn.Linear(self.decoder_dim, 12)
+
+        self.output_projection = nn.Sequential(
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 3, padding=1),
+            nn.BatchNorm1d(self.decoder_dim),
+            nn.ReLU(),
+            nn.Conv1d(self.decoder_dim, int(self.decoder_dim/2), 3, padding=1),
+            nn.BatchNorm1d(int(self.decoder_dim/2)),
+            nn.ReLU(),
+            nn.Conv1d(int(self.decoder_dim/2), 12, 1),
+        )
 
     @staticmethod
     def drop_positional_encoding(embedding, pos_embed):
@@ -247,13 +269,16 @@ class VQVAE3DTransformer(nn.Module):
         x = batch['coords']
 
         # Apply input projection
-        x = self.input_projection(x)
+        # x = self.input_projection(x)
+        x = x.permute(0, 2, 1)
+        for layer in self.input_projection:
+            x = layer(x)
+
+        # Permute for Transformer [batch, sequence, feature]
+        x = x.permute(0, 2, 1)
 
         # Apply positional encoding to encoder
         x = self.drop_positional_encoding(x, self.pos_embed_encoder)
-
-        # Permute for Transformer [batch, sequence, feature]
-        x = x.permute(1, 0, 2)
 
         # Encoder
         x = self.encoder(x)
@@ -261,8 +286,6 @@ class VQVAE3DTransformer(nn.Module):
         # Apply qv_in_projection
         x = self.vq_in_projection(x)
 
-        # Permute back to [batch, feature, sequence]
-        x = x.permute(1, 0, 2)
         x, indices, commit_loss = self.vector_quantizer(x)
 
         if return_vq_only:
@@ -274,24 +297,30 @@ class VQVAE3DTransformer(nn.Module):
         # Apply positional encoding to decoder
         x = self.drop_positional_encoding(x, self.pos_embed_decoder)
 
-        # Permute for Transformer Decoder [sequence, batch, feature]
-        x = x.permute(1, 0, 2)
-
         # Decoder
         x = self.decoder(x)
 
-        # Permute back to [batch, sequence, feature]
-        x = x.permute(1, 0, 2)
+        # Permute back to [batch, feature, sequence]
+        x = x.permute(0, 2, 1)
 
         # Apply output projection
-        x = self.output_projection(x)
+        # x = self.output_projection(x)
+        for layer in self.output_projection:
+            x = layer(x)
+        x = x.permute(0, 2, 1)
 
         return x, indices, commit_loss
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
-    vqvae = VQVAE3DResNet(
-        latent_dim=configs.model.vqvae.vector_quantization.dim,
+    # vqvae = VQVAE3DResNet(
+    #     latent_dim=configs.model.vqvae.vector_quantization.dim,
+    #     codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+    #     decay=configs.model.vqvae.vector_quantization.decay,
+    #     configs=configs
+    # )
+
+    vqvae = VQVAE3DTransformer(
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
