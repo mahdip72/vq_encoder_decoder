@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 import torch
 import cv2
 from utils.utils import load_checkpoints_simple
@@ -8,10 +9,33 @@ import yaml
 from utils.utils import load_configs
 
 
+def get_latest_checkpoint(checkpoint_dir):
+    """
+    Determine the latest checkpoint in a directory of checkpoints.
+    Assume the checkpoint files follow this format: 'epoch_#.pth', where #
+    represents the epoch number.
+    :param checkpoint_dir: (str or Path) path to directory of checkpoints
+    """
+    max_epoch = 0
+    latest_checkpoint = None
+
+    # Iterate through the checkpoint directory and find the checkpoint
+    # with the most recent epoch
+    for checkpoint_file in Path(checkpoint_dir).glob('*.pth'):
+        file_stem = str(checkpoint_file.stem)
+        epoch_num = int(file_stem.split('_')[1])
+
+        if epoch_num > max_epoch:
+            max_epoch = epoch_num
+            latest_checkpoint = checkpoint_file
+
+    return latest_checkpoint
+
+
 def main():
 
     config_path = "configs/config_cifar.yaml"
-    checkpoint_path = "./results/2024-05-31__10-30-51/checkpoints/epoch_32.pth"
+    checkpoint_dir = "./results/2024-05-31__10-30-51/checkpoints/"
     #checkpoint_path = "/home/renjz/vq_encoder_decoder/results/2024-05-31__10-30-51/checkpoints/epoch_32.pth"
 
     with open(config_path) as file:
@@ -19,8 +43,13 @@ def main():
 
     configs = load_configs(config_file)
 
+    # Load the latest checkpoint in the checkpoint directory
+    # Assume the latest checkpoint contains the best model (lowest loss)
     net = prepare_models(configs, None, None)
+    checkpoint_path = get_latest_checkpoint(checkpoint_dir)
     net = load_checkpoints_simple(checkpoint_path, net)
+    print('Loaded model from', str(checkpoint_path))
+
     train_dataloader,test_dataloader = prepare_dataloaders(configs)
 
     with torch.inference_mode():
