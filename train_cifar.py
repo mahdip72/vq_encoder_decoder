@@ -11,6 +11,10 @@ from tqdm import tqdm
 import os
 import time
 
+from ray import tune
+from ray import train
+from ray.tune.schedulers import ASHAScheduler
+
 
 def train_loop(model, train_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
@@ -257,6 +261,9 @@ def main(dict_config, config_file_path):
     # Keep track of global step across all processes; useful for continuing training from a checkpoint.
     global_step=0
     min_val_loss = float('inf') # Keep track of minimum validation loss (for saving checkpoints)
+    training_loop_reports = dict()
+    valid_loop_reports = dict()
+
     for epoch in range(start_epoch, configs.train_settings.num_epochs + 1):
 
         # Training
@@ -334,15 +341,65 @@ def main(dict_config, config_file_path):
     if accelerator.is_main_process:
         logging.info('Training complete!')
 
+    return training_loop_reports, valid_loop_reports
+
+
+def run_ray_tune(dict_config, config_file_path):
+
+    # Save configs to yaml file
+    with open(config_file_path, 'w') as output_file:
+        yaml.dump(dict_config, output_file, default_flow_style=False)
+
+    training_loop_reports, valid_loop_reports = main(dict_config, config_file_path)
+    train.report({
+        "train_rec_loss": training_loop_reports["rec_loss"],
+        "val_rec_loss": valid_loop_reports["rec_loss"]
+    })
+
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
     parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_cifar.yaml')
+
+    # ray_tune flag for tuning hyperparameters
+    parser.add_argument("--ray_tune", action='store_true')
+
     args = parser.parse_args()
     config_path = args.config_path
+    ray_tune = args.ray_tune
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    main(config_file, config_path)
+    if ray_tune:
+
+        # Set hyperparameters to tune
+        config_file["train_settings"]["batch_size"] = tune.choice([32, 64, 128])
+        config_file["optimizer"]["lr"] = tune.choice([0.01, 0.001, 0.0001])
+        config_file["num_layers"] = tune.choice([1,2,3,4])
+        config_file["model"]["encoder"]["dim"] = tune.choice([6,7,8,9])
+        config_file["model"]["decoder"]["dim"] = tune.choice([6,7,8,9])
+
+        # Scheduler for Ray Tune
+        scheduler = ASHAScheduler(
+            metric="val_rec_loss",
+            mode="min",
+            max_t=config_file["train_settings"]["num_epochs"],
+            grace_period=1,
+            reduction_factor=2,
+        )
+
+        tuner = tune.Tuner(
+            tune.with_parameters(run_ray_tune, config_file_path=config_path),
+            tune_config=tune.TuneConfig(
+                scheduler=scheduler,
+                num_samples=4
+            ),
+            param_space=config_file
+        )
+
+        results = tuner.fit()
+
+    else:
+        main(config_file, config_path)
