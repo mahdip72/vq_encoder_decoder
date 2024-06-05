@@ -500,31 +500,6 @@ class GVPDataset(Dataset):
 
 
 class VQVAEDataset(Dataset):
-    """
-    This class is a subclass of `torch.utils.data.Dataset` and is used to transform JSON/dictionary-style
-    protein structures into featurized protein graphs. The transformation process is described in detail in the
-    associated manuscript.
-
-    The transformed protein graphs are instances of `torch_geometric.data.Data` and have the following attributes:
-    - x: Alpha carbon coordinates. This is a tensor of shape [n_nodes, 3].
-    - seq: Protein sequence converted to an integer tensor according to `self.letter_to_num`. This is a tensor of shape [n_nodes].
-    - name: Name of the protein structure. This is a string.
-    - node_s: Node scalar features. This is a tensor of shape [n_nodes, 6].
-    - node_v: Node vector features. This is a tensor of shape [n_nodes, 3, 3].
-    - edge_s: Edge scalar features. This is a tensor of shape [n_edges, 32].
-    - edge_v: Edge scalar features. This is a tensor of shape [n_edges, 1, 3].
-    - edge_index: Edge indices. This is a tensor of shape [2, n_edges].
-    - mask: Node mask. This is a boolean tensor where `False` indicates nodes with missing data that are excluded from message passing.
-
-    This class uses portions of code from https://github.com/jingraham/neurips19-graph-protein-design.
-
-    Parameters:
-    - data_list: directory of h5 files.
-    - num_positional_embeddings: The number of positional embeddings to use.
-    - top_k: The number of edges to draw per node (as destination node).
-    - device: The device to use for preprocessing. If "cuda", preprocessing will be done on the GPU.
-    """
-
     def __init__(self, data_path, **kwargs):
         super(VQVAEDataset, self).__init__()
 
@@ -541,7 +516,7 @@ class VQVAEDataset(Dataset):
         return len(self.h5_samples)
 
     @staticmethod
-    def handle_nan_with_previous(coords: torch.Tensor) -> torch.Tensor:
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
         Replaces NaN values in the coordinates with the previous or next valid coordinate values.
 
@@ -584,7 +559,7 @@ class VQVAEDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
-        coords_tensor = self.handle_nan_with_previous(coords_tensor)
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
