@@ -7,6 +7,19 @@ from data.data_cifar import prepare_dataloaders
 from models.vqvae_cifar import prepare_models
 import yaml
 from utils.utils import load_configs
+from torchvision.transforms import transforms
+
+
+def normalize_img(image):
+    """
+    Normalize image from [-1,1] to [0,255]
+    :param image: (tensor) image to transform
+    :return: (tensor) normalized image
+    """
+    transform = transforms.Compose([
+        transforms.Normalize((-1.0, -1.0, -1.0), (2.0, 2.0, 2.0))  # Normalize the images
+    ])
+    return (transform(image) * 255).type(torch.uint8)
 
 
 def get_latest_checkpoint(checkpoint_dir):
@@ -35,7 +48,7 @@ def get_latest_checkpoint(checkpoint_dir):
 def main():
 
     config_path = "configs/config_cifar.yaml"
-    checkpoint_dir = "./results/2024-05-31__10-30-51/checkpoints/"
+    checkpoint_dir = "./results/important_models/2024-06-05__13-28-05/checkpoints/"
     #checkpoint_path = "/home/renjz/vq_encoder_decoder/results/2024-05-31__10-30-51/checkpoints/epoch_32.pth"
 
     with open(config_path) as file:
@@ -61,8 +74,9 @@ def main():
 
                 # Display the input image
                 img_input = inputs[i]
-                img_before = img_input.squeeze().numpy()
+                img_before = img_input.squeeze()
                 # img_before = (img_before * 255).astype(np.uint8)
+                img_before = normalize_img(img_before).numpy()
                 # Move channels from index 0 to index 2
                 img_before = np.transpose(img_before, (1, 2, 0))
                 img_before = cv2.resize(img_before, (256, 256))
@@ -72,10 +86,11 @@ def main():
 
                 # Display the reconstructed output image
                 img_output = vq_output[i]
-                img_after = img_output.squeeze().numpy()
+                img_after = img_output.squeeze()
                 print(img_after.shape)
-                img_after = np.clip(img_after, 0, 1)
-                img_after = (img_after * 255).astype(np.uint8)
+                #img_after = np.clip(img_after, 0, 1)
+                #img_after = (img_after * 255).astype(np.uint8)
+                img_after = normalize_img(img_after).numpy()
                 # Move channels from index 0 to index 2
                 img_after = np.transpose(img_after, (1, 2, 0))
                 img_after = cv2.resize(img_after, (256, 256))
