@@ -14,13 +14,17 @@ def write_h5_file(file_path, pad_seq, n_ca_c_o_coord, plddt_scores):
         f.create_dataset('plddt_scores', data=plddt_scores)
 
 
-def extract_coordinates_plddt(chain, max_len):
+def extract_coordinates_plddt(chain, max_amino_acid_index, max_len):
     """Returns a list of C-alpha coordinates for a chain"""
     pos = []
     plddt_scores = []
     for row, residue in enumerate(chain):
+        if row == max_amino_acid_index:
+            break
         pos_N_CA_C_O = []
         plddt_scores.append(residue["CA"].get_bfactor())
+        plddt_scores.append(0)
+
         for key in ['N', 'CA', 'C', 'O']:
             if key in residue:
                 pos_N_CA_C_O.append(list(residue[key].coord))
@@ -30,7 +34,6 @@ def extract_coordinates_plddt(chain, max_len):
         pos.append(pos_N_CA_C_O)
         if len(pos) == max_len:
             break
-
     return pos, plddt_scores
 
 
@@ -41,12 +44,21 @@ def preprocess_file(file_path, max_len, save_path, dictn):
     sequence = []
     chain = model['A']
     protein_seq = ''
+    max_amino_acid_index = 0
     for residue_index, residue in enumerate(chain):
-        sequence.append(residue.resname)
-        amino_acid = [dictn[triple] for triple in sequence]
-        protein_seq = "".join(amino_acid)
+        if residue.id[0] == ' ' and residue.resname in dictn:
+            sequence.append(residue.resname)
+            amino_acid = [dictn[triple] for triple in sequence]
+            protein_seq = "".join(amino_acid)
+            max_amino_acid_index = residue_index
+        elif residue.id[0] != ' ':
+            # print(f"TER line encountered at residue index {residue_index}. Breaking the loop.")
+            break
+        else:
+            # print(f"Skipping non-standard residue {residue.resname} at position {residue_index}")
+            pass
 
-    n_ca_c_o_coord, plddt_scores = extract_coordinates_plddt(chain, max_len)
+    n_ca_c_o_coord, plddt_scores = extract_coordinates_plddt(chain, max_amino_acid_index, max_len)
     pad_seq = protein_seq[:max_len]
     outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + ".h5")
     write_h5_file(outputfile, pad_seq, n_ca_c_o_coord, plddt_scores)
@@ -54,9 +66,9 @@ def preprocess_file(file_path, max_len, save_path, dictn):
 
 def main():
     parser = argparse.ArgumentParser(description='Processing PDB files.')
-    parser.add_argument('--data', default='./test_data', help='Path to PDB files.')
+    parser.add_argument('--data', default='/home/mpngf/datasets/vqvae/test/', help='Path to PDB files.')
     parser.add_argument('--max_len', default=1024, type=int, help='Max sequence length to consider.')
-    parser.add_argument('--save_path', default='./save_test/', help='Path to output.')
+    parser.add_argument('--save_path', default='/home/mpngf/datasets/vqvae/test/', help='Path to output.')
     parser.add_argument('--max_workers', default=16,
                         help='Set the number of workers for parallel processing.')
     args = parser.parse_args()
@@ -82,7 +94,7 @@ def main():
             try:
                 future.result()
             except Exception as exc:
-                print(f"An error occurred while processing {file_path}: {exc}")
+                print(f"An error occurred while processing {file_path}: {exc} {type(exc)}")
 
 
 if __name__ == '__main__':
