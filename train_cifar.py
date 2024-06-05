@@ -377,9 +377,9 @@ if __name__ == "__main__":
         # Set hyperparameters to tune
         config_file["train_settings"]["batch_size"] = tune.choice([32, 64, 128])
         config_file["optimizer"]["lr"] = tune.choice([0.01, 0.001, 0.0001])
-        config_file["num_layers"] = tune.choice([1,2,3,4])
-        config_file["model"]["encoder"]["dim"] = tune.choice([6,7,8,9])
-        config_file["model"]["decoder"]["dim"] = tune.choice([6,7,8,9])
+        config_file["num_layers"] = tune.choice([1,2,4,8])
+        config_file["model"]["encoder"]["dim"] = tune.choice([4,8,12])
+        config_file["model"]["decoder"]["dim"] = tune.choice([4,8,12])
 
         # Scheduler for Ray Tune
         scheduler = ASHAScheduler(
@@ -394,8 +394,9 @@ if __name__ == "__main__":
             tune.with_parameters(run_ray_tune, config_file_path=config_path),
             tune_config=tune.TuneConfig(
                 scheduler=scheduler,
-                num_samples=4
+                num_samples=8
             ),
+            run_config=train.RunConfig(storage_path="~/vq_encoder_decoder/results/ray_tune"),
             param_space=config_file
         )
 
