@@ -313,18 +313,18 @@ class VQVAE3DTransformer(nn.Module):
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
-    # vqvae = VQVAE3DResNet(
-    #     latent_dim=configs.model.vqvae.vector_quantization.dim,
-    #     codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
-    #     decay=configs.model.vqvae.vector_quantization.decay,
-    #     configs=configs
-    # )
-
-    vqvae = VQVAE3DTransformer(
+    vqvae = VQVAE3DResNet(
+        latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
     )
+
+    # vqvae = VQVAE3DTransformer(
+    #     codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+    #     decay=configs.model.vqvae.vector_quantization.decay,
+    #     configs=configs
+    # )
 
     if accelerator.is_main_process:
         print_trainable_parameters(vqvae, logger, 'VQ-VAE')
