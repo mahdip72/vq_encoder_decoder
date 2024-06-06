@@ -102,6 +102,8 @@ def main():
                 cv2.moveWindow(input_name, 100, 50)
                 cv2.moveWindow(recons_name, 600, 50)
 
+                print('Indices:\n', indices[i].squeeze())
+
                 # Proceed with the loop when a key is pressed
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
