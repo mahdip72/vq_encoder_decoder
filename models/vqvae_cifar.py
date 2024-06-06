@@ -152,34 +152,14 @@ class VQVAE(nn.Module):
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
-        self.downsample = None
-        if in_channels != out_channels:
-            self.downsample = nn.Sequential(
-                nn.Conv2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size=(3, 3),
-                    padding='same',
-                    bias=False
-                ),
-                nn.BatchNorm2d(out_channels)
-            )
 
     def forward(self, x):
-        identity = self.downsample(x) if self.downsample else x
-
+        residual = x
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.relu(x + identity)
+        x = x + residual
 
         return x
 
@@ -197,12 +177,15 @@ class VQVAEResNet(nn.Module):
         # enc_layers.append(ResidualBlock(dim, dim))
 
         self.encoder_layers = nn.Sequential(
-            nn.Conv2d(3, 8, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(8),
+            nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(16),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
 
-            ResidualBlock(8, 16),
+            ResidualBlock(16, 16),
+            ResidualBlock(16, 16),
+            ResidualBlock(16, 16),
+
+            nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
@@ -219,11 +202,13 @@ class VQVAEResNet(nn.Module):
 
         self.decoder_layers = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(8),
+            nn.Conv2d(16, 3, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(3),
 
-            nn.Upsample(scale_factor=2, mode='nearest'),
-            ResidualBlock(8,3),
+            ResidualBlock(3,3),
+            ResidualBlock(3, 3),
+            ResidualBlock(3, 3),
+
             nn.Tanh()
         )
 
@@ -237,7 +222,7 @@ class VQVAEResNet(nn.Module):
 def prepare_models(configs, logger, accelerator):
     # from torchsummary import summary
 
-    vqvae = VQVAE(
+    vqvae = VQVAEResNet(
         dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
         decay=configs.model.vector_quantization.decay,
