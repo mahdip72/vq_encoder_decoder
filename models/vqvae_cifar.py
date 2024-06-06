@@ -154,11 +154,16 @@ class ResidualBlock(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
 
     def forward(self, x):
         residual = x
         x = self.conv1(x)
         x = self.bn1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
         x = x + residual
 
         return x
@@ -184,9 +189,10 @@ class VQVAEResNet(nn.Module):
             ResidualBlock(16, 16),
             ResidualBlock(16, 16),
             ResidualBlock(16, 16),
-
+            ResidualBlock(16, 16),
+            ResidualBlock(16, 16),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         self.vq_layer = VectorQuantize(
@@ -201,14 +207,16 @@ class VQVAEResNet(nn.Module):
         # dec_layers.append(ResidualBlock(3, 3))
 
         self.decoder_layers = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            # nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(16, 3, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(3),
+            nn.ReLU(),
 
             ResidualBlock(3,3),
             ResidualBlock(3, 3),
             ResidualBlock(3, 3),
-
+            ResidualBlock(3, 3),
+            ResidualBlock(3, 3),
             nn.Tanh()
         )
 
