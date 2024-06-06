@@ -86,20 +86,18 @@ def pdb_to_cmap_old(pdb_file):
 ############################################################
 
 
-def calc_dist_matrix(chain_one, chain_two):
+def calc_dist_matrix(chain_one):
     """
-    Return a matrix of C-alpha distances between two protein chains.
-    :param chain_one: first chain
-    :param chain_two: second chain
+    Return a matrix of C-alpha distances between the residues of a protein chain.
+    :param chain_one: protein chain
     :return: (torch.tensor) distance matrix
     """
 
     # Extract C-alpha coordinates
     coords_one = np.array([residue["CA"].coord for residue in chain_one])
-    coords_two = np.array([residue["CA"].coord for residue in chain_two])
 
     # Calculate pairwise distances using scipy.spatial.distance.cdist
-    dist_matrix = distance.cdist(coords_one, coords_two, 'euclidean')
+    dist_matrix = distance.cdist(coords_one, coords_one, 'euclidean')
 
     # Convert the distance matrix to a PyTorch tensor
     answer = torch.tensor(dist_matrix, dtype=torch.float32)
@@ -132,7 +130,7 @@ def pdb_to_cmap(id, pdb_file, threshold=8, chain="A"):
 
     # Construct the contact map
     model = structure[0]
-    dist_matrix = calc_dist_matrix(model[chain], model[chain])
+    dist_matrix = calc_dist_matrix(model[chain])
     contact_map = dist_matrix < threshold
     return contact_map.to(torch.uint8)
 
@@ -154,9 +152,9 @@ def plot_contact_map(contact_map, ax, title=""):
 if __name__ == "__main__":
     import tqdm
     # Test dataloader on PDB directory
-    pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
+    #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
     #pdb_dir = "PDB_database"
-    #pdb_dir = "../../data/swissprot_pdb_v4_small"
+    pdb_dir = "../../data/swissprot_pdb_v4_small"
     dataloader = prepare_dataloaders(pdb_dir)
     i = 0
     for cmap, pdb_file in tqdm.tqdm(dataloader, total=len(dataloader)):
