@@ -3,6 +3,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import LFQ
 from tqdm import tqdm
 
 import yaml
@@ -109,9 +110,7 @@ def get_layers(encoder, num_layers, configs):
 
         if encoder:
             add_encoder_layer(layers, first_layer, last_layer, configs)
-            layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
         else:
-            layers.append(nn.Upsample(scale_factor=2, mode='nearest'))
             add_decoder_layer(layers, first_layer, last_layer, configs)
 
     return layers
@@ -121,7 +120,7 @@ class VQVAE(nn.Module):
     """
     A simple VQVAE models for images
     """
-    def __init__(self, dim, codebook_size, decay, commitment_weight, configs):
+    def __init__(self, dim, codebook_size, decay, commitment_weight, lfq, configs):
         super().__init__()
         self.d_model = dim
         self.num_layers = configs.model.num_layers
@@ -130,13 +129,21 @@ class VQVAE(nn.Module):
             *get_layers(True, self.num_layers, configs)
         )
 
-        self.vq_layer = VectorQuantize(
-            dim=self.d_model,
-            codebook_size=codebook_size,
-            decay=decay,
-            commitment_weight=commitment_weight,
-            accept_image_fmap=True
-        )
+        if not lfq:
+            # Regular vector quantization
+            self.vq_layer = VectorQuantize(
+                dim=self.d_model,
+                codebook_size=codebook_size,
+                decay=decay,
+                commitment_weight=commitment_weight,
+                accept_image_fmap=True
+            )
+
+        else:
+            self.vq_layer = LFQ(
+                dim=self.d_model,
+                codebook_size=codebook_size
+            )
 
         self.decoder_layers = nn.Sequential(
             *get_layers(False, self.num_layers, configs)
@@ -154,11 +161,16 @@ class ResidualBlock(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
 
     def forward(self, x):
         residual = x
         x = self.conv1(x)
         x = self.bn1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
         x = x + residual
 
         return x
@@ -184,9 +196,10 @@ class VQVAEResNet(nn.Module):
             ResidualBlock(16, 16),
             ResidualBlock(16, 16),
             ResidualBlock(16, 16),
-
+            ResidualBlock(16, 16),
+            ResidualBlock(16, 16),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         self.vq_layer = VectorQuantize(
@@ -201,14 +214,16 @@ class VQVAEResNet(nn.Module):
         # dec_layers.append(ResidualBlock(3, 3))
 
         self.decoder_layers = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            # nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(16, 3, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(3),
+            nn.ReLU(),
 
             ResidualBlock(3,3),
             ResidualBlock(3, 3),
             ResidualBlock(3, 3),
-
+            ResidualBlock(3, 3),
+            ResidualBlock(3, 3),
             nn.Tanh()
         )
 
@@ -222,11 +237,12 @@ class VQVAEResNet(nn.Module):
 def prepare_models(configs, logger, accelerator):
     # from torchsummary import summary
 
-    vqvae = VQVAEResNet(
+    vqvae = VQVAE(
         dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
         decay=configs.model.vector_quantization.decay,
         commitment_weight=configs.model.vector_quantization.commitment_weight,
+        lfq=configs.model.vector_quantization.lfq,
         configs=configs
     )
 
