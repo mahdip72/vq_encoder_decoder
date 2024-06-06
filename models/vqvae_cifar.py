@@ -109,9 +109,7 @@ def get_layers(encoder, num_layers, configs):
 
         if encoder:
             add_encoder_layer(layers, first_layer, last_layer, configs)
-            layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
         else:
-            layers.append(nn.Upsample(scale_factor=2, mode='nearest'))
             add_decoder_layer(layers, first_layer, last_layer, configs)
 
     return layers
@@ -230,7 +228,7 @@ class VQVAEResNet(nn.Module):
 def prepare_models(configs, logger, accelerator):
     # from torchsummary import summary
 
-    vqvae = VQVAEResNet(
+    vqvae = VQVAE(
         dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
         decay=configs.model.vector_quantization.decay,
