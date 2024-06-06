@@ -105,12 +105,12 @@ def calc_dist_matrix(chain_one):
     return answer
 
 
-def pdb_to_cmap(id, pdb_file, threshold=8, chain="A"):
+def pdb_to_cmap(protein_id, pdb_file, threshold=8, chain="A"):
     """
     Construct a contact map from a PDB or mmCIF file. The contact map is a matrix
     such that element ij is 1 if the C-alpha distance between residues i and j
     is less than the threshold, and 0 otherwise.
-    :param id: (string) ID of the protein structure
+    :param protein_id: (string) ID of the protein structure
     :param pdb_file: (String or Path) path to the PDB or mmCIF file
     :param threshold: (int) threshold distance for contacts
     :param chain: (string) name of the chain to consider
@@ -121,10 +121,10 @@ def pdb_to_cmap(id, pdb_file, threshold=8, chain="A"):
 
     # Parse PDB file
     if file_ext == ".pdb":
-        structure = Bio.PDB.PDBParser().get_structure(id, pdb_file)
+        structure = Bio.PDB.PDBParser().get_structure(protein_id, pdb_file)
     # Parse CIF file
     elif file_ext == ".cif":
-        structure = Bio.PDB.MMCIFParser().get_structure(id, pdb_file)
+        structure = Bio.PDB.MMCIFParser().get_structure(protein_id, pdb_file)
     else:
         return None
 
@@ -154,15 +154,15 @@ if __name__ == "__main__":
     # Test dataloader on PDB directory
     #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
     #pdb_dir = "PDB_database"
-    pdb_dir = "../../data/swissprot_pdb_v4_small"
-    dataloader = prepare_dataloaders(pdb_dir)
+    pdb_directory = "../../data/swissprot_pdb_v4_small"
+    dataloader = prepare_dataloaders(pdb_directory)
     i = 0
-    for cmap, pdb_file in tqdm.tqdm(dataloader, total=len(dataloader)):
+    for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
         # Plot the contact maps
         """
         if i < 11:
             fig, ax = plt.subplots()
-            plot_contact_map(cmap[0], ax, title=str(pdb_file[0]))
+            plot_contact_map(cmap[0], ax, title=str(pdb_filename[0]))
             plt.show()
         
         """
