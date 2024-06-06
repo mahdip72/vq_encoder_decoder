@@ -66,9 +66,9 @@ def preprocess_file(file_path, max_len, save_path, dictn):
 
 def main():
     parser = argparse.ArgumentParser(description='Processing PDB files.')
-    parser.add_argument('--data', default='/home/mpngf/datasets/vqvae/test/', help='Path to PDB files.')
+    parser.add_argument('--data', default='./test_data', help='Path to PDB files.')
     parser.add_argument('--max_len', default=1024, type=int, help='Max sequence length to consider.')
-    parser.add_argument('--save_path', default='/home/mpngf/datasets/vqvae/test/', help='Path to output.')
+    parser.add_argument('--save_path', default='./save_test/', help='Path to output.')
     parser.add_argument('--max_workers', default=16,
                         help='Set the number of workers for parallel processing.')
     args = parser.parse_args()
