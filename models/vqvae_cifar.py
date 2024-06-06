@@ -3,6 +3,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import LFQ
 from tqdm import tqdm
 
 import yaml
@@ -119,7 +120,7 @@ class VQVAE(nn.Module):
     """
     A simple VQVAE models for images
     """
-    def __init__(self, dim, codebook_size, decay, commitment_weight, configs):
+    def __init__(self, dim, codebook_size, decay, commitment_weight, lfq, configs):
         super().__init__()
         self.d_model = dim
         self.num_layers = configs.model.num_layers
@@ -128,13 +129,21 @@ class VQVAE(nn.Module):
             *get_layers(True, self.num_layers, configs)
         )
 
-        self.vq_layer = VectorQuantize(
-            dim=self.d_model,
-            codebook_size=codebook_size,
-            decay=decay,
-            commitment_weight=commitment_weight,
-            accept_image_fmap=True
-        )
+        if not lfq:
+            # Regular vector quantization
+            self.vq_layer = VectorQuantize(
+                dim=self.d_model,
+                codebook_size=codebook_size,
+                decay=decay,
+                commitment_weight=commitment_weight,
+                accept_image_fmap=True
+            )
+
+        else:
+            self.vq_layer = LFQ(
+                dim=self.d_model,
+                codebook_size=codebook_size
+            )
 
         self.decoder_layers = nn.Sequential(
             *get_layers(False, self.num_layers, configs)
@@ -233,6 +242,7 @@ def prepare_models(configs, logger, accelerator):
         codebook_size=configs.model.vector_quantization.codebook_size,
         decay=configs.model.vector_quantization.decay,
         commitment_weight=configs.model.vector_quantization.commitment_weight,
+        lfq=configs.model.vector_quantization.lfq,
         configs=configs
     )
 
