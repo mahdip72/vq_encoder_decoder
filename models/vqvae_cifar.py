@@ -180,7 +180,7 @@ class VQVAEResNet(nn.Module):
     """
     A VQVAE model with residual CNNs for encoder and decoder
     """
-    def __init__(self, dim, codebook_size, decay, commitment_weight, configs):
+    def __init__(self, dim, codebook_size, decay, commitment_weight, lfq, configs):
         super().__init__()
         self.d_model = dim
         self.num_layers = configs.model.num_layers
@@ -202,13 +202,21 @@ class VQVAEResNet(nn.Module):
             # nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        self.vq_layer = VectorQuantize(
-            dim=self.d_model,
-            codebook_size=codebook_size,
-            decay=decay,
-            commitment_weight=commitment_weight,
-            accept_image_fmap=True
-        )
+        if not lfq:
+            # Regular vector quantization
+            self.vq_layer = VectorQuantize(
+                dim=self.d_model,
+                codebook_size=codebook_size,
+                decay=decay,
+                commitment_weight=commitment_weight,
+                accept_image_fmap=True
+            )
+
+        else:
+            self.vq_layer = LFQ(
+                dim=self.d_model,
+                codebook_size=codebook_size
+            )
 
         # dec_layers = get_layers(False, self.num_layers, configs)
         # dec_layers.append(ResidualBlock(3, 3))
