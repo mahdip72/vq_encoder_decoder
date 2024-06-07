@@ -100,23 +100,28 @@ def calc_avg_res_coord(residue):
     return np.divide(sum_atom_coords, count)
 
 
-def calc_dist_matrix(chain_one):
+def calc_dist_matrix(chain):
     """
     Return a matrix of C-alpha distances between the residues of a protein chain.
-    :param chain_one: protein chain
+    :param chain: protein chain
     :return: (torch.tensor) distance matrix
     """
 
     # Extract C-alpha coordinates
     coords = []
-    for residue in chain_one:
-        try:
-            coords.append(residue["CA"].coord)
-        # If residue is missing an alpha carbon, use the average coordinates of
-        # all atoms in the residue
-        except KeyError:
-            coords.append(calc_avg_res_coord(residue))
-            print(residue, calc_avg_res_coord(residue))
+    for residue in chain:
+
+        # Only consider amino acid residues (ignore HETATM, HOH, etc.)
+        if residue.id[0] == " ":
+
+            try:
+                coords.append(residue["CA"].coord)
+
+            # If residue is missing an alpha carbon, use the average coordinates of
+            # all atoms in the residue
+            except KeyError:
+                coords.append(calc_avg_res_coord(residue))
+                print(residue, calc_avg_res_coord(residue))
 
     coords = np.array(coords)
 
