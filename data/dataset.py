@@ -534,20 +534,22 @@ class VQVAEDataset(Dataset):
         original_shape = coords.shape
         coords = coords.view(-1, 3)
 
-        # Identify NaN values
-        nan_mask = torch.isnan(coords)
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
 
-        if not nan_mask.any():
-            return coords.view(original_shape)  # Return if there are no NaN values
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
 
-        # Iterate through coordinates and replace NaNs with the previous valid coordinate
-        for i in range(1, coords.shape[0]):
-            if nan_mask[i].any():
-                coords[i] = coords[i - 1]
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
 
-        for i in range(0, coords.shape[0]-1):
-            if nan_mask[i].any():
-                coords[i] = coords[i + 1]
+            for i in range(0, coords.shape[0]-1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
 
         return coords.view(original_shape)
 
@@ -558,7 +560,6 @@ class VQVAEDataset(Dataset):
         pid = basename.split('.h5')[0]
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
-
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
         # Merge the features and create a mask
