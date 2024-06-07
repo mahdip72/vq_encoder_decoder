@@ -41,51 +41,116 @@ def extract_coordinates_plddt(chain, max_amino_acid_index, max_len):
     return pos, plddt_scores
 
 
-def check_single_protein_chain(structure):
+def check_chains(structure, report_dict):
+    """
+    Extracts sequences from each chain in the given structure and filters them based on criteria.
+
+    This function processes each chain in the given PDB structure, extracts its sequence, and applies the following filter:
+    1. Removes chains with sequences consisting of fewer than 2 amino acids.
+
+    Args:
+        structure (Bio.PDB.Structure.Structure): The PDB structure object to process.
+
+    Returns:
+        dict: A dictionary with chain IDs as keys and their corresponding sequences as values,
+              filtered based on the specified criteria.
+    """
     ppb = PPBuilder()
     chains = [chain for model in structure for chain in model]
-    sequences = [pp.get_sequence() for chain in chains for pp in ppb.build_peptides(chain)]
-    return len(sequences) == 1, chains[0].id if sequences else None
+    sequences = {}
+    for chain in chains:
+        sequence = ''.join([str(pp.get_sequence()) for pp in ppb.build_peptides(chain)])
+        if len(sequence) >= 2:
+            sequences[chain.id] = sequence
+        else:
+            report_dict['single_amino_acid'] += 1
+    return sequences
+
+
+def filter_best_chains(chain_sequences, structure):
+    """
+    Filters chains to retain only the unique sequences and selects the chain with the most resolved Cα atoms
+    for each unique sequence.
+
+    Args:
+        chain_sequences (dict): Dictionary of chain IDs and their sequences.
+        structure (Structure): Parsed structure from the PDB file.
+
+    Returns:
+        dict: Dictionary of unique sequences with the chain ID and the count of resolved Cα atoms.
+
+    Example:
+        Suppose you have the following chain sequences and counts of resolved Cα atoms:
+
+        - Chain 'A': Sequence 'MKT' with 5 resolved Cα atoms.
+        - Chain 'B': Sequence 'MKT' with 7 resolved Cα atoms.
+        - Chain 'C': Sequence 'MKT' with 6 resolved Cα atoms.
+        - Chain 'D': Sequence 'GVA' with 4 resolved Cα atoms.
+
+        The `filter_best_chains` function would return:
+
+        - 'MKT': ('B', 7)  # Chain 'B' has the most resolved Cα atoms for the sequence 'MKT'.
+        - 'GVA': ('D', 4)  # Chain 'D' is the only chain with the sequence 'GVA'.
+    """
+    processed_chains = {}
+    for chain_id, sequence in chain_sequences.items():
+        model = structure[0]
+        chain = model[chain_id]
+
+        # Count the number of resolved Cα atoms
+        ca_count = sum(1 for residue in chain if 'CA' in residue)
+        if sequence in processed_chains:
+            if ca_count > processed_chains[sequence][1]:
+                processed_chains[sequence] = (chain_id, ca_count)
+        else:
+            processed_chains[sequence] = (chain_id, ca_count)
+
+    return processed_chains
 
 
 def preprocess_file(file_path, max_len, save_path, dictn, report_dict):
-    if os.path.basename(file_path) == '1H7M.pdb':
-        pass
-
     parser = PDBParser(QUIET=True)  # This is from Bio.PDB
     structure = parser.get_structure('protein', file_path)
 
-    # Check for a single protein chain
-    single_chain, chain_id = check_single_protein_chain(structure)
-    if not single_chain:
+    # Extract chains and their sequences
+    chain_sequences = check_chains(structure, report_dict)
+    if len(chain_sequences) > 1:
         report_dict['protein_complex'] += 1
-        return
-    if chain_id != 'A':
+
+    if 'A' not in list(chain_sequences.keys()):
         report_dict['no_chain_id_a'] += 1
 
-    model = structure[0]
-    chain = model[chain_id]
+    # Filter the chains to retain only the best representative chains
+    best_chains = filter_best_chains(chain_sequences, structure)
 
-    sequence = []
-    protein_seq = ''
-    max_amino_acid_index = 0
-    for residue_index, residue in enumerate(chain):
-        if residue_index == 95:
-            pass
-        if residue.id[0] == ' ' and residue.resname in dictn:
-            sequence.append(residue.resname)
-            amino_acid = [dictn[triple] for triple in sequence]
-            protein_seq = "".join(amino_acid)
-            max_amino_acid_index = residue_index
-        elif residue.id[0] != ' ':
-            break
+    for sequence, (chain_id, ca_count) in best_chains.items():
+        if len(sequence) < 2:
+            continue
+        model = structure[0]
+        chain = model[chain_id]
+
+        protein_seq = ''
+        max_amino_acid_index = 0
+        for residue_index, residue in enumerate(chain):
+            if residue.id[0] == ' ' and residue.resname in dictn:
+                protein_seq += dictn[residue.resname]
+                max_amino_acid_index = residue_index
+            elif residue.id[0] == ' ' and residue.resname not in dictn:
+                report_dict['wrong_amino_acid'] += 1
+                break
+            elif residue.id[0] != ' ':
+                break
+            else:
+                pass
+
+        n_ca_c_o_coord, plddt_scores = extract_coordinates_plddt(chain, max_amino_acid_index, max_len)
+        pad_seq = protein_seq[:max_len]
+        if len(chain_sequences) > 1:
+            outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + f"_chain_id_{chain_id}.h5")
         else:
-            pass
-
-    n_ca_c_o_coord, plddt_scores = extract_coordinates_plddt(chain, max_amino_acid_index, max_len)
-    pad_seq = protein_seq[:max_len]
-    outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + ".h5")
-    write_h5_file(outputfile, pad_seq, n_ca_c_o_coord, plddt_scores)
+            outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + ".h5")
+        report_dict['h5_processed'] += 1
+        write_h5_file(outputfile, pad_seq, n_ca_c_o_coord, plddt_scores)
 
 
 def main():
@@ -105,13 +170,17 @@ def main():
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
 
-    dictn = {'CYS': 'C', 'ASP': 'D', 'SER': 'S', 'GLN': 'Q', 'LYS': 'K',
-             'ILE': 'I', 'PRO': 'P', 'THR': 'T', 'PHE': 'F', 'ASN': 'N',
-             'GLY': 'G', 'HIS': 'H', 'LEU': 'L', 'ARG': 'R', 'TRP': 'W',
-             'ALA': 'A', 'VAL': 'V', 'GLU': 'E', 'TYR': 'Y', 'MET': 'M'}
+    dictn = {
+        'CYS': 'C', 'ASP': 'D', 'SER': 'S', 'GLN': 'Q', 'LYS': 'K',
+        'ILE': 'I', 'PRO': 'P', 'THR': 'T', 'PHE': 'F', 'ASN': 'N',
+        'GLY': 'G', 'HIS': 'H', 'LEU': 'L', 'ARG': 'R', 'TRP': 'W',
+        'ALA': 'A', 'VAL': 'V', 'GLU': 'E', 'TYR': 'Y', 'MET': 'M',
+        'ASX': 'B', 'GLX': 'Z', 'PYL': 'O', 'SEC': 'U',  # 'UNK': 'X'
+    }
 
     with Manager() as manager:
-        report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0})
+        report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
+                                    'wrong_amino_acid': 0, 'single_amino_acid': 0, 'error': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
             futures = {executor.submit(preprocess_file, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for file_path in data_path}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
@@ -120,6 +189,7 @@ def main():
                     future.result()
                 except Exception as exc:
                     print(f"An error occurred while processing {file_path}: {exc} {type(exc)}")
+                    report_dict['error'] += 1
         print(dict(report_dict))
 
 
