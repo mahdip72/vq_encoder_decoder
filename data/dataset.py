@@ -560,8 +560,12 @@ class VQVAEDataset(Dataset):
         pid = basename.split('.h5')[0]
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
+
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
+
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
