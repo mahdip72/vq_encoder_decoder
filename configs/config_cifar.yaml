@@ -19,10 +19,11 @@ model:
 
   vector_quantization:
     dim: 16
-    codebook_size: 32
+    codebook_size: 512
     decay: 0.9
     commitment_weight : 0.9
     alpha: 2.0
+    lfq: False
 
   decoder:
     dim: 8
@@ -44,7 +45,7 @@ valid_settings:
 
 optimizer:
   name: adam
-  lr: 1e-3
+  lr: 0.01
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16

@@ -86,18 +86,47 @@ def pdb_to_cmap_old(pdb_file):
 ############################################################
 
 
-def calc_dist_matrix(chain_one):
+def calc_avg_res_coord(residue):
+    """
+    Calculate the average coordinates of a residue.
+    :param residue: (Bio.PDB.Residue) residue
+    :return: (numpy.array) average coordinates
+    """
+    sum_atom_coords = np.array([0,0,0]) # Sum of atom coordinates
+    count = 0
+    for atom in residue.get_atoms():
+        sum_atom_coords = np.add(sum_atom_coords, atom.coord)
+        count += 1
+    return np.divide(sum_atom_coords, count)
+
+
+def calc_dist_matrix(chain):
     """
     Return a matrix of C-alpha distances between the residues of a protein chain.
-    :param chain_one: protein chain
+    :param chain: protein chain
     :return: (torch.tensor) distance matrix
     """
 
     # Extract C-alpha coordinates
-    coords_one = np.array([residue["CA"].coord for residue in chain_one])
+    coords = []
+    for residue in chain:
+
+        # Only consider amino acid residues (ignore HETATM, HOH, etc.)
+        if residue.id[0] == " ":
+
+            try:
+                coords.append(residue["CA"].coord)
+
+            # If residue is missing an alpha carbon, use the average coordinates of
+            # all atoms in the residue
+            except KeyError:
+                coords.append(calc_avg_res_coord(residue))
+                print(residue, calc_avg_res_coord(residue))
+
+    coords = np.array(coords)
 
     # Calculate pairwise distances using scipy.spatial.distance.cdist
-    dist_matrix = distance.cdist(coords_one, coords_one, 'euclidean')
+    dist_matrix = distance.cdist(coords, coords, 'euclidean')
 
     # Convert the distance matrix to a PyTorch tensor
     answer = torch.tensor(dist_matrix, dtype=torch.float32)
@@ -121,10 +150,10 @@ def pdb_to_cmap(protein_id, pdb_file, threshold=8, chain="A"):
 
     # Parse PDB file
     if file_ext == ".pdb":
-        structure = Bio.PDB.PDBParser().get_structure(protein_id, pdb_file)
+        structure = Bio.PDB.PDBParser(QUIET=True).get_structure(protein_id, pdb_file)
     # Parse CIF file
     elif file_ext == ".cif":
-        structure = Bio.PDB.MMCIFParser().get_structure(protein_id, pdb_file)
+        structure = Bio.PDB.MMCIFParser(QUIET=True).get_structure(protein_id, pdb_file)
     else:
         return None
 
@@ -153,11 +182,12 @@ if __name__ == "__main__":
     import tqdm
     # Test dataloader on PDB directory
     #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
-    #pdb_dir = "PDB_database"
-    pdb_directory = "../../data/swissprot_pdb_v4_small"
+    pdb_directory = "PDB_database"
+    #pdb_directory = "../../data/swissprot_pdb_v4_small"
     dataloader = prepare_dataloaders(pdb_directory)
     i = 0
     for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
+        print(str(pdb_filename))
         # Plot the contact maps
         """
         if i < 11:
