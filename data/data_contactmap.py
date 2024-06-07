@@ -150,10 +150,10 @@ def pdb_to_cmap(protein_id, pdb_file, threshold=8, chain="A"):
 
     # Parse PDB file
     if file_ext == ".pdb":
-        structure = Bio.PDB.PDBParser().get_structure(protein_id, pdb_file)
+        structure = Bio.PDB.PDBParser(QUIET=True).get_structure(protein_id, pdb_file)
     # Parse CIF file
     elif file_ext == ".cif":
-        structure = Bio.PDB.MMCIFParser().get_structure(protein_id, pdb_file)
+        structure = Bio.PDB.MMCIFParser(QUIET=True).get_structure(protein_id, pdb_file)
     else:
         return None
 
