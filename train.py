@@ -400,7 +400,19 @@ def main(dict_config, config_file_path):
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
 
-    print("Training complete!")
+    logging.info("Training is completed!")
+
+    # log best valid gdtts
+    if accelerator.is_main_process:
+        logging.info(f'best valid gdtts: {best_valid_gdtts:.4f}')
+
+    train_writer.close()
+    valid_writer.close()
+
+    accelerator.wait_for_everyone()
+    accelerator.free_memory()
+    accelerator.end_training()
+    torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':
