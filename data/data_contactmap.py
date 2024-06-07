@@ -92,12 +92,48 @@ def calc_avg_res_coord(residue):
     :param residue: (Bio.PDB.Residue) residue
     :return: (numpy.array) average coordinates
     """
+
     sum_atom_coords = np.array([0,0,0]) # Sum of atom coordinates
-    count = 0
+    count = 0 # Number of atoms with coordinates
     for atom in residue.get_atoms():
-        sum_atom_coords = np.add(sum_atom_coords, atom.coord)
-        count += 1
-    return np.divide(sum_atom_coords, count)
+        if atom.coord is not None:
+            sum_atom_coords = np.add(sum_atom_coords, atom.coord)
+            count += 1
+
+    if count > 0:
+        return np.divide(sum_atom_coords, count)
+    # Return NaN values if none of the atoms have coordinates
+    else:
+        return np.array([np.nan, np.nan, np.nan])
+
+
+def fill_missing_coords(coords, nan_indices):
+    """
+    Fill missing coordinates in a list of coordinates by replacing them with
+    the closest non-missing coordinate.
+    :param coords: (list or array) list of coordinates
+    :param nan_indices: (iterable) collection of indices of missing coordinates
+    :return: list of coordinates with missing values removed
+    """
+    for index in nan_indices:
+        i = index - 1
+        j = index + 1
+        num_coords = len(coords)
+
+        # Replace current coordinate with nearest non-missing coordinate
+        while i >= 0 and j < num_coords:
+            if i >= 0:
+                if np.nan not in coords[i]:
+                    coords[index] = coords[i]
+                    break
+            elif j < num_coords:
+                if np.nan not in coords[j]:
+                    coords[index] = coords[j]
+                    break
+            i -= 1
+            j += 1
+
+    return coords
 
 
 def calc_dist_matrix(chain):
@@ -109,21 +145,31 @@ def calc_dist_matrix(chain):
 
     # Extract C-alpha coordinates
     coords = []
+    nan_indices = set()  # Indices of NaN coordinates
     for residue in chain:
 
         # Only consider amino acid residues (ignore HETATM, HOH, etc.)
         if residue.id[0] == " ":
 
             try:
-                coords.append(residue["CA"].coord)
-
-            # If residue is missing an alpha carbon, use the average coordinates of
-            # all atoms in the residue
+                ca_coord = residue["CA"].coord
+            # Use average residue coordinates if alpha carbon is missing
             except KeyError:
-                coords.append(calc_avg_res_coord(residue))
-                print(residue, calc_avg_res_coord(residue))
+                ca_coord = calc_avg_res_coord(residue)
+
+            # Use average residue coordinates if alpha carbon coordinates are missing
+            if None in ca_coord:
+                ca_coord = calc_avg_res_coord(residue)
+
+            # Mark current index if ca_coord has missing values
+            # (e.g. if all atoms in the residue are missing coordinates)
+            if np.nan in ca_coord:
+                nan_indices.add(len(coords))
+
+            coords.append(ca_coord) # Add alpha carbon coordinates to list of coordinates
 
     coords = np.array(coords)
+    coords = fill_missing_coords(coords, nan_indices)
 
     # Calculate pairwise distances using scipy.spatial.distance.cdist
     dist_matrix = distance.cdist(coords, coords, 'euclidean')
@@ -182,19 +228,20 @@ if __name__ == "__main__":
     import tqdm
     # Test dataloader on PDB directory
     #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
-    pdb_directory = "PDB_database"
-    #pdb_directory = "../../data/swissprot_pdb_v4_small"
+    #pdb_directory = "PDB_database"
+    pdb_directory = "../../data/swissprot_pdb_v4"
     dataloader = prepare_dataloaders(pdb_directory)
-    i = 0
+
+    n = 0
     for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
         print(str(pdb_filename))
         # Plot the contact maps
         """
-        if i < 11:
+        if n < 11:
             fig, ax = plt.subplots()
             plot_contact_map(cmap[0], ax, title=str(pdb_filename[0]))
             plt.show()
         
         """
-        i += 1
+        n += 1
         pass
