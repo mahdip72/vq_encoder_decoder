@@ -27,7 +27,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
 
-    # Prepare metrics to evaluation
+    # Prepare metrics for evaluation
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
     gdtts = GDTTS()
@@ -66,14 +66,17 @@ def train_loop(net, train_loader, epoch, **kwargs):
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
+            # Compute the loss
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
             rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
-
             loss = rec_loss + alpha * commit_loss
 
+            # Denormalize the outputs and labels
             masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
             masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+
+            # Update the metrics
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
@@ -129,6 +132,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             }
         )
 
+    # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
@@ -137,6 +141,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
+    # Log the metrics to TensorBoard
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
@@ -146,6 +151,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
 
+    # Reset the metrics for the next epoch
     mae.reset()
     rmse.reset()
     gdtts.reset()
@@ -205,13 +211,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
+            # Compute the loss
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
             rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
             loss = rec_loss + alpha * commit_loss
 
+            # Denormalize the outputs and labels
             masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
             masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+
+            # Update the metrics
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
@@ -230,6 +240,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                                      + f"rec loss: {total_rec_loss / counter:.3f}, "
                                      + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
+    # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
@@ -237,6 +248,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     gdtts_score = gdtts.compute().cpu().item()
     # lddt_score = lddt.compute().cpu().item()
 
+    # Log the metrics to TensorBoard
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
@@ -245,6 +257,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('gdtts', gdtts_score, epoch)
         # writer.add_scalar('val_lddt', lddt_score, epoch)
 
+    # Reset the metrics for the next epoch
     mae.reset()
     rmse.reset()
     gdtts.reset()
