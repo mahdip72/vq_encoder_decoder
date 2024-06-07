@@ -3,6 +3,7 @@ import os
 from tqdm import tqdm
 from Bio.PDB import PDBParser
 from Bio.PDB.Polypeptide import PPBuilder
+from Bio import pairwise2
 import math
 import h5py
 from concurrent.futures import as_completed, ProcessPoolExecutor
@@ -14,31 +15,6 @@ def write_h5_file(file_path, pad_seq, n_ca_c_o_coord, plddt_scores):
         f.create_dataset('seq', data=pad_seq)
         f.create_dataset('N_CA_C_O_coord', data=n_ca_c_o_coord)
         f.create_dataset('plddt_scores', data=plddt_scores)
-
-
-def extract_coordinates_plddt(chain, max_amino_acid_index, max_len):
-    """Returns a list of N, C-alpha, C and O (backbone atoms) coordinates for a chain"""
-    pos = []
-    plddt_scores = []
-    for row, residue in enumerate(chain):
-        if row == max_amino_acid_index:
-            break
-        pos_N_CA_C_O = []
-        try:
-            plddt_scores.append(residue["CA"].get_bfactor())
-        except KeyError:
-            plddt_scores.append(0)
-
-        for key in ['N', 'CA', 'C', 'O']:
-            if key in residue:
-                pos_N_CA_C_O.append(list(residue[key].coord))
-            else:
-                pos_N_CA_C_O.append([math.nan, math.nan, math.nan])
-
-        pos.append(pos_N_CA_C_O)
-        if len(pos) == max_len:
-            break
-    return pos, plddt_scores
 
 
 def check_chains(structure, report_dict):
@@ -60,97 +36,147 @@ def check_chains(structure, report_dict):
     sequences = {}
     for chain in chains:
         sequence = ''.join([str(pp.get_sequence()) for pp in ppb.build_peptides(chain)])
-        if len(sequence) >= 2:
-            sequences[chain.id] = sequence
-        else:
+        if len(sequence) < 2:
             report_dict['single_amino_acid'] += 1
+            continue
+        sequences[chain.id] = sequence
     return sequences
 
 
-def filter_best_chains(chain_sequences, structure):
+def sequence_similarity(seq1, seq2):
+    alignments = pairwise2.align.globalxx(seq1, seq2)
+    best_alignment = alignments[0]
+    similarity = best_alignment[2] / min(len(seq1), len(seq2))
+    return similarity
+
+
+def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     """
     Filters chains to retain only the unique sequences and selects the chain with the most resolved Cα atoms
     for each unique sequence.
 
+    This function processes the chain sequences from a PDB structure and retains only the chains with
+    unique sequences or the best representative chain for similar sequences. The "best" chain is defined as
+    the one with the highest number of resolved Cα atoms.
+
+    The procedure is as follows:
+    1. Initialize dictionaries to keep track of processed chains and the best representative chain for each sequence.
+    2. Iterate through each chain in the structure:
+        a. Retrieve the sequence for the current chain.
+        b. Count the number of resolved Cα atoms in the current chain.
+        c. Compare the current sequence with already processed sequences using a similarity threshold.
+        d. If a similar sequence is found, compare the number of resolved Cα atoms:
+            - If the current chain has more resolved Cα atoms than the existing one, update the best representative.
+        e. If no similar sequence is found, add the current chain to the processed chains.
+    3. Build and return the final dictionary of unique sequences with the chain ID and the count of resolved Cα atoms.
+
     Args:
-        chain_sequences (dict): Dictionary of chain IDs and their sequences.
-        structure (Structure): Parsed structure from the PDB file.
+        chain_sequences (dict): Dictionary where keys are chain IDs and values are their sequences.
+        structure (Bio.PDB.Structure.Structure): The parsed PDB structure object containing the chains.
+        similarity_threshold (float, optional): Threshold for considering two sequences as similar. Defaults to 0.95.
 
     Returns:
-        dict: Dictionary of unique sequences with the chain ID and the count of resolved Cα atoms.
+        dict: Dictionary of unique sequences with their best representative chain ID.
 
     Example:
         Suppose you have the following chain sequences and counts of resolved Cα atoms:
-
         - Chain 'A': Sequence 'MKT' with 5 resolved Cα atoms.
         - Chain 'B': Sequence 'MKT' with 7 resolved Cα atoms.
-        - Chain 'C': Sequence 'MKT' with 6 resolved Cα atoms.
+        - Chain 'C': Sequence 'MKV' with 6 resolved Cα atoms.
         - Chain 'D': Sequence 'GVA' with 4 resolved Cα atoms.
 
-        The `filter_best_chains` function would return:
-
-        - 'MKT': ('B', 7)  # Chain 'B' has the most resolved Cα atoms for the sequence 'MKT'.
+        With a similarity threshold of 0.95, the function would return:
+        - 'MKT': ('B', 7)  # Chain 'B' has the most resolved Cα atoms for the similar sequences 'MKT' and 'MKV'.
         - 'GVA': ('D', 4)  # Chain 'D' is the only chain with the sequence 'GVA'.
     """
     processed_chains = {}
+    sequence_to_chain = {}
+
     for chain_id, sequence in chain_sequences.items():
         model = structure[0]
         chain = model[chain_id]
 
-        # Count the number of resolved Cα atoms
         ca_count = sum(1 for residue in chain if 'CA' in residue)
-        if sequence in processed_chains:
-            if ca_count > processed_chains[sequence][1]:
-                processed_chains[sequence] = (chain_id, ca_count)
-        else:
-            processed_chains[sequence] = (chain_id, ca_count)
 
+        # Filter out similar sequences
+        is_similar = False
+        for existing_sequence in sequence_to_chain.keys():
+            if sequence_similarity(sequence, existing_sequence) > similarity_threshold:
+                is_similar = True
+                existing_chain_id, existing_ca_count = sequence_to_chain[existing_sequence]
+                if ca_count > existing_ca_count:
+                    sequence_to_chain[existing_sequence] = (chain_id, ca_count)
+                break
+
+        if not is_similar:
+            sequence_to_chain[sequence] = (chain_id, ca_count)
+
+    for sequence, (chain_id, ca_count) in sequence_to_chain.items():
+        processed_chains[sequence] = (chain_id, ca_count)
+
+    # swap keys and values
+    processed_chains = {v[0]: (k, v[0]) for k, v in processed_chains.items()}
     return processed_chains
 
 
 def preprocess_file(file_path, max_len, save_path, dictn, report_dict):
-    parser = PDBParser(QUIET=True)  # This is from Bio.PDB
+    parser = PDBParser(QUIET=True)
     structure = parser.get_structure('protein', file_path)
 
-    # Extract chains and their sequences
     chain_sequences = check_chains(structure, report_dict)
-    if len(chain_sequences) > 1:
-        report_dict['protein_complex'] += 1
 
-    if 'A' not in list(chain_sequences.keys()):
-        report_dict['no_chain_id_a'] += 1
-
-    # Filter the chains to retain only the best representative chains
     best_chains = filter_best_chains(chain_sequences, structure)
 
-    for sequence, (chain_id, ca_count) in best_chains.items():
-        if len(sequence) < 2:
-            continue
+    if len(best_chains) > 1:
+        report_dict['protein_complex'] += 1
+    if 'A' not in list(best_chains.keys()):
+        report_dict['no_chain_id_a'] += 1
+
+    for chain_id, sequence in best_chains.items():
         model = structure[0]
         chain = model[chain_id]
 
         protein_seq = ''
-        max_amino_acid_index = 0
+        pos = []
+        plddt_scores = []
+        has_ambiguous_residue = False
+
         for residue_index, residue in enumerate(chain):
             if residue.id[0] == ' ' and residue.resname in dictn:
-                protein_seq += dictn[residue.resname]
-                max_amino_acid_index = residue_index
-            elif residue.id[0] == ' ' and residue.resname not in dictn:
-                report_dict['wrong_amino_acid'] += 1
-                break
-            elif residue.id[0] != ' ':
-                break
-            else:
-                pass
+                if residue.resname not in dictn:
+                    has_ambiguous_residue = True
+                    break
 
-        n_ca_c_o_coord, plddt_scores = extract_coordinates_plddt(chain, max_amino_acid_index, max_len)
+                protein_seq += dictn[residue.resname]
+
+                pos_N_CA_C_O = []
+                try:
+                    plddt_scores.append(residue["CA"].get_bfactor())
+                except KeyError:
+                    plddt_scores.append(0)
+
+                for key in ['N', 'CA', 'C', 'O']:
+                    if key in residue:
+                        pos_N_CA_C_O.append(list(residue[key].coord))
+                    else:
+                        pos_N_CA_C_O.append([math.nan, math.nan, math.nan])
+                pos.append(pos_N_CA_C_O)
+
+                if len(pos) == max_len:
+                    break
+            elif residue.id[0] != ' ':
+                continue
+
+        if has_ambiguous_residue:
+            continue
+
         pad_seq = protein_seq[:max_len]
-        if len(chain_sequences) > 1:
+        if len(best_chains) > 1:
             outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + f"_chain_id_{chain_id}.h5")
         else:
             outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + ".h5")
         report_dict['h5_processed'] += 1
-        write_h5_file(outputfile, pad_seq, n_ca_c_o_coord, plddt_scores)
+        write_h5_file(outputfile, pad_seq, pos, plddt_scores)
 
 
 def main():
@@ -162,11 +188,7 @@ def main():
                         help='Set the number of workers for parallel processing.')
     args = parser.parse_args()
 
-    data_path = []
-    for path in os.listdir(args.data):
-        if os.path.isfile(os.path.join(args.data, path)) and path[-3:] == 'pdb':
-            data_path.append(os.path.join(args.data, path))
-
+    data_path = [os.path.join(args.data, path) for path in os.listdir(args.data) if os.path.isfile(os.path.join(args.data, path)) and path.endswith('pdb')]
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
 
@@ -177,10 +199,10 @@ def main():
         'ALA': 'A', 'VAL': 'V', 'GLU': 'E', 'TYR': 'Y', 'MET': 'M',
         'ASX': 'B', 'GLX': 'Z', 'PYL': 'O', 'SEC': 'U',  # 'UNK': 'X'
     }
-
+    data_path = data_path[:10000]
     with Manager() as manager:
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                    'wrong_amino_acid': 0, 'single_amino_acid': 0, 'error': 0})
+                                    'single_amino_acid': 0, 'error': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
             futures = {executor.submit(preprocess_file, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for file_path in data_path}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
