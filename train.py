@@ -236,7 +236,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     denormalized_rec_rmse = rmse.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
     # lddt_score = lddt.compute().cpu().item()
-    avg_cmt_loss = total_cmt_loss / counter
 
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
@@ -244,7 +243,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
-        writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         # writer.add_scalar('val_lddt', lddt_score, epoch)
 
     mae.reset()
@@ -259,7 +257,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "denormalized_rec_rmse": denormalized_rec_rmse,
         "gdtts": gdtts_score,
         # "lddt": lddt_score,
-        "cmt_loss": avg_cmt_loss,
         "counter": counter,
     }
     return return_dict
