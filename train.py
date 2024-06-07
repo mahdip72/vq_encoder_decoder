@@ -158,12 +158,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
     gdtts = GDTTS()
-    lddt = LDDT()
+    # lddt = LDDT()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
     gdtts.to(accelerator.device)
-    lddt.to(accelerator.device)
+    # lddt.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
     processor = Protein3DProcessing()
@@ -199,7 +199,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
         progress_bar.update(1)
         counter += 1
@@ -219,13 +219,13 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
-    lddt_score = lddt.compute().cpu().item()
+    # lddt_score = lddt.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
 
     mae.reset()
     rmse.reset()
     gdtts.reset()
-    lddt.reset()
+    # lddt.reset()
 
     return_dict = {
         "loss": avg_loss,
@@ -233,7 +233,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "denormalized_rec_mae": denormalized_rec_mae,
         "denormalized_rec_rmse": denormalized_rec_rmse,
         "gdtts": gdtts_score,
-        "lddt": lddt_score,
+        # "lddt": lddt_score,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
     }
@@ -357,8 +357,9 @@ def main(dict_config, config_file_path):
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
                     f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
                     f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                    f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
-                    f'lddt {valid_loop_reports["lddt"]:.4f}')
+                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                    # f'lddt {valid_loop_reports["lddt"]:.4f}'
+                )
 
     print("Training complete!")
 
