@@ -326,7 +326,7 @@ def main(dict_config, config_file_path):
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
-    best_valid_gdtts = 0.0
+    best_valid_metrics = {'gdtts': 0.0, 'mae': 0.0, 'rmse': 0.0, 'lddt': 0.0, 'loss': 1000.0}
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
@@ -385,8 +385,12 @@ def main(dict_config, config_file_path):
                 )
 
             # Check valid metric to save the best model
-            if valid_loop_reports["gdtts"] > best_valid_gdtts:
-                best_valid_gdtts = valid_loop_reports["gdtts"]
+            if valid_loop_reports["gdtts"] > best_valid_metrics['gdtts']:
+                best_valid_metrics['gdtts'] = valid_loop_reports["gdtts"]
+                best_valid_metrics['mae'] = valid_loop_reports["denormalized_rec_mae"]
+                best_valid_metrics['rmse'] = valid_loop_reports["denormalized_rec_rmse"]
+                best_valid_metrics['loss'] = valid_loop_reports["loss"]
+
                 tools = dict()
                 tools['net'] = net
                 tools['optimizer'] = optimizer
@@ -404,7 +408,10 @@ def main(dict_config, config_file_path):
 
     # log best valid gdtts
     if accelerator.is_main_process:
-        logging.info(f'best valid gdtts: {best_valid_gdtts:.4f}')
+        logging.info(f"best valid gdtts: {best_valid_metrics['gdtts']:.4f}")
+        logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
+        logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
+        logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
     train_writer.close()
     valid_writer.close()
