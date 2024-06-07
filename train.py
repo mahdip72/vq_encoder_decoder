@@ -329,6 +329,7 @@ def main(dict_config, config_file_path):
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
+    best_valid_gdtts = 0.0
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
@@ -385,6 +386,22 @@ def main(dict_config, config_file_path):
                     f'gdtts {valid_loop_reports["gdtts"]:.4f}'
                     # f'lddt {valid_loop_reports["lddt"]:.4f}'
                 )
+
+            # Check valid metric to save the best model
+            if valid_loop_reports["gdtts"] > best_valid_gdtts:
+                best_valid_gdtts = valid_loop_reports["gdtts"]
+                tools = dict()
+                tools['net'] = net
+                tools['optimizer'] = optimizer
+                tools['scheduler'] = scheduler
+
+                accelerator.wait_for_everyone()
+
+                # Set the path to save the model checkpoint.
+                model_path = os.path.join(checkpoint_path, f'best_valid.pth')
+                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+                if accelerator.is_main_process:
+                    logging.info(f'\tsaving the best models in {model_path}')
 
     print("Training complete!")
 
