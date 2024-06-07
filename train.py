@@ -417,7 +417,7 @@ def main(dict_config, config_file_path):
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
 
-    logging.info("Training is completed!")
+    logging.info("Training is completed!\n")
 
     # log best valid gdtts
     if accelerator.is_main_process:
