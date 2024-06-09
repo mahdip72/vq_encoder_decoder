@@ -61,7 +61,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     net.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
-            labels = data['coords']
+            labels = data['target_coords']
             masks = data['masks']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
@@ -206,7 +206,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     net.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
-            labels = data['coords']
+            labels = data['target_coords']
             masks = data['masks']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)

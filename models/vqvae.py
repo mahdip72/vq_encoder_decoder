@@ -82,7 +82,7 @@ class VQVAE3DResNet(nn.Module):
         )
 
     def forward(self, batch, return_vq_only=False):
-        x = batch['coords'].permute(0, 2, 1)
+        x = batch['input_coords'].permute(0, 2, 1)
 
         x = self.initial_conv(x)
         x = self.encoder_blocks(x)
