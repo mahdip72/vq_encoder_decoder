@@ -500,12 +500,13 @@ class GVPDataset(Dataset):
 
 
 class VQVAEDataset(Dataset):
-    def __init__(self, data_path, **kwargs):
+    def __init__(self, data_path, rotate_randomly=True, **kwargs):
         super(VQVAEDataset, self).__init__()
 
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
 
         self.max_length = kwargs['configs'].model.max_length
+        self.rotate_randomly = rotate_randomly
 
         self.processor = Protein3DProcessing()
 
@@ -553,6 +554,55 @@ class VQVAEDataset(Dataset):
 
         return coords.view(original_shape)
 
+    @staticmethod
+    def random_rotation_matrix():
+        """
+        Creates a random 3D rotation matrix.
+
+        Returns:
+            torch.Tensor: A 3x3 rotation matrix.
+        """
+        theta = np.random.uniform(0, 2*np.pi)
+        phi = np.random.uniform(0, 2*np.pi)
+        psi = np.random.uniform(0, 2*np.pi)
+
+        r_x = torch.Tensor([[1, 0, 0],
+                            [0, np.cos(theta), -np.sin(theta)],
+                            [0, np.sin(theta), np.cos(theta)]])
+
+        r_y = torch.Tensor([[np.cos(phi), 0, np.sin(phi)],
+                            [0, 1, 0],
+                            [-np.sin(phi), 0, np.cos(phi)]])
+
+        r_z = torch.Tensor([[np.cos(psi), -np.sin(psi), 0],
+                            [np.sin(psi), np.cos(psi), 0],
+                            [0, 0, 1]])
+
+        r = r_z @ r_y @ r_x
+
+        return r
+
+    def rotate_coords(self, coords):
+        """
+        Rotates the coordinates using a random rotation matrix.
+
+        Parameters:
+            coords (torch.Tensor): The coordinates to rotate.
+
+        Returns:
+            torch.Tensor: The rotated coordinates.
+        """
+        R = self.random_rotation_matrix()
+        rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
+
+        # Ensure orthogonality
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32), atol=1e-6), "Rotation matrix is not orthogonal"
+
+        # Ensure proper rotation
+        assert torch.isclose(torch.det(R), torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+
+        return rotated_coords
+
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
@@ -566,15 +616,24 @@ class VQVAEDataset(Dataset):
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
 
+        if self.rotate_randomly:
+            # Apply random rotation
+            rotated_coords_tensor = self.rotate_coords(coords_tensor)
+        else:
+            rotated_coords_tensor = coords_tensor
+
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
+        rotated_coords_tensor = rotated_coords_tensor.reshape(1, -1, 12)
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        rotated_coords_tensor, masks = merge_features_and_create_mask(rotated_coords_tensor, self.max_length)
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
+        rotated_coords_tensor = rotated_coords_tensor.squeeze(0)
         masks = masks.squeeze(0)
 
-        return {'pid': pid, 'coords': coords, 'masks': masks}
+        return {'pid': pid, 'input_coords': rotated_coords_tensor, 'target_coords': coords, 'masks': masks}
 
 
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
@@ -800,10 +859,11 @@ if __name__ == '__main__':
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
-        # batch['coords'] = dataset.processor.denormalize_coords(batch['coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
+        # batch['coords'] = dataset.processor.denormalize_coords(batch['target_coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
         # plot_3d_coords_lines_plotly(batch["coords"][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords(batch["coords"][batch["masks"].squeeze(0)].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
-        # plot_3d_coords_lines_plotly(batch["coords"][7, ...][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
+        # plot_3d_coords_lines_plotly(batch["input_coords"][5, ...][batch["masks"][5, ...]].cpu().numpy().reshape(-1, 3))
+        # plot_3d_coords_lines_plotly(batch["target_coords"][5, ...][batch["masks"][5, ...]].cpu().numpy().reshape(-1, 3))
         break
         # pass
