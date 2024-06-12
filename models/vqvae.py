@@ -45,16 +45,19 @@ class VQVAE3DResNet(nn.Module):
         dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
         encoder_blocks = []
         prev_dim = start_dim
-        for dim in dims:
+        for i, dim in enumerate(dims):
             block = nn.Sequential(
                 nn.Conv1d(prev_dim, dim, 3, padding=1),
                 ResidualBlock(dim, dim),
                 ResidualBlock(dim, dim),
-                nn.Conv1d(dim, dim, 3, stride=2, padding=1),
-                nn.BatchNorm1d(dim),
-                nn.ReLU()
             )
             encoder_blocks.append(block)
+            if i % 2 == 0:
+                pooling_block = nn.Sequential(
+                    nn.Conv1d(dim, dim, 3, stride=2, padding=1),
+                    nn.BatchNorm1d(dim),
+                    nn.ReLU())
+                encoder_blocks.append(pooling_block)
             prev_dim = dim
         self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
@@ -94,14 +97,17 @@ class VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
+            if i % 2 == 0:
+                pooling_block = nn.Sequential(
+                    nn.Upsample(scale_factor=2),
+                    nn.Conv1d(dim, dim, 3, padding=1),
+                    nn.BatchNorm1d(dim),
+                    nn.ReLU())
+                decoder_blocks.append(pooling_block)
             block = nn.Sequential(
-                nn.Upsample(scale_factor=2),
-                nn.Conv1d(dim, dim, 3, padding=1),
-                nn.BatchNorm1d(dim),
-                nn.ReLU(),
                 ResidualBlock(dim, dim),
                 ResidualBlock(dim, dim),
-                nn.Conv1d(dim, dims[i+1], 3, padding=1),
+                nn.Conv1d(dim, dims[i + 1], 3, padding=1),
             )
             decoder_blocks.append(block)
         self.decoder_blocks = nn.Sequential(*decoder_blocks)
@@ -232,11 +238,11 @@ class VQVAE3DTransformer(nn.Module):
         # self.input_projection = nn.Linear(12, self.encoder_dim)
 
         self.input_projection = nn.Sequential(
-            nn.Conv1d(12, int(self.encoder_dim/2), 1),
-            nn.Conv1d(int(self.encoder_dim/2), int(self.encoder_dim/2), 3, padding=1),
-            nn.BatchNorm1d(int(self.encoder_dim/2)),
+            nn.Conv1d(12, int(self.encoder_dim / 2), 1),
+            nn.Conv1d(int(self.encoder_dim / 2), int(self.encoder_dim / 2), 3, padding=1),
+            nn.BatchNorm1d(int(self.encoder_dim / 2)),
             nn.ReLU(),
-            nn.Conv1d(int(self.encoder_dim/2), self.encoder_dim, 3, padding=1),
+            nn.Conv1d(int(self.encoder_dim / 2), self.encoder_dim, 3, padding=1),
             nn.BatchNorm1d(self.encoder_dim),
             nn.ReLU()
         )
@@ -284,10 +290,10 @@ class VQVAE3DTransformer(nn.Module):
             nn.Conv1d(self.decoder_dim, self.decoder_dim, 3, padding=1),
             nn.BatchNorm1d(self.decoder_dim),
             nn.ReLU(),
-            nn.Conv1d(self.decoder_dim, int(self.decoder_dim/2), 3, padding=1),
-            nn.BatchNorm1d(int(self.decoder_dim/2)),
+            nn.Conv1d(self.decoder_dim, int(self.decoder_dim / 2), 3, padding=1),
+            nn.BatchNorm1d(int(self.decoder_dim / 2)),
             nn.ReLU(),
-            nn.Conv1d(int(self.decoder_dim/2), 12, 1),
+            nn.Conv1d(int(self.decoder_dim / 2), 12, 1),
         )
 
     @staticmethod
