@@ -3,7 +3,6 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
-import tqdm
 import os
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -691,8 +690,8 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
         logging.info(f"train directory: {configs.train_settings.data_path}")
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
 
-    train_dataset = VQVAEDataset(configs.train_settings.data_path, configs=configs)
-    valid_dataset = VQVAEDataset(configs.valid_settings.data_path, configs=configs)
+    train_dataset = VQVAEDataset(configs.train_settings.data_path, rotate_randomly=False, configs=configs)
+    valid_dataset = VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               shuffle=configs.train_settings.shuffle,
