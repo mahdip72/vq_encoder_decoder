@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import numpy as np
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
 import torch.nn.functional as F
@@ -33,21 +34,35 @@ class VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
+        start_dim = 32
         # Encoder
-        self.initial_conv = nn.Sequential(
-            nn.Conv1d(12, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
+        self.encoder_tail = nn.Sequential(
+            nn.Conv1d(12, start_dim, 1),
+            nn.BatchNorm1d(start_dim),
             nn.ReLU()
         )
 
-        self.encoder_blocks = nn.Sequential(
-            *[ResidualBlock(self.encoder_dim, self.encoder_dim) for _ in range(self.num_encoder_blocks)],
-        )
+        dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
+        encoder_blocks = []
+        prev_dim = start_dim
+        for dim in dims:
+            block = nn.Sequential(
+                nn.Conv1d(prev_dim, dim, 3, padding=1),
+                ResidualBlock(dim, dim),
+                ResidualBlock(dim, dim),
+                nn.Conv1d(dim, dim, 3, stride=2, padding=1),
+                nn.BatchNorm1d(dim),
+                nn.ReLU()
+            )
+            encoder_blocks.append(block)
+            prev_dim = dim
+        self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
         self.encoder_head = nn.Sequential(
             nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
             nn.BatchNorm1d(self.encoder_dim),
             nn.ReLU(),
+
             nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
             nn.BatchNorm1d(self.encoder_dim),
             nn.ReLU(),
@@ -62,32 +77,47 @@ class VQVAE3DResNet(nn.Module):
             commitment_weight=1.0,
         )
 
-        # Decoder
-        self.decoder_blocks = nn.Sequential(
-            nn.Conv1d(latent_dim, self.decoder_dim, 3, padding=1),
+        self.decoder_tail = nn.Sequential(
+            nn.Conv1d(latent_dim, self.decoder_dim, 1),
+
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
             nn.BatchNorm1d(self.decoder_dim),
             nn.ReLU(),
-            *[ResidualBlock(self.decoder_dim, self.decoder_dim) for _ in range(self.num_decoder_blocks)]
+
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm1d(self.decoder_dim),
+            nn.ReLU(),
         )
 
-        self.decoder_head = nn.Sequential(
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
+        dims = list(np.linspace(self.decoder_dim, start_dim, self.num_encoder_blocks).astype(int))
+        # Decoder
+        decoder_blocks = []
+        dims = dims + [dims[-1]]
+        for i, dim in enumerate(dims[:-1]):
+            block = nn.Sequential(
+                nn.Upsample(scale_factor=2),
+                nn.Conv1d(dim, dim, 3, padding=1),
+                nn.BatchNorm1d(dim),
+                nn.ReLU(),
+                ResidualBlock(dim, dim),
+                ResidualBlock(dim, dim),
+                nn.Conv1d(dim, dims[i+1], 3, padding=1),
+            )
+            decoder_blocks.append(block)
+        self.decoder_blocks = nn.Sequential(*decoder_blocks)
 
-            nn.Conv1d(self.decoder_dim, 12, 1),
+        self.decoder_head = nn.Sequential(
+            nn.Conv1d(start_dim, 12, 1),
+            nn.BatchNorm1d(12),
+            nn.ReLU(),
         )
 
     def forward(self, batch, return_vq_only=False):
         x = batch['input_coords'].permute(0, 2, 1)
 
-        x = self.initial_conv(x)
+        x = self.encoder_tail(x)
         x = self.encoder_blocks(x)
-        for layer in self.encoder_head:
-            x = layer(x)
+        x = self.encoder_head(x)
 
         x = x.permute(0, 2, 1)
         x, indices, commit_loss = self.vector_quantizer(x)
@@ -96,9 +126,9 @@ class VQVAE3DResNet(nn.Module):
         if return_vq_only:
             return x, indices, commit_loss
 
+        x = self.decoder_tail(x)
         x = self.decoder_blocks(x)
-        for layer in self.decoder_head:
-            x = layer(x)
+        x = self.decoder_head(x)
 
         x = x.permute(0, 2, 1)
         return x, indices, commit_loss
@@ -340,7 +370,7 @@ if __name__ == '__main__':
     from accelerate import Accelerator
     from data.dataset import VQVAEDataset
 
-    config_path = "../configs/config_gvp.yaml"
+    config_path = "../configs/config_vqvae.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -352,7 +382,7 @@ if __name__ == '__main__':
 
     test_model = prepare_models_vqvae(test_configs, test_logger, accelerator)
 
-    dataset = VQVAEDataset(test_configs.train_settings.data_path, configs=test_configs)
+    dataset = VQVAEDataset(test_configs.valid_settings.data_path, configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size,
                              num_workers=test_configs.train_settings.num_workers, pin_memory=True)
