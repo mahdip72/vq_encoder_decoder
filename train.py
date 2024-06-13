@@ -374,7 +374,7 @@ def main(dict_config, config_file_path):
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
             if accelerator.is_main_process:
-                logging.info(f'\tsaving the best models in {model_path}')
+                logging.info(f'\tcheckpoint models in {model_path}')
 
         if epoch % configs.valid_settings.do_every == 0:
             start_time = time.time()
