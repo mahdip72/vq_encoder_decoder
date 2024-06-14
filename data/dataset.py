@@ -547,7 +547,7 @@ class VQVAEDataset(Dataset):
                 if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
                     coords[i] = coords[i - 1]
 
-            for i in range(0, coords.shape[0]-1):
+            for i in range(0, coords.shape[0] - 1):
                 if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
                     coords[i] = coords[i + 1]
 
@@ -561,9 +561,9 @@ class VQVAEDataset(Dataset):
         Returns:
             torch.Tensor: A 3x3 rotation matrix.
         """
-        theta = np.random.uniform(0, 2*np.pi)
-        phi = np.random.uniform(0, 2*np.pi)
-        psi = np.random.uniform(0, 2*np.pi)
+        theta = np.random.uniform(0, 2 * np.pi)
+        phi = np.random.uniform(0, 2 * np.pi)
+        psi = np.random.uniform(0, 2 * np.pi)
 
         r_x = torch.Tensor([[1, 0, 0],
                             [0, np.cos(theta), -np.sin(theta)],
@@ -595,10 +595,12 @@ class VQVAEDataset(Dataset):
         rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
 
         # Ensure orthogonality
-        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32), atol=1e-6), "Rotation matrix is not orthogonal"
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32),
+                              atol=1e-6), "Rotation matrix is not orthogonal"
 
         # Ensure proper rotation
-        assert torch.isclose(torch.det(R), torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+        assert torch.isclose(torch.det(R),
+                             torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
 
         return rotated_coords
 
@@ -606,7 +608,7 @@ class VQVAEDataset(Dataset):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
         basename = os.path.basename(sample_path)
-        pid = basename.split('.h5')[0]
+        pid = basename.split('.h5')[0].split('_')[0]
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
@@ -689,9 +691,12 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
     train_dataset = VQVAEDataset(configs.train_settings.data_path, rotate_randomly=False, configs=configs)
     valid_dataset = VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
+    visualization_dataset = VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
+                                         configs=configs)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               shuffle=configs.train_settings.shuffle,
@@ -705,7 +710,12 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
                               # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
                               pin_memory=False)
 
-    return train_loader, valid_loader
+    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
+                                      shuffle=False,
+                                      num_workers=configs.visualization_settings.num_workers,
+                                      pin_memory=True)
+
+    return train_loader, valid_loader, visualization_loader
 
 
 def plot_3d_coords(coords: np.ndarray):
