@@ -34,7 +34,7 @@ class VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 32
+        start_dim = 64
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(12, start_dim, 1),
