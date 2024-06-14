@@ -77,13 +77,13 @@ def prepare_data(fasta_file, npz_file):
     return seq_embeddings, labels, labellist
 
 
-def compute_plot(fasta_file, npz_file, save_path):
+def compute_plot(fasta_file, npz_file, save_path, epoch=0):
     seq_embeddings, labels, labellist = prepare_data(fasta_file, npz_file)
 
     out_figure_path = save_path
 
     mdel = TSNE(n_components=2, random_state=0, method='exact')
-    print("Projecting to 2D by TSNE\n")
+    # print("Projecting to 2D by TSNE\n")
     z_tsne_seq = mdel.fit_transform(seq_embeddings)
 
     scores = []
@@ -126,13 +126,13 @@ def compute_plot(fasta_file, npz_file, save_path):
 
         scores.append(calinski_harabasz_score(seq_embeddings[select_index], color))
         scores.append(calinski_harabasz_score(z_tsne_seq[select_index], color))
-        scatter_labeled_z(z_tsne_seq[select_index], color, filename=os.path.join(out_figure_path, f"_CATH_{digit_num}.png"))
+        scatter_labeled_z(z_tsne_seq[select_index], color, filename=os.path.join(out_figure_path, f"_CATH_{digit_num}_{epoch}.png"))
         # add kmeans
         kmeans = KMeans(n_clusters=len(color_dict), random_state=42)
         predicted_labels = kmeans.fit_predict(z_tsne_seq[select_index])
         predicted_colors = [color_dict[label] for label in predicted_labels]
-        scatter_labeled_z(z_tsne_seq[select_index], predicted_colors,
-                          filename=os.path.join(out_figure_path, f"_CATH_{digit_num}_kmpred.png"))
+        # scatter_labeled_z(z_tsne_seq[select_index], predicted_colors,
+        #                   filename=os.path.join(out_figure_path, f"_CATH_{digit_num}_kmpred.png"))
         ari = adjusted_rand_score(colorid, predicted_labels)
         scores.append(ari)
 
@@ -157,7 +157,7 @@ def compute_plot(fasta_file, npz_file, save_path):
 
             count += 1
 
-        print(count)
+        # print(count)
 
 
 if __name__ == '__main__':

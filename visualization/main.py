@@ -341,8 +341,34 @@ class VQVAEDataset(Dataset):
         return {'pid': pid, 'input_coords': coords}
 
 
+def compute_visualization(net, test_loader, result_path, configs, logging, accelerator, epoch):
+    plot_save_path = os.path.join(result_path, "tsne_plot")
+    npz_path = os.path.join(result_path, "sequence_representations.npz")
+
+    if not os.path.exists(plot_save_path):
+        os.makedirs(plot_save_path)
+
+    net.eval()
+    representations = {'ids': [], 'rep': []}
+    for batch in tqdm(test_loader, total=len(test_loader), desc="Computing representations",
+                      disable=configs.tqdm_progress_bar):
+        pid = batch['pid']
+        with torch.inference_mode():
+            x, *_ = net(batch, return_vq_only=True)
+            x = x.cpu()
+            output = x.permute(0, 2, 1).squeeze()
+            output = output.mean(dim=0)
+            representations['ids'].append(pid[0])
+            representations['rep'].append(output.numpy())
+
+    np.savez_compressed(npz_path, **representations)
+
+    compute_plot(fasta_file=configs.visualization_settings.fasta_path, npz_file=npz_path,
+                 save_path=plot_save_path, epoch=epoch)
+
+
 def main():
-    config_path = "./../results/test/2024-06-13__12-40-00/config_vqvae.yaml"
+    config_path = "./../results/test/2024-06-13__17-32-42/config_vqvae.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -353,8 +379,8 @@ def main():
 
     fasta_path = 'Rep_subfamily_basedon_S40pdb.fa'
     npz_path = "sequence_representations.npz"
-    plot_save_path = "./plots/test_pooled_2x_8"
-    checkpoint_path = "./../results/test/2024-06-13__12-40-00/checkpoints/best_valid.pth"
+    plot_save_path = "./plots/test_1_1x_4"
+    checkpoint_path = "./../results/test/2024-06-13__17-32-42/checkpoints/best_valid.pth"
 
     dataset = VQVAEDataset(test_configs.valid_settings.data_path, configs=test_configs)
 

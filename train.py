@@ -9,6 +9,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
 from utils.utils import load_checkpoints
 from utils.metrics import GDTTS, LDDT
 from accelerate import Accelerator
+from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
 # from data.data_cifar import prepare_dataloaders
 # from models.models import prepare_models
@@ -297,10 +298,12 @@ def main(dict_config, config_file_path):
 
     if getattr(configs.model, "struct_encoder", False):
         from data.dataset import prepare_gvp_vqvae_dataloaders
-        train_dataloader, valid_dataloader = prepare_gvp_vqvae_dataloaders(logging, accelerator, configs)
+        train_dataloader, valid_dataloader, visualization_loader = prepare_gvp_vqvae_dataloaders(logging, accelerator,
+                                                                                                 configs)
     else:
         from data.dataset import prepare_vqvae_dataloaders
-        train_dataloader, valid_dataloader = prepare_vqvae_dataloaders(logging, accelerator, configs)
+        train_dataloader, valid_dataloader, visualization_loader = prepare_vqvae_dataloaders(logging, accelerator,
+                                                                                             configs)
 
     logging.info('preparing dataloaders are done')
 
@@ -321,8 +324,8 @@ def main(dict_config, config_file_path):
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
 
-    net, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(
-        net, optimizer, train_dataloader, valid_dataloader, scheduler
+    net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
     )
 
     net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
@@ -423,6 +426,10 @@ def main(dict_config, config_file_path):
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
 
+        if epoch % configs.visualization.do_every == 0:
+            # Visualize the embeddings using T-SNE
+            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
+
     logging.info("Training is completed!\n")
 
     # log best valid gdtts
@@ -444,7 +451,7 @@ def main(dict_config, config_file_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
     parser.add_argument("--config_path", "-c", help="The location of config file",
-                        default='./configs/config_equiformer_vqvae.yaml')
+                        default='./configs/config_vqvae.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 

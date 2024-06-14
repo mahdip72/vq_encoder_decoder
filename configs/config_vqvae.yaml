@@ -34,10 +34,10 @@ model:
       num_layers: 10
       activation_function: gelu
     residual_encoder:
-      dimension: 128
+      dimension: 256
       num_blocks: 8
     residual_decoder:
-      dimension: 128
+      dimension: 256
       num_blocks: 8
 
 train_settings:
@@ -50,7 +50,7 @@ train_settings:
   batch_size: 256
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 10000
+  max_task_samples: 20000
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
@@ -60,6 +60,7 @@ valid_settings:
 
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
+  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 1
   batch_size: 1
   num_workers: 2
