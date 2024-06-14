@@ -11,13 +11,14 @@ resume:
   restart_optimizer: True
 
 model:
+  architecture: vqvae
   compile_model: False
   max_length: 1024
   vqvae:
     vector_quantization:
       dim: 128
       decay: 0.8
-      codebook_size: 64
+      codebook_size: 256
       commitment_weight : 1.0
       alpha: 1.0
     encoder:
@@ -33,10 +34,10 @@ model:
       num_layers: 10
       activation_function: gelu
     residual_encoder:
-      dimension: 256
+      dimension: 128
       num_blocks: 8
     residual_decoder:
-      dimension: 256
+      dimension: 128
       num_blocks: 8
 
 train_settings:
@@ -46,10 +47,10 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 512
+  batch_size: 256
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 1000000
+  max_task_samples: 10000
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
