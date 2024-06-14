@@ -307,6 +307,12 @@ def main(dict_config, config_file_path):
     if getattr(configs.model, "struct_encoder", False):
         from models.gvp_vqvae import prepare_models_gvp_vqvae
         net = prepare_models_gvp_vqvae(configs, logging, accelerator)
+    elif getattr(configs.model, 'architecture', None) == 'se3_vqvae':
+        from models.se3_vqvae import prepare_models_vqvae
+        net = prepare_models_vqvae(configs, logging, accelerator)
+    elif getattr(configs.model, 'architecture', None) == 'equiformer_vqvae':
+        from models.equiformer_vqvae import prepare_models_vqvae
+        net = prepare_models_vqvae(configs, logging, accelerator)
     else:
         from models.vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
@@ -438,7 +444,7 @@ def main(dict_config, config_file_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
     parser.add_argument("--config_path", "-c", help="The location of config file",
-                        default='./configs/config_vqvae.yaml')
+                        default='./configs/config_equiformer_vqvae.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
