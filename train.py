@@ -426,7 +426,7 @@ def main(dict_config, config_file_path):
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
 
-        if epoch % configs.visualization.do_every == 0:
+        if epoch % configs.visualization_settings.do_every == 0:
             # Visualize the embeddings using T-SNE
             compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
 
