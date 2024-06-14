@@ -499,13 +499,20 @@ class GVPDataset(Dataset):
 
 
 class VQVAEDataset(Dataset):
-    def __init__(self, data_path, rotate_randomly=True, **kwargs):
+    def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
         super(VQVAEDataset, self).__init__()
 
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
 
         self.max_length = kwargs['configs'].model.max_length
+
+        self.train_mode = train_mode
+
         self.rotate_randomly = rotate_randomly
+        self.cutout = kwargs['configs'].train_settings.cutout.enable
+        self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
+        self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
+        self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
 
         self.processor = Protein3DProcessing()
 
@@ -604,6 +611,37 @@ class VQVAEDataset(Dataset):
 
         return rotated_coords
 
+    def cutout_augmentation(self, coords, min_mask_size, max_mask_size, max_cuts):
+        """
+        Apply cutout augmentation on the coordinates.
+
+        Parameters:
+        coords (torch.Tensor): The coordinates tensor to augment.
+        min_mask_size (int): The minimum size of the mask to apply.
+        max_mask_size (int): The maximum size of the mask to apply.
+        max_cuts (int): The maximum number of cuts to apply.
+
+        Returns:
+        torch.Tensor: The augmented coordinates.
+        """
+        # Get the total length of the coordinates
+        total_length = coords.shape[1]
+
+        # Randomly select the number of cuts
+        num_cuts = np.random.randint(1, max_cuts + 1)
+
+        for _ in range(num_cuts):
+            # Randomly select the size of the mask
+            mask_size = np.random.randint(min_mask_size, max_mask_size + 1)
+
+            # Randomly select the start index for the mask
+            start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
+
+            # Apply the mask
+            coords[:, start_idx:start_idx + mask_size, :] = 0
+
+        return coords
+
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
@@ -617,24 +655,28 @@ class VQVAEDataset(Dataset):
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
 
-        if self.rotate_randomly:
+        if self.rotate_randomly and self.train_mode:
             # Apply random rotation
-            rotated_coords_tensor = self.rotate_coords(coords_tensor)
+            input_coords_tensor = self.rotate_coords(coords_tensor)
         else:
-            rotated_coords_tensor = coords_tensor
+            input_coords_tensor = coords_tensor
 
         # Merge the features and create a mask
         coords_tensor = coords_tensor.reshape(1, -1, 12)
-        rotated_coords_tensor = rotated_coords_tensor.reshape(1, -1, 12)
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
+        if self.cutout and self.train_mode:
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=1, max_mask_size=5,
+                                                           max_cuts=3)
+
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
-        rotated_coords_tensor, masks = merge_features_and_create_mask(rotated_coords_tensor, self.max_length)
+        input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
-        rotated_coords_tensor = rotated_coords_tensor.squeeze(0)
+        input_coords_tensor = input_coords_tensor.squeeze(0)
         masks = masks.squeeze(0)
 
-        return {'pid': pid, 'input_coords': rotated_coords_tensor, 'target_coords': coords, 'masks': masks}
+        return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords, 'masks': masks}
 
 
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
@@ -693,7 +735,7 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
         logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
-    train_dataset = VQVAEDataset(configs.train_settings.data_path, rotate_randomly=False, configs=configs)
+    train_dataset = VQVAEDataset(configs.train_settings.data_path, train_mode=True, rotate_randomly=False, configs=configs)
     valid_dataset = VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
     visualization_dataset = VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
                                          configs=configs)
@@ -859,7 +901,8 @@ if __name__ == '__main__':
     #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
     #                      configs=test_configs)
 
-    dataset = VQVAEDataset(test_configs.valid_settings.data_path, configs=test_configs)
+    dataset = VQVAEDataset(test_configs.valid_settings.data_path, train_mode=True, rotate_randomly=False,
+                           configs=test_configs)
 
     # test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True,
     #                          collate_fn=custom_collate)
@@ -868,7 +911,7 @@ if __name__ == '__main__':
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
-        # batch['coords'] = dataset.processor.denormalize_coords(batch['target_coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
+        # batch['coords'] = dataset.processor.denormalize_coords(batch['input_coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
         # plot_3d_coords_lines_plotly(batch["coords"][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords(batch["coords"][batch["masks"].squeeze(0)].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
