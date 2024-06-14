@@ -358,6 +358,7 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
             x, *_ = net(batch, return_vq_only=True)
             x = x.cpu()
             output = x.permute(0, 2, 1).squeeze()
+            output = output[batch['masks'].squeeze().cpu()]
             output = output.mean(dim=0)
             representations['ids'].append(pid[0])
             representations['rep'].append(output.numpy())
