@@ -35,7 +35,6 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: "no" # no, fp16, bf16, fp8
-  device: cuda
   batch_size: 8
   num_workers: 8
   grad_accumulation: 1
@@ -45,7 +44,6 @@ valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   do_every: 1
   batch_size: 1
-  device: cuda
   num_workers: 2
 
 optimizer:

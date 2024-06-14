@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 16
 tensorboard_log: True
 tqdm_progress_bar: True
-result_path: ./results/test
+result_path: ./results/se3_vqvae/
 normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
 resume:
@@ -11,6 +11,7 @@ resume:
   restart_optimizer: True
 
 model:
+  architecture: se3_vqvae
   compile_model: False
   max_length: 256
   vqvae:
@@ -34,8 +35,7 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  device: cuda
-  batch_size: 4
+  batch_size: 1
   num_workers: 8
   grad_accumulation: 8
   max_task_samples: 1000000
@@ -43,8 +43,7 @@ train_settings:
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   do_every: 1
-  batch_size: 4
-  device: cuda
+  batch_size: 1
   num_workers: 2
 
 optimizer:
