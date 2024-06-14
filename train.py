@@ -316,9 +316,11 @@ def main(dict_config, config_file_path):
     elif configs.model.architecture == 'equiformer_vqvae':
         from models.equiformer_vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
-    else:
+    elif configs.model.architecture == 'vqvae':
         from models.vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
+    else:
+        raise ValueError(f'Invalid model architecture: {configs.model.architecture}')
     logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
