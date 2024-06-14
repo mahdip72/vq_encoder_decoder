@@ -304,13 +304,13 @@ def main(dict_config, config_file_path):
 
     logging.info('preparing dataloaders are done')
 
-    if getattr(configs.model, "struct_encoder", False):
+    if configs.model.architecture == 'gvp_vqvae':
         from models.gvp_vqvae import prepare_models_gvp_vqvae
         net = prepare_models_gvp_vqvae(configs, logging, accelerator)
-    elif getattr(configs.model, 'architecture', None) == 'se3_vqvae':
+    elif configs.model.architecture == 'se3_vqvae':
         from models.se3_vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
-    elif getattr(configs.model, 'architecture', None) == 'equiformer_vqvae':
+    elif configs.model.architecture == 'equiformer_vqvae':
         from models.equiformer_vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
     else:
