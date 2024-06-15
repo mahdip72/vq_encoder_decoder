@@ -39,12 +39,24 @@ train_settings:
   num_workers: 8
   grad_accumulation: 8
   max_task_samples: 1000000
+  cutout:
+    enable: False
+    min_mask_size: 1
+    max_mask_size: 30
+    max_cuts: 4
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   do_every: 1
   batch_size: 1
   num_workers: 2
+
+visualization_settings:
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
+  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
+  do_every: 1
+  batch_size: 1
+  num_workers: 4
 
 optimizer:
   name: adam
