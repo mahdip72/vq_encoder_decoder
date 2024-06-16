@@ -277,7 +277,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
 
 def main(dict_config, config_file_path):
-    if getattr(dict_config["model"], "struct_encoder", False):
+    if dict_config["model"]["architecture"] == 'gvp_vqvae':
         configs = load_configs_gvp(dict_config)
     else:
         configs = load_configs(dict_config)
