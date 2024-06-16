@@ -164,7 +164,7 @@ def prepare_models_gvp_vqvae(configs, logger, accelerator):
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils.utils import load_configs, get_dummy_logger
+    from utils.utils import load_configs_gvp, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
     from data.dataset import custom_collate, GVPDataset
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    test_configs = load_configs(config_file)
+    test_configs = load_configs_gvp(config_file)
 
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
