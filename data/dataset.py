@@ -52,7 +52,7 @@ def custom_collate(one_batch):
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'coords': coords, 'masks': masks}
+                    'target_coords': coords, 'masks': masks}
     return batched_data
 
 
