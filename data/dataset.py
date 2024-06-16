@@ -272,6 +272,43 @@ class GVPDataset(Dataset):
 
         return aligned_coords
 
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The coordinates with NaN values replaced by the previous valid coordinate values.
+        """
+        # Flatten the coordinates for easier manipulation
+        original_shape = coords.shape
+        coords = coords.view(-1, 3)
+
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
+
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
+
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
+
+            for i in range(0, coords.shape[0] - 1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
+
+        return coords.view(original_shape)
     def __len__(self):
         return len(self.h5_samples)
 
@@ -290,6 +327,9 @@ class GVPDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
 
         # Recenter the coordinates center
@@ -732,14 +772,14 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
     #                           pin_memory=True,
     #                           collate_fn=custom_collate)
 
-    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size, num_workers=0,
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size, num_workers=8,
                               pin_memory=False,
                               collate_fn=custom_collate)
-    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=0,
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=2,
                               pin_memory=False,
                               collate_fn=custom_collate)
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
-                                      num_workers=0,
+                                      num_workers=1,
                                       pin_memory=False,
                                       collate_fn=custom_collate)
     return train_loader, valid_loader, visualization_loader
@@ -894,40 +934,41 @@ def plot_3d_coords_lines_plotly(coords: np.ndarray):
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils.utils import load_configs, get_dummy_logger
+    from utils.utils import load_configs_gvp, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
 
-    config_path = "../configs/config_vqvae.yaml"
+    config_path = "../configs/config_gvp.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    test_configs = load_configs(config_file)
+    test_configs = load_configs_gvp(config_file)
 
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
 
-    # dataset = GVPDataset(test_configs.train_settings.data_path,
-    #                      seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
-    #                      use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
-    #                      use_foldseek=test_configs.model.struct_encoder.use_foldseek,
-    #                      use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
-    #                      top_k=test_configs.model.struct_encoder.top_k,
-    #                      num_rbf=test_configs.model.struct_encoder.num_rbf,
-    #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
-    #                      configs=test_configs)
+    dataset = GVPDataset(test_configs.train_settings.data_path,
+                         seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
+                         use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
+                         use_foldseek=test_configs.model.struct_encoder.use_foldseek,
+                         use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
+                         top_k=test_configs.model.struct_encoder.top_k,
+                         num_rbf=test_configs.model.struct_encoder.num_rbf,
+                         num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
+                         configs=test_configs)
 
-    dataset = VQVAEDataset(test_configs.valid_settings.data_path, train_mode=True, rotate_randomly=False,
-                           configs=test_configs)
+    # dataset = VQVAEDataset(test_configs.valid_settings.data_path, train_mode=True, rotate_randomly=False,
+    #                        configs=test_configs)
 
-    # test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True,
-    #                          collate_fn=custom_collate)
+    test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True,
+                             collate_fn=custom_collate)
 
-    test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
+    # test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
+        labels = batch['target_coords']
         # batch['coords'] = dataset.processor.denormalize_coords(batch['input_coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
         # plot_3d_coords_lines_plotly(batch["coords"][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords(batch["coords"][batch["masks"].squeeze(0)].cpu().numpy().reshape(-1, 3))
