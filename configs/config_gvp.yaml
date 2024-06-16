@@ -62,6 +62,13 @@ valid_settings:
   batch_size: 1
   num_workers: 0
 
+visualization_settings:
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
+  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
+  do_every: 128
+  batch_size: 1
+  num_workers: 4
+
 optimizer:
   name: adam
   lr: 1e-4
