@@ -34,10 +34,11 @@ class VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 64
+        start_dim = 32
         # Encoder
         self.encoder_tail = nn.Sequential(
-            nn.Conv1d(12, start_dim, 1),
+            nn.Conv1d(12, start_dim, kernel_size=1),
+            nn.Conv1d(start_dim, start_dim, kernel_size=3, padding=1),
             nn.BatchNorm1d(start_dim),
             nn.ReLU()
         )
@@ -114,8 +115,8 @@ class VQVAE3DResNet(nn.Module):
 
         self.decoder_head = nn.Sequential(
             nn.Conv1d(start_dim, 12, 1),
-            nn.BatchNorm1d(12),
-            nn.ReLU(),
+            # nn.BatchNorm1d(12),
+            # nn.ReLU(),
         )
 
     def forward(self, batch, return_vq_only=False):
@@ -302,7 +303,7 @@ class VQVAE3DTransformer(nn.Module):
         return embedding
 
     def forward(self, batch, return_vq_only=False):
-        x = batch['coords']
+        x = batch['input_coords']
 
         # Apply input projection
         # x = self.input_projection(x)
@@ -325,6 +326,7 @@ class VQVAE3DTransformer(nn.Module):
         x, indices, commit_loss = self.vector_quantizer(x)
 
         if return_vq_only:
+            x = x.permute(0, 2, 1)
             return x, indices, commit_loss
 
         # Apply vq_out_projection
