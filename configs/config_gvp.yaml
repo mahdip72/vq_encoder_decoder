@@ -35,21 +35,21 @@ model:
   vqvae:
     vector_quantization:
       dim: 128
-      codebook_size: 128
+      codebook_size: 512
       decay: 0.8
       commitment_weight : 1.0
       alpha: 1.0
     encoder:
-      dimension: 256
-      dim_feedforward: 512
+      dimension: 128
+      dim_feedforward: 256
       num_heads: 4
-      num_layers: 6
+      num_layers: 8
       activation_function: gelu
     decoder:
-      dimension: 256
-      dim_feedforward: 512
+      dimension: 128
+      dim_feedforward: 256
       num_heads: 4
-      num_layers: 6
+      num_layers: 8
       activation_function: gelu
 
 train_settings:
