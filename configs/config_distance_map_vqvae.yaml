@@ -1,0 +1,87 @@
+fix_seed: 0
+checkpoints_every: 16
+tensorboard_log: False
+tqdm_progress_bar: True
+result_path: ./results/distancemap_vqvae
+normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
+
+resume:
+  resume: False
+  resume_path: ./path/to/checkpoint.pth
+  restart_optimizer: True
+
+model:
+  architecture: distance_map_vqvae
+  compile_model: False
+  max_length: 128
+  vqvae:
+    vector_quantization:
+      dim: 128
+      decay: 0.8
+      codebook_size: 128
+      commitment_weight : 1.0
+      alpha: 1.0
+    encoder:
+      dimension: 128
+      dim_feedforward: 256
+      num_heads: 2
+      num_layers: 6
+      activation_function: gelu
+    decoder:
+      dimension: 128
+      dim_feedforward: 256
+      num_heads: 2
+      num_layers: 6
+      activation_function: gelu
+    residual_encoder:
+      dimension: 128
+      num_blocks: 6
+    residual_decoder:
+      dimension: 128
+      num_blocks: 6
+
+train_settings:
+  data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
+  num_epochs: 128
+  shuffle: True
+  loss: crossentropy
+  sample_weight: True
+  mixed_precision: fp16 # no, fp16, bf16, fp8
+  batch_size: 32
+  num_workers: 8
+  grad_accumulation: 1
+  max_task_samples: 100000
+  cutout:
+    enable: False
+    min_mask_size: 1
+    max_mask_size: 30
+    max_cuts: 4
+
+valid_settings:
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
+  do_every: 16
+  batch_size: 1
+  num_workers: 2
+
+visualization_settings:
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
+  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
+  do_every: 16
+  batch_size: 1
+  num_workers: 4
+
+optimizer:
+  name: adam
+  lr: 1e-4
+  weight_decouple: True
+  weight_decay: 1e-2
+  eps: 1e-16
+  beta_1: 0.9
+  beta_2: 0.999
+  use_8bit_adam: False
+  grad_clip_norm: 1
+  decay:
+    warmup: 16
+    min_lr: 5e-6
+    gamma: 0.2
+    num_restarts: 1
