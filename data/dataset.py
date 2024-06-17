@@ -309,6 +309,7 @@ class GVPDataset(Dataset):
                     coords[i] = coords[i + 1]
 
         return coords.view(original_shape)
+
     def __len__(self):
         return len(self.h5_samples)
 
@@ -719,6 +720,206 @@ class VQVAEDataset(Dataset):
         return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords, 'masks': masks}
 
 
+class DistanceMapVQVAEDataset(Dataset):
+    def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
+        super(DistanceMapVQVAEDataset, self).__init__()
+
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+
+        self.max_length = kwargs['configs'].model.max_length
+
+        self.train_mode = train_mode
+
+        self.rotate_randomly = rotate_randomly
+        self.cutout = kwargs['configs'].train_settings.cutout.enable
+        self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
+        self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
+        self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
+
+        self.processor = Protein3DProcessing()
+
+        # Load saved pca and scaler models for processing
+        self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+
+    def __len__(self):
+        return len(self.h5_samples)
+
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The coordinates with NaN values replaced by the previous valid coordinate values.
+        """
+        # Flatten the coordinates for easier manipulation
+        original_shape = coords.shape
+        coords = coords.view(-1, 3)
+
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
+
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
+
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
+
+            for i in range(0, coords.shape[0] - 1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
+
+        return coords.view(original_shape)
+
+    @staticmethod
+    def random_rotation_matrix():
+        """
+        Creates a random 3D rotation matrix.
+
+        Returns:
+            torch.Tensor: A 3x3 rotation matrix.
+        """
+        theta = np.random.uniform(0, 2 * np.pi)
+        phi = np.random.uniform(0, 2 * np.pi)
+        psi = np.random.uniform(0, 2 * np.pi)
+
+        r_x = torch.Tensor([[1, 0, 0],
+                            [0, np.cos(theta), -np.sin(theta)],
+                            [0, np.sin(theta), np.cos(theta)]])
+
+        r_y = torch.Tensor([[np.cos(phi), 0, np.sin(phi)],
+                            [0, 1, 0],
+                            [-np.sin(phi), 0, np.cos(phi)]])
+
+        r_z = torch.Tensor([[np.cos(psi), -np.sin(psi), 0],
+                            [np.sin(psi), np.cos(psi), 0],
+                            [0, 0, 1]])
+
+        r = r_z @ r_y @ r_x
+
+        return r
+
+    def rotate_coords(self, coords):
+        """
+        Rotates the coordinates using a random rotation matrix.
+
+        Parameters:
+            coords (torch.Tensor): The coordinates to rotate.
+
+        Returns:
+            torch.Tensor: The rotated coordinates.
+        """
+        R = self.random_rotation_matrix()
+        rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
+
+        # Ensure orthogonality
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32),
+                              atol=1e-6), "Rotation matrix is not orthogonal"
+
+        # Ensure proper rotation
+        assert torch.isclose(torch.det(R),
+                             torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+
+        return rotated_coords
+
+    def cutout_augmentation(self, coords, min_mask_size, max_mask_size, max_cuts):
+        """
+        Apply cutout augmentation on the coordinates.
+
+        Parameters:
+        coords (torch.Tensor): The coordinates tensor to augment.
+        min_mask_size (int): The minimum size of the mask to apply.
+        max_mask_size (int): The maximum size of the mask to apply.
+        max_cuts (int): The maximum number of cuts to apply.
+
+        Returns:
+        torch.Tensor: The augmented coordinates.
+        """
+        # Get the total length of the coordinates
+        total_length = coords.shape[1]
+
+        # Randomly select the number of cuts
+        num_cuts = np.random.randint(1, max_cuts + 1)
+
+        for _ in range(num_cuts):
+            # Randomly select the size of the mask
+            mask_size = np.random.randint(min_mask_size, max_mask_size + 1)
+
+            # Randomly select the start index for the mask
+            start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
+
+            # Apply the mask
+            coords[:, start_idx:start_idx + mask_size, :] = 0
+
+        return coords
+
+    @staticmethod
+    def create_distance_map(coords):
+        """
+        Computes the pairwise distance map for CA coordinates using PyTorch.
+
+        Parameters:
+        ca_coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
+
+        Returns:
+        torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
+        """
+        diff = coords.unsqueeze(1) - coords.unsqueeze(0)
+        distance_map = torch.sqrt(torch.sum(diff ** 2, dim=-1))
+        return distance_map
+
+    def __getitem__(self, i):
+        sample_path = self.h5_samples[i]
+        sample = load_h5_file(sample_path)
+        basename = os.path.basename(sample_path)
+        pid = basename.split('.h5')[0].split('_')[0]
+        coords_list = sample[1].tolist()
+        coords_tensor = torch.Tensor(coords_list)
+
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
+
+        if self.rotate_randomly and self.train_mode:
+            # Apply random rotation
+            input_coords_tensor = self.rotate_coords(coords_tensor)
+        else:
+            input_coords_tensor = coords_tensor
+
+        # Merge the features and create a mask
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
+        if self.cutout and self.train_mode:
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=1, max_mask_size=5,
+                                                           max_cuts=3)
+
+        coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
+
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 3)
+        coords = coords.reshape(1, -1, 3)
+
+        input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
+        target_distance_map = self.create_distance_map(coords.squeeze(0))
+
+        # expand the first dimension of distance maps
+        input_distance_map = input_distance_map.unsqueeze(0)
+        target_distance_map = target_distance_map.unsqueeze(0)
+        return {'pid': pid, 'input_coords': input_distance_map, 'target_coords': target_distance_map, 'masks': masks}
+
+
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
@@ -796,6 +997,38 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
     valid_dataset = VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
     visualization_dataset = VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
                                          configs=configs)
+
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+                              shuffle=configs.train_settings.shuffle,
+                              num_workers=configs.train_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=False)
+
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              shuffle=False,
+                              num_workers=configs.valid_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=False)
+
+    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
+                                      shuffle=False,
+                                      num_workers=configs.visualization_settings.num_workers,
+                                      pin_memory=True)
+
+    return train_loader, valid_loader, visualization_loader
+
+
+def prepare_distance_map_vqvae_dataloaders(logging, accelerator, configs):
+    if accelerator.is_main_process:
+        logging.info(f"train directory: {configs.train_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
+
+    train_dataset = DistanceMapVQVAEDataset(configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+                                            configs=configs)
+    valid_dataset = DistanceMapVQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
+    visualization_dataset = DistanceMapVQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
+                                                    configs=configs)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               shuffle=configs.train_settings.shuffle,
@@ -934,35 +1167,35 @@ def plot_3d_coords_lines_plotly(coords: np.ndarray):
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils.utils import load_configs_gvp, get_dummy_logger
+    from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
 
-    config_path = "../configs/config_gvp.yaml"
+    config_path = "../configs/config_distance_map_vqvae.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    test_configs = load_configs_gvp(config_file)
+    test_configs = load_configs(config_file)
 
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
 
-    dataset = GVPDataset(test_configs.train_settings.data_path,
-                         seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
-                         use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
-                         use_foldseek=test_configs.model.struct_encoder.use_foldseek,
-                         use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
-                         top_k=test_configs.model.struct_encoder.top_k,
-                         num_rbf=test_configs.model.struct_encoder.num_rbf,
-                         num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
-                         configs=test_configs)
+    # dataset = GVPDataset(test_configs.train_settings.data_path,
+    #                      seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
+    #                      use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
+    #                      use_foldseek=test_configs.model.struct_encoder.use_foldseek,
+    #                      use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
+    #                      top_k=test_configs.model.struct_encoder.top_k,
+    #                      num_rbf=test_configs.model.struct_encoder.num_rbf,
+    #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
+    #                      configs=test_configs)
 
-    # dataset = VQVAEDataset(test_configs.valid_settings.data_path, train_mode=True, rotate_randomly=False,
-    #                        configs=test_configs)
+    dataset = DistanceMapVQVAEDataset(test_configs.valid_settings.data_path, train_mode=True, rotate_randomly=False,
+                                      configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True,
-                             collate_fn=custom_collate)
+                             collate_fn=None)
 
     # test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
     struct_embeddings = []
