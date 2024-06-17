@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
+from preprocess_pdb import check_chains, filter_best_chains
 
 import pcmap
 import pypstruct
@@ -224,17 +225,48 @@ def plot_contact_map(contact_map, ax, title=""):
     ax.set_title(title)
 
 
+def get_best_chains(structure, report_dict):
+    """
+    Get the best chains of a protein structure and update report_dict accordingly.
+    :param structure: (Bio.PDB.Structure.Structure) protien structure
+    :param report_dict: (dict) dictionary to keep track of certain metrics
+    :return best_chains: (dict) dictionary of best chains
+    """
+
+    # Get the best chains from the protein structure
+    chain_sequences = check_chains(structure, report_dict)
+    best_chains = filter_best_chains(chain_sequences, structure)
+
+    if len(best_chains) > 1:
+        report_dict['protein_complex'] += 1
+    if 'A' not in list(best_chains.keys()):
+        report_dict['no_chain_id_a'] += 1
+
+    return best_chains
+
+
+
+
 if __name__ == "__main__":
     import tqdm
     # Test dataloader on PDB directory
     #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
-    #pdb_directory = "PDB_database"
-    pdb_directory = "../../data/swissprot_pdb_v4"
+    pdb_directory = "PDB_database"
+    #pdb_directory = "../../data/swissprot_pdb_v4"
     dataloader = prepare_dataloaders(pdb_directory)
+
+    pdb_file = pdb_directory + "/8blb.pdb"
+    structure = Bio.PDB.PDBParser(QUIET=True).get_structure(pdb_file, pdb_file)
+    report_dict = {'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
+                                'single_amino_acid': 0, 'error': 0}
+    protein_dict = check_chains(structure, report_dict)
+    print(protein_dict)
+
+    exit()
 
     n = 0
     for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
-        print(str(pdb_filename))
+        # print(str(pdb_filename))
         # Plot the contact maps
         """
         if n < 11:
