@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
+import yaml
+from utils.utils import load_configs
 from preprocess_pdb import check_chains, filter_best_chains
 
 import pcmap
@@ -15,15 +18,13 @@ class ContactMapDataset(Dataset):
     """
     Dataset for converting PDB or mmCIF protein files to contact maps.
     """
-    def __init__(self, pdb_dir, threshold=8, chain="A"):
+    def __init__(self, pdb_dir, threshold=8):
         """
         :param pdb_dir: (string or Path) path to directory of PDB or mmCIF files
         :param threshold: (int) threshold distance for contacting residues
-        :param chain: (string) name of chain to consider for contacts
         """
         self.pdbs = list(Path(pdb_dir).glob("*.[pdb cif]*"))
         self.threshold = threshold
-        self.chain = chain
 
         self.dictn = {
             'CYS': 'C', 'ASP': 'D', 'SER': 'S', 'GLN': 'Q', 'LYS': 'K',
@@ -54,13 +55,16 @@ class ContactMapDataset(Dataset):
             return contactmaps[first_chain_id], pdb_file
 
 
-def prepare_dataloaders(pdb_dir):
+def prepare_dataloaders(configs):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
-    :param pdb_dir: (string or Path) path to PDB directory
+    :param configs: configurations for contact map
+    :return: data loader
     """
-    dataset = ContactMapDataset(pdb_dir)
+    pdb_dir = configs.contact_map_settings.protein_dir
+    threshold = configs.contact_map_settings.threshold
+    dataset = ContactMapDataset(pdb_dir=pdb_dir, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     return data_loader
 
@@ -277,21 +281,28 @@ def plot_contact_map(contact_map, ax, title=""):
 
 
 if __name__ == "__main__":
-    import tqdm
     # Test dataloader on PDB directory
     #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
-    pdb_directory = "PDB_database"
+    #pdb_directory = "PDB_database"
     #pdb_directory = "../../data/swissprot_pdb_v4"
-    dataloader = prepare_dataloaders(pdb_directory)
+
+    config_path = "../configs/config_vqvae_contact.yaml"
+
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+
+    main_configs = load_configs(config_file)
+
+    dataloader = prepare_dataloaders(main_configs)
 
     n = 0
-    for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
+    for contactmap, pdb_filename in tqdm(dataloader, total=len(dataloader)):
         #print(str(pdb_filename))
         # Plot the contact maps
         #"""
         if n < 11:
             fig, axes = plt.subplots()
-            plot_contact_map(cmap[0], axes, title=str(pdb_filename[0]))
+            plot_contact_map(contactmap[0], axes, title=str(pdb_filename[0]))
             plt.show()
 
         #"""
