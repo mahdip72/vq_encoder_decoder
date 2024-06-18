@@ -51,6 +51,7 @@ class ContactMapDataset(Dataset):
             # TODO: is this appropriate?
             return [[0]], pdb_file
         else:
+            # If there are multiple contact maps, only return the first one
             first_chain_id = next(iter(contactmaps))
             return contactmaps[first_chain_id], pdb_file
 
