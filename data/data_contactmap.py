@@ -44,7 +44,8 @@ class ContactMapDataset(Dataset):
         #contactmap = pdb_to_cmap_old(pdb_file) # Use the old function
         contactmaps = pdb_to_cmap(str(pdb_file), pdb_file, self.dictn, self.report_dict, self.threshold)
         # TODO: deal with multiple contact maps per pdb file (multiple chains)
-        return contactmaps[0], pdb_file
+        first_chain_id = next(iter(contactmaps))
+        return contactmaps[first_chain_id], pdb_file
 
 
 def prepare_dataloaders(pdb_dir):
@@ -225,7 +226,7 @@ def pdb_to_cmap(protein_id, pdb_file, dictn, report_dict, threshold=8):
     :param threshold: (int) threshold distance for contacts
     :param dictn: (dict) dictionary of amino acid codes
     :param report_dict: (dict) dictionary to keep track of certain metrics
-    :return: (torch.tensor) contact map
+    :return: dict(str: torch.Tensor) dictionary with chain IDs as keys and contact maps as values
     """
     file_ext = str(pdb_file)[-4:]
 
@@ -242,7 +243,7 @@ def pdb_to_cmap(protein_id, pdb_file, dictn, report_dict, threshold=8):
 
     best_chains = get_best_chains(structure, report_dict)
 
-    contact_maps = []
+    contact_maps = {} # chain_id: contact_map
     # Iterate through each of the best chains
     for chain_id, sequence in best_chains.items():
         chain = model[chain_id]
@@ -250,7 +251,7 @@ def pdb_to_cmap(protein_id, pdb_file, dictn, report_dict, threshold=8):
         dist_matrix = calc_dist_matrix(chain, dictn, report_dict)
         contact_map = dist_matrix < threshold
         contact_map = contact_map.to(torch.uint8)
-        contact_maps.append(contact_map)
+        contact_maps[chain_id] = contact_map
 
     return contact_maps
 
@@ -279,7 +280,7 @@ if __name__ == "__main__":
 
     n = 0
     for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
-        # print(str(pdb_filename))
+        #print(str(pdb_filename))
         # Plot the contact maps
         #"""
         if n < 11:
