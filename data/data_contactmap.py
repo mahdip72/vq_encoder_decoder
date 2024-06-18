@@ -44,8 +44,14 @@ class ContactMapDataset(Dataset):
         #contactmap = pdb_to_cmap_old(pdb_file) # Use the old function
         contactmaps = pdb_to_cmap(str(pdb_file), pdb_file, self.dictn, self.report_dict, self.threshold)
         # TODO: deal with multiple contact maps per pdb file (multiple chains)
-        first_chain_id = next(iter(contactmaps))
-        return contactmaps[first_chain_id], pdb_file
+
+        if len(contactmaps) == 0:
+            # Return a placeholder value if there are no valid chains
+            # TODO: is this appropriate?
+            return [[0]], pdb_file
+        else:
+            first_chain_id = next(iter(contactmaps))
+            return contactmaps[first_chain_id], pdb_file
 
 
 def prepare_dataloaders(pdb_dir):
@@ -287,7 +293,7 @@ if __name__ == "__main__":
             fig, axes = plt.subplots()
             plot_contact_map(cmap[0], axes, title=str(pdb_filename[0]))
             plt.show()
-        
+
         #"""
         n += 1
         pass
