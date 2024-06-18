@@ -25,14 +25,26 @@ class ContactMapDataset(Dataset):
         self.threshold = threshold
         self.chain = chain
 
+        self.dictn = {
+            'CYS': 'C', 'ASP': 'D', 'SER': 'S', 'GLN': 'Q', 'LYS': 'K',
+            'ILE': 'I', 'PRO': 'P', 'THR': 'T', 'PHE': 'F', 'ASN': 'N',
+            'GLY': 'G', 'HIS': 'H', 'LEU': 'L', 'ARG': 'R', 'TRP': 'W',
+            'ALA': 'A', 'VAL': 'V', 'GLU': 'E', 'TYR': 'Y', 'MET': 'M',
+            'ASX': 'B', 'GLX': 'Z', 'PYL': 'O', 'SEC': 'U',  # 'UNK': 'X'
+        }
+
+        self.report_dict = {'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
+                                    'single_amino_acid': 0, 'error': 0}
+
     def __len__(self):
         return len(self.pdbs)
 
     def __getitem__(self, idx):
         pdb_file = str(self.pdbs[idx])
         #contactmap = pdb_to_cmap_old(pdb_file) # Use the old function
-        contactmap = pdb_to_cmap(str(pdb_file), pdb_file, self.threshold, self.chain)
-        return contactmap, pdb_file
+        contactmaps = pdb_to_cmap(str(pdb_file), pdb_file, self.dictn, self.report_dict, self.threshold)
+        # TODO: deal with multiple contact maps per pdb file (multiple chains)
+        return contactmaps[0], pdb_file
 
 
 def prepare_dataloaders(pdb_dir):
@@ -87,6 +99,26 @@ def pdb_to_cmap_old(pdb_file):
 ############################################################
 
 
+def get_best_chains(structure, report_dict):
+    """
+    Get the best chains of a protein structure and update report_dict accordingly.
+    :param structure: (Bio.PDB.Structure.Structure) protein structure
+    :param report_dict: (dict) dictionary to keep track of certain metrics
+    :return best_chains: (dict) dictionary of best chains
+    """
+
+    # Get the best chains from the protein structure
+    chain_sequences = check_chains(structure, report_dict)
+    best_chains = filter_best_chains(chain_sequences, structure)
+
+    if len(best_chains) > 1:
+        report_dict['protein_complex'] += 1
+    if 'A' not in list(best_chains.keys()):
+        report_dict['no_chain_id_a'] += 1
+
+    return best_chains
+
+
 def calc_avg_res_coord(residue):
     """
     Calculate the average coordinates of a residue.
@@ -137,10 +169,12 @@ def fill_missing_coords(coords, nan_indices):
     return coords
 
 
-def calc_dist_matrix(chain):
+def calc_dist_matrix(chain, dictn, report_dict):
     """
     Return a matrix of C-alpha distances between the residues of a protein chain.
     :param chain: protein chain
+    :param dictn: (dict) dictionary of amino acid codes
+    :param report_dict: (dict) dictionary to keep track of certain metrics
     :return: (torch.tensor) distance matrix
     """
 
@@ -150,7 +184,7 @@ def calc_dist_matrix(chain):
     for residue in chain:
 
         # Only consider amino acid residues (ignore HETATM, HOH, etc.)
-        if residue.id[0] == " ":
+        if residue.id[0] == " " and residue.resname in dictn:
 
             try:
                 ca_coord = residue["CA"].coord
@@ -181,7 +215,7 @@ def calc_dist_matrix(chain):
     return answer
 
 
-def pdb_to_cmap(protein_id, pdb_file, threshold=8, chain="A"):
+def pdb_to_cmap(protein_id, pdb_file, dictn, report_dict, threshold=8):
     """
     Construct a contact map from a PDB or mmCIF file. The contact map is a matrix
     such that element ij is 1 if the C-alpha distance between residues i and j
@@ -189,10 +223,10 @@ def pdb_to_cmap(protein_id, pdb_file, threshold=8, chain="A"):
     :param protein_id: (string) ID of the protein structure
     :param pdb_file: (String or Path) path to the PDB or mmCIF file
     :param threshold: (int) threshold distance for contacts
-    :param chain: (string) name of the chain to consider
+    :param dictn: (dict) dictionary of amino acid codes
+    :param report_dict: (dict) dictionary to keep track of certain metrics
     :return: (torch.tensor) contact map
     """
-    structure = Bio.PDB.Structure.Structure("")
     file_ext = str(pdb_file)[-4:]
 
     # Parse PDB file
@@ -204,11 +238,21 @@ def pdb_to_cmap(protein_id, pdb_file, threshold=8, chain="A"):
     else:
         return None
 
-    # Construct the contact map
     model = structure[0]
-    dist_matrix = calc_dist_matrix(model[chain])
-    contact_map = dist_matrix < threshold
-    return contact_map.to(torch.uint8)
+
+    best_chains = get_best_chains(structure, report_dict)
+
+    contact_maps = []
+    # Iterate through each of the best chains
+    for chain_id, sequence in best_chains.items():
+        chain = model[chain_id]
+        # Construct the contact map
+        dist_matrix = calc_dist_matrix(chain, dictn, report_dict)
+        contact_map = dist_matrix < threshold
+        contact_map = contact_map.to(torch.uint8)
+        contact_maps.append(contact_map)
+
+    return contact_maps
 
 
 def plot_contact_map(contact_map, ax, title=""):
@@ -225,28 +269,6 @@ def plot_contact_map(contact_map, ax, title=""):
     ax.set_title(title)
 
 
-def get_best_chains(structure, report_dict):
-    """
-    Get the best chains of a protein structure and update report_dict accordingly.
-    :param structure: (Bio.PDB.Structure.Structure) protien structure
-    :param report_dict: (dict) dictionary to keep track of certain metrics
-    :return best_chains: (dict) dictionary of best chains
-    """
-
-    # Get the best chains from the protein structure
-    chain_sequences = check_chains(structure, report_dict)
-    best_chains = filter_best_chains(chain_sequences, structure)
-
-    if len(best_chains) > 1:
-        report_dict['protein_complex'] += 1
-    if 'A' not in list(best_chains.keys()):
-        report_dict['no_chain_id_a'] += 1
-
-    return best_chains
-
-
-
-
 if __name__ == "__main__":
     import tqdm
     # Test dataloader on PDB directory
@@ -255,25 +277,16 @@ if __name__ == "__main__":
     #pdb_directory = "../../data/swissprot_pdb_v4"
     dataloader = prepare_dataloaders(pdb_directory)
 
-    pdb_file = pdb_directory + "/8blb.pdb"
-    structure = Bio.PDB.PDBParser(QUIET=True).get_structure(pdb_file, pdb_file)
-    report_dict = {'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                'single_amino_acid': 0, 'error': 0}
-    protein_dict = check_chains(structure, report_dict)
-    print(protein_dict)
-
-    exit()
-
     n = 0
     for cmap, pdb_filename in tqdm.tqdm(dataloader, total=len(dataloader)):
         # print(str(pdb_filename))
         # Plot the contact maps
-        """
+        #"""
         if n < 11:
-            fig, ax = plt.subplots()
-            plot_contact_map(cmap[0], ax, title=str(pdb_filename[0]))
+            fig, axes = plt.subplots()
+            plot_contact_map(cmap[0], axes, title=str(pdb_filename[0]))
             plt.show()
         
-        """
+        #"""
         n += 1
         pass
