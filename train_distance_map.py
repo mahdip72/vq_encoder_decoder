@@ -213,18 +213,18 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             outputs, indices, commit_loss = net(data)
 
             # Compute the loss
-            masked_outputs = outputs[masks]
-            masked_labels = labels[masks]
-            rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
+            # masked_outputs = outputs[masks]
+            # masked_labels = labels[masks]
+            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
             loss = rec_loss + alpha * commit_loss
 
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            mae.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
+            rmse.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
             # gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
@@ -414,8 +414,8 @@ def main(dict_config, config_file_path):
                     f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
                     f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
-                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}'
+                    # f'gdtts {valid_loop_reports["gdtts"]:.4f}'
                     # f'lddt {valid_loop_reports["lddt"]:.4f}'
                 )
 
