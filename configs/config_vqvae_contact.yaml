@@ -12,7 +12,7 @@ resume:
 
 contact_map_settings:
   threshold: 8
-  protein_dir: PDB_database
+  protein_dir: /home/jren/dbl_research/vqvae/data/swissprot_pdb_v4
 
 model:
   compile_model: False
