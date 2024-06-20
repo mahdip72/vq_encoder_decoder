@@ -673,7 +673,7 @@ class VQVAEDataset(Dataset):
 
         for _ in range(num_cuts):
             # Randomly select the size of the mask
-            mask_size = np.random.randint(min_mask_size, max_mask_size + 1)
+            mask_size = np.random.randint(min_mask_size, min(max_mask_size + 1, total_length))
 
             # Randomly select the start index for the mask
             start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
