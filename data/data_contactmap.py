@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import yaml
 from utils.utils import load_configs
-from preprocess_pdb import check_chains, filter_best_chains
+from data.preprocess_pdb import check_chains, filter_best_chains
 
 import pcmap
 import pypstruct
