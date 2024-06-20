@@ -56,16 +56,15 @@ class ContactMapDataset(Dataset):
             return contactmaps[first_chain_id], pdb_file
 
 
-def prepare_dataloaders(configs):
+def prepare_dataloaders(prot_dir, threshold):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
-    :param configs: configurations for contact map
+    :param prot_dir: (string or Path) path to directory of PDB or mmCIF files
+    :param threshold: (int) threshold distance for contacting residues
     :return: data loader
     """
-    pdb_dir = configs.contact_map_settings.protein_dir
-    threshold = configs.contact_map_settings.threshold
-    dataset = ContactMapDataset(pdb_dir=pdb_dir, threshold=threshold)
+    dataset = ContactMapDataset(pdb_dir=prot_dir, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     return data_loader
 
