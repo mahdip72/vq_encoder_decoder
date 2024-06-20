@@ -56,7 +56,7 @@ class ContactMapDataset(Dataset):
             return contactmaps[first_chain_id], pdb_file
 
 
-def prepare_dataloaders(prot_dir, threshold):
+def prepare_dataloaders(prot_dir, threshold=8):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.

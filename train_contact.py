@@ -5,8 +5,8 @@ import torch
 from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
-from data.data_cifar import prepare_dataloaders
-from models.vqvae_cifar import prepare_models
+from data.data_contactmap import prepare_dataloaders
+from models.vqvae_contact import prepare_models
 from tqdm import tqdm
 import os
 import time
@@ -423,7 +423,7 @@ def run_ray_tune(dict_config, config_file_path):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
-    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_cifar.yaml')
+    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_vqvae_contact.yaml')
 
     # ray_tune flag for tuning hyperparameters
     parser.add_argument("--ray_tune", action='store_true')
