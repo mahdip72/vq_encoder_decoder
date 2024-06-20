@@ -52,11 +52,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
     # Prepare metrics for evaluation
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
-    gdtts = GDTTS()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
-    # gdtts.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
     processor = Protein3DProcessing()
@@ -96,14 +94,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
             sym_loss = symmetry_loss(outputs) * beta
             loss = rec_loss + alpha * commit_loss + sym_loss
 
-            # Denormalize the outputs and labels
-            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
-
             # Update the metrics
             mae.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
             rmse.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
-            # gdtts.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
@@ -168,7 +161,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_sym_loss = total_sym_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
-    # gdtts_score = gdtts.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
@@ -179,22 +171,19 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('sym_loss', avg_sym_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        # writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
 
     # Reset the metrics for the next epoch
     mae.reset()
     rmse.reset()
-    gdtts.reset()
 
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "sym_loss": avg_sym_loss,
-        "denormalized_rec_mae": denormalized_rec_mae,
-        "denormalized_rec_rmse": denormalized_rec_rmse,
-        # "gdtts": gdtts_score,
+        "rec_mae": denormalized_rec_mae,
+        "rec_rmse": denormalized_rec_rmse,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
@@ -421,9 +410,8 @@ def main(dict_config, config_file_path):
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
                 f'sym loss {training_loop_reports["sym_loss"]:.4f}, '
-                f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
-                f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                # f'gdtts {training_loop_reports["gdtts"]:.4f}, '
+                f'rec mae {training_loop_reports["rec_mae"]:.4f}, '
+                f'rec rmse {training_loop_reports["rec_rmse"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
