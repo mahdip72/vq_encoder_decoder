@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import yaml
 from utils.utils import load_configs
-from preprocess_pdb import check_chains, filter_best_chains
+from data.preprocess_pdb import check_chains, filter_best_chains
 
 import pcmap
 import pypstruct
@@ -56,16 +56,15 @@ class ContactMapDataset(Dataset):
             return contactmaps[first_chain_id], pdb_file
 
 
-def prepare_dataloaders(configs):
+def prepare_dataloaders(prot_dir, threshold):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
-    :param configs: configurations for contact map
+    :param prot_dir: (string or Path) path to directory of PDB or mmCIF files
+    :param threshold: (int) threshold distance for contacting residues
     :return: data loader
     """
-    pdb_dir = configs.contact_map_settings.protein_dir
-    threshold = configs.contact_map_settings.threshold
-    dataset = ContactMapDataset(pdb_dir=pdb_dir, threshold=threshold)
+    dataset = ContactMapDataset(pdb_dir=prot_dir, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     return data_loader
 
@@ -293,8 +292,9 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
 
     main_configs = load_configs(config_file)
-
-    dataloader = prepare_dataloaders(main_configs)
+    prot_directory = main_configs.contact_map_settings.protein_dir
+    thresh = main_configs.contact_map_settings.threshold
+    dataloader = prepare_dataloaders(prot_directory, thresh)
 
     n = 0
     for contactmap, pdb_filename in tqdm(dataloader, total=len(dataloader)):
