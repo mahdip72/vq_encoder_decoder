@@ -48,8 +48,8 @@ class ContactMapDataset(Dataset):
 
         if len(contactmaps) == 0:
             # Return a placeholder value if there are no valid chains
-            # TODO: is this appropriate?
-            return [[0]], pdb_file
+            # TODO: This is not compatible with convolution model
+            return torch.zeros(1,1), pdb_file
         else:
             # If there are multiple contact maps, only return the first one
             first_chain_id = next(iter(contactmaps))
