@@ -34,7 +34,7 @@ class VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 16
+        start_dim = 8
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv2d(4, start_dim, kernel_size=1),
@@ -119,7 +119,7 @@ class VQVAE3DResNet(nn.Module):
         )
 
     def forward(self, batch, return_vq_only=False):
-        x = batch['input_coords']
+        x = batch['input_distance_map']
         # keep the shape of intial_x
         initial_x_shape = x.shape
         x = x.reshape(initial_x_shape[0], 4, int(initial_x_shape[2]/2), int(initial_x_shape[3]/2))
