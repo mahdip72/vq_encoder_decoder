@@ -916,6 +916,9 @@ class DistanceMapVQVAEDataset(Dataset):
         input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
         target_distance_map = self.create_distance_map(coords.squeeze(0))
 
+        input_coords_tensor = input_coords_tensor.reshape(-1, 12)
+        coords = coords.reshape(-1, 12)
+
         # expand the first dimension of distance maps
         input_distance_map = input_distance_map.unsqueeze(0)
         target_distance_map = target_distance_map.unsqueeze(0)
