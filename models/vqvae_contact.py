@@ -240,12 +240,12 @@ if __name__ == "__main__":
     model = prepare_models(configs_contact, logger_test, accelerator_test)
 
     for data in tqdm(testloader):
-        images, labels = data
-        images = images.to(torch.float32) # Convert tensor type to
-        images = images[None,:,:,:] # Add a dimension to make images 4D
-        print(images.size())
-        x_test, indices_test, commit_loss_test = model(images)
-        print(images[0].size(), x_test[0].size())
-        #assert images[0].size() == torch.Size([3,32,32])
+        cmaps, labels = data
+        cmaps = cmaps.to(torch.float32) # Convert tensor type to
+        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
+        print(cmaps.size())
+        x_test, indices_test, commit_loss_test = model(cmaps)
+        print(cmaps[0].size(), x_test[0].size())
+        #assert cmaps[0].size() == torch.Size([3,32,32])
         #assert x_test[0].size() == torch.Size([3,32,32])
 
