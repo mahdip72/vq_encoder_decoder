@@ -43,7 +43,7 @@ class VQVAE3DResNet(nn.Module):
             nn.ReLU()
         )
 
-        dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
+        dims = list(np.geomspace(start_dim, self.decoder_dim, self.num_encoder_blocks).astype(int))
         encoder_blocks = []
         prev_dim = start_dim
         for i, dim in enumerate(dims):
@@ -53,7 +53,7 @@ class VQVAE3DResNet(nn.Module):
                 ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
-            if i+1 % 2 == 0:
+            if i+1 % 4 == 0:
                 pooling_block = nn.Sequential(
                     nn.Conv2d(dim, dim, 3, stride=2, padding=1),
                     nn.BatchNorm2d(dim),
@@ -94,12 +94,12 @@ class VQVAE3DResNet(nn.Module):
             nn.ReLU(),
         )
 
-        dims = list(np.linspace(self.decoder_dim, start_dim, self.num_encoder_blocks).astype(int))
+        dims = list(np.geomspace(start_dim, self.decoder_dim, self.num_decoder_blocks).astype(int))[::-1]
         # Decoder
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if i+1 % 2 == 0:
+            if i+1 % 4 == 0:
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv2d(dim, dim, 3, padding=1),
