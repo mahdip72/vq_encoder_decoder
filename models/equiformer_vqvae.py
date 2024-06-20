@@ -30,8 +30,9 @@ class SE3VQVAE3DResNet(nn.Module):
         self.max_length = configs.model.max_length
 
         self.embedding = nn.Embedding(num_embeddings=5, embedding_dim=4, padding_idx=0)
+        # self.embedding = self.embedding.to('cpu')
 
-        self.se3_model = Equiformer(
+        self.se3_model_encoder = Equiformer(
             # num_tokens=5,
             dim=(4, 4),  # dimensions per type, ascending, length must match number of degrees (num_degrees)
             dim_head=(4, 4),  # dimension per attention head
@@ -41,7 +42,7 @@ class SE3VQVAE3DResNet(nn.Module):
             depth=4,  # depth of equivariant transformer
             attend_self=True,  # attending to self or not
             reduce_dim_out=False,
-            reversible=True,
+            reversible=False,
             # whether to reduce out to dimension of 1, say for predicting new coordinates for type 1 features
             l2_dist_attention=False  # set to False to try out MLP attention
         )
@@ -52,10 +53,10 @@ class SE3VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 32
+        start_dim = 128
         # Encoder
         self.encoder_tail = nn.Sequential(
-            nn.Conv1d(28, start_dim, 1),
+            nn.Conv1d(12, start_dim, 1),
             nn.BatchNorm1d(start_dim),
             nn.ReLU()
         )
@@ -70,12 +71,6 @@ class SE3VQVAE3DResNet(nn.Module):
                 ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
-            if i + 1 % 16 == 0:
-                pooling_block = nn.Sequential(
-                    nn.Conv1d(dim, dim, 3, stride=2, padding=1),
-                    nn.BatchNorm1d(dim),
-                    nn.ReLU())
-                encoder_blocks.append(pooling_block)
             prev_dim = dim
         self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
@@ -115,13 +110,6 @@ class SE3VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if i + 1 % 16 == 0:
-                pooling_block = nn.Sequential(
-                    nn.Upsample(scale_factor=2),
-                    nn.Conv1d(dim, dim, 3, padding=1),
-                    nn.BatchNorm1d(dim),
-                    nn.ReLU())
-                decoder_blocks.append(pooling_block)
             block = nn.Sequential(
                 ResidualBlock(dim, dim),
                 ResidualBlock(dim, dim),
