@@ -1,6 +1,59 @@
 import torch
 import torch.nn as nn
 from torchmetrics import Metric
+import torch
+from sklearn.manifold import MDS
+
+
+def ensure_symmetry_torch(tensor):
+    """
+    Ensures that the input tensor is symmetric by averaging it with its transpose.
+
+    Args:
+        tensor (torch.Tensor): Input distance matrix.
+
+    Returns:
+        torch.Tensor: Symmetric distance matrix.
+    """
+    return (tensor + tensor.T) / 2
+
+
+def batch_distance_map_to_coordinates(batch_distance_map):
+    """
+    Converts a batch of distance maps from a PyTorch tensor format to 3D coordinates.
+
+    Args:
+        batch_distance_map (torch.Tensor): A (b x m x m) batch of distance matrices in PyTorch tensor format.
+
+    Returns:
+        torch.Tensor: A (b x m x 3) tensor of 3D coordinates.
+    """
+    # Get the batch size
+    batch_size = batch_distance_map.size(0)
+    num_points = batch_distance_map.size(1)
+
+    # Initialize an empty list to hold the coordinates
+    all_coordinates = []
+
+    # Loop over each distance map in the batch
+    for i in range(batch_size):
+        distance_matrix_np = ensure_symmetry_torch(batch_distance_map[i].cpu().numpy())
+
+        # Create an MDS model
+        mds = MDS(n_components=3, dissimilarity='precomputed', random_state=42, n_init=4, max_iter=200, eps=1e-9,
+                  n_jobs=-1)
+
+        # Fit the model to the distance matrix
+        coordinates_np = mds.fit_transform(distance_matrix_np)
+
+        # Convert the coordinates to a PyTorch tensor and append to the list
+        coordinates_tensor = torch.tensor(coordinates_np, dtype=torch.float32)
+        all_coordinates.append(coordinates_tensor)
+
+    # Stack all the coordinates to form a batch
+    batch_coordinates = torch.stack(all_coordinates)
+
+    return batch_coordinates
 
 
 class GDTTS(Metric):
@@ -89,6 +142,25 @@ class LDDT(Metric):
 
 
 if __name__ == "__main__":
+    # Example usage of MDS
+    batch_distance_map_example = torch.tensor([
+        [
+            [0, 3, 4, 5],
+            [3, 0, 2, 4],
+            [4, 2, 0, 3],
+            [5, 4, 3, 0]
+        ],
+        [
+            [0, 1, 2, 3],
+            [1, 0, 1, 2],
+            [2, 1, 0, 1],
+            [3, 2, 1, 0]
+        ]
+    ], dtype=torch.float32)
+
+    batch_coordinates = batch_distance_map_to_coordinates(batch_distance_map_example)
+    print("Batch Coordinates:\n", batch_coordinates)
+
     # Example usage
     mean_lddt = LDDT()
 
