@@ -917,7 +917,8 @@ class DistanceMapVQVAEDataset(Dataset):
         # expand the first dimension of distance maps
         input_distance_map = input_distance_map.unsqueeze(0)
         target_distance_map = target_distance_map.unsqueeze(0)
-        return {'pid': pid, 'input_coords': input_distance_map, 'target_coords': target_distance_map, 'masks': masks}
+        return {'pid': pid, 'input_coords': input_coords_tensor.squeeze(0), 'input_distance_map': input_distance_map,
+                'target_coords': coords.squeeze(0), 'target_distance_map': target_distance_map, 'masks': masks}
 
 
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
