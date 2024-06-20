@@ -706,8 +706,9 @@ class VQVAEDataset(Dataset):
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
         if self.cutout and self.train_mode:
-            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=1, max_mask_size=5,
-                                                           max_cuts=3)
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
+                                                           max_mask_size=self.max_mask_size,
+                                                           max_cuts=self.max_cuts)
 
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
@@ -902,8 +903,9 @@ class DistanceMapVQVAEDataset(Dataset):
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
         if self.cutout and self.train_mode:
-            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=1, max_mask_size=5,
-                                                           max_cuts=3)
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
+                                                           max_mask_size=self.max_mask_size,
+                                                           max_cuts=self.max_cuts)
 
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
