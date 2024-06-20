@@ -292,8 +292,9 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
 
     main_configs = load_configs(config_file)
-
-    dataloader = prepare_dataloaders(main_configs)
+    prot_directory = main_configs.contact_map_settings.protein_dir
+    thresh = main_configs.contact_map_settings.threshold
+    dataloader = prepare_dataloaders(prot_directory, thresh)
 
     n = 0
     for contactmap, pdb_filename in tqdm(dataloader, total=len(dataloader)):
