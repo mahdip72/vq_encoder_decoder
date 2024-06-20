@@ -159,8 +159,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_sym_loss = total_sym_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmse = rmse.compute().cpu().item()
+    rec_mae = mae.compute().cpu().item()
+    rec_rmse = rmse.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
@@ -169,8 +169,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('sym_loss', avg_sym_loss, epoch)
-        writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
+        writer.add_scalar('real_mae', rec_mae, epoch)
+        writer.add_scalar('real_rmse', rec_rmse, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
 
@@ -182,8 +182,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "sym_loss": avg_sym_loss,
-        "rec_mae": denormalized_rec_mae,
-        "rec_rmse": denormalized_rec_rmse,
+        "rec_mae": rec_mae,
+        "rec_rmse": rec_rmse,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
@@ -203,12 +203,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
     gdtts = GDTTS()
-    # lddt = LDDT()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
     gdtts.to(accelerator.device)
-    # lddt.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
     processor = Protein3DProcessing()
@@ -277,7 +275,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
-    # lddt_score = lddt.compute().cpu().item()
 
     # Log the metrics to TensorBoard
     if configs.tensorboard_log:
@@ -287,7 +284,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
-        # writer.add_scalar('val_lddt', lddt_score, epoch)
 
     # Reset the metrics for the next epoch
     mae.reset()
