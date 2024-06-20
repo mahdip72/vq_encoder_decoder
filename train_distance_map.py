@@ -16,6 +16,26 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
+import torch.nn.functional as F
+
+
+def symmetry_loss(predicted_distance_map):
+    """
+    Computes the auxiliary loss to enforce symmetry in the predicted distance map.
+
+    Args:
+        predicted_distance_map (torch.Tensor): A (b x m x m) batch of predicted distance matrices.
+
+    Returns:
+        torch.Tensor: The symmetry loss.
+    """
+    # Ensure the predicted distance map is symmetric by averaging with its transpose
+    symmetric_predicted_distance_map = (predicted_distance_map + predicted_distance_map.transpose(-1, -2)) / 2
+
+    # Compute the loss as the mean squared error between the predicted and symmetric distance maps
+    loss = F.mse_loss(predicted_distance_map, symmetric_predicted_distance_map)
+
+    return loss
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -25,6 +45,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     configs = kwargs.pop('configs')
     writer = kwargs.pop('writer')
     alpha = configs.model.vqvae.vector_quantization.alpha
+    beta = configs.model.vqvae.beta
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
 
@@ -50,6 +71,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
+    total_sym_loss = 0.0
     total_activation = 0.0
     counter = 0
     global_step = kwargs.get('global_step', 0)
@@ -71,7 +93,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # masked_outputs = outputs[masks]
             # masked_labels = labels[masks]
             rec_loss = torch.nn.functional.l1_loss(outputs, labels)
-            loss = rec_loss + alpha * commit_loss
+            sym_loss = symmetry_loss(outputs) * beta
+            loss = rec_loss + alpha * commit_loss + sym_loss
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
@@ -89,7 +112,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
             train_cmt_loss += avg_cmt_loss.item() / accum_iter
 
-            train_total_loss = train_rec_loss + alpha * train_cmt_loss
+            avg_sym_loss = accelerator.gather(sym_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_sym_loss = avg_sym_loss.item() / accum_iter
+
+            train_total_loss = train_rec_loss + alpha * train_cmt_loss + beta * train_sym_loss
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -108,11 +134,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
+            total_sym_loss += train_sym_loss
             total_activation += indices.unique().numel() / codebook_size
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
             train_cmt_loss = 0.0
+            train_sym_loss = 0.0
 
             if configs.tensorboard_log:
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
@@ -128,6 +156,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 "step_loss": loss.detach().item(),
                 "rec_loss": rec_loss.detach().item(),
                 "cmt_loss": commit_loss.detach().item(),
+                "sym_loss": sym_loss.detach().item(),
                 "activation": indices.unique().numel() / codebook_size * 100,
                 "global_step": global_step
             }
@@ -136,6 +165,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
+    avg_sym_loss = total_sym_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
     # gdtts_score = gdtts.compute().cpu().item()
@@ -146,6 +176,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
+        writer.add_scalar('sym_loss', avg_sym_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         # writer.add_scalar('gdtts', gdtts_score, epoch)
@@ -160,6 +191,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
+        "sym_loss": avg_sym_loss,
         "denormalized_rec_mae": denormalized_rec_mae,
         "denormalized_rec_rmse": denormalized_rec_rmse,
         # "gdtts": gdtts_score,
@@ -382,6 +414,7 @@ def main(dict_config, config_file_path):
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
+                f'sym loss {training_loop_reports["sym_loss"]:.4f}, '
                 f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
                 f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
                 # f'gdtts {training_loop_reports["gdtts"]:.4f}, '
