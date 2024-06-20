@@ -34,10 +34,10 @@ class VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 8
+        start_dim = 4
         # Encoder
         self.encoder_tail = nn.Sequential(
-            nn.Conv2d(4, start_dim, kernel_size=1),
+            nn.Conv2d(1, start_dim, kernel_size=1),
             nn.Conv2d(start_dim, start_dim, kernel_size=3, padding=1),
             nn.BatchNorm2d(start_dim),
             nn.ReLU()
@@ -53,7 +53,7 @@ class VQVAE3DResNet(nn.Module):
                 ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
-            if i+1 % 4 == 0:
+            if i+1 % 2 == 0:
                 pooling_block = nn.Sequential(
                     nn.Conv2d(dim, dim, 3, stride=2, padding=1),
                     nn.BatchNorm2d(dim),
@@ -99,7 +99,7 @@ class VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if i+1 % 4 == 0:
+            if i+1 % 2 == 0:
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv2d(dim, dim, 3, padding=1),
@@ -115,14 +115,14 @@ class VQVAE3DResNet(nn.Module):
         self.decoder_blocks = nn.Sequential(*decoder_blocks)
 
         self.decoder_head = nn.Sequential(
-            nn.Conv2d(start_dim, 4, 1)
+            nn.Conv2d(start_dim, 1, 1)
         )
 
     def forward(self, batch, return_vq_only=False):
         x = batch['input_distance_map']
         # keep the shape of intial_x
-        initial_x_shape = x.shape
-        x = x.reshape(initial_x_shape[0], 4, int(initial_x_shape[2]/2), int(initial_x_shape[3]/2))
+        # initial_x_shape = x.shape
+        # x = x.reshape(initial_x_shape[0], 4, int(initial_x_shape[2]/2), int(initial_x_shape[3]/2))
 
         x = self.encoder_tail(x)
         x = self.encoder_blocks(x)
@@ -138,7 +138,7 @@ class VQVAE3DResNet(nn.Module):
         x = self.decoder_head(x)
 
         # Return x to its original shape
-        x = x.reshape(initial_x_shape[0], 1, int(initial_x_shape[2]), int(initial_x_shape[3]))
+        # x = x.reshape(initial_x_shape[0], 1, int(initial_x_shape[2]), int(initial_x_shape[3]))
         return x, indices, commit_loss
 
 

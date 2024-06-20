@@ -362,8 +362,8 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
                 output = output[batch['masks'].squeeze().cpu()]
             else:
                 output = x.squeeze()
-                output = output[batch['masks'].squeeze().cpu()]
-                output = output.reshape(-1, output.shape[1])
+                # output = output[batch['masks'].squeeze().cpu()]
+                output = output.reshape(-1, output.shape[0])
 
             output = output.mean(dim=0)
             representations['ids'].append(pid[0])

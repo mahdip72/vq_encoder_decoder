@@ -910,14 +910,14 @@ class DistanceMapVQVAEDataset(Dataset):
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
-        input_coords_tensor = input_coords_tensor.reshape(1, -1, 3)
-        coords = coords.reshape(1, -1, 3)
+        input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
+        coords = coords[..., 3:6].reshape(1, -1, 3)
 
         input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
         target_distance_map = self.create_distance_map(coords.squeeze(0))
 
-        input_coords_tensor = input_coords_tensor.reshape(-1, 12)
-        coords = coords.reshape(-1, 12)
+        # input_coords_tensor = input_coords_tensor.reshape(-1, 12)
+        # coords = coords.reshape(-1, 12)
 
         # expand the first dimension of distance maps
         input_distance_map = input_distance_map.unsqueeze(0)
