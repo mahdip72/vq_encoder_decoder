@@ -296,10 +296,15 @@ def main(dict_config, config_file_path):
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
 
-    if getattr(configs.model, "struct_encoder", False):
+    if configs.model.architecture == 'gvp_vqvae':
         from data.dataset import prepare_gvp_vqvae_dataloaders
         train_dataloader, valid_dataloader, visualization_loader = prepare_gvp_vqvae_dataloaders(logging, accelerator,
                                                                                                  configs)
+    elif configs.model.architecture == 'distance_map_vqvae':
+        from data.dataset import prepare_distance_map_vqvae_dataloaders
+        train_dataloader, valid_dataloader, visualization_loader = prepare_distance_map_vqvae_dataloaders(logging,
+                                                                                                          accelerator,
+                                                                                                          configs)
     else:
         from data.dataset import prepare_vqvae_dataloaders
         train_dataloader, valid_dataloader, visualization_loader = prepare_vqvae_dataloaders(logging, accelerator,
@@ -315,6 +320,9 @@ def main(dict_config, config_file_path):
         net = prepare_models_vqvae(configs, logging, accelerator)
     elif configs.model.architecture == 'equiformer_vqvae':
         from models.equiformer_vqvae import prepare_models_vqvae
+        net = prepare_models_vqvae(configs, logging, accelerator)
+    elif configs.model.architecture == 'egnn_vqvae':
+        from models.egnn_vqvae import prepare_models_vqvae
         net = prepare_models_vqvae(configs, logging, accelerator)
     elif configs.model.architecture == 'vqvae':
         from models.vqvae import prepare_models_vqvae
