@@ -43,7 +43,7 @@ class VQVAE3DResNet(nn.Module):
             nn.ReLU()
         )
 
-        dims = list(np.geomspace(start_dim, self.decoder_dim, self.num_encoder_blocks).astype(int))
+        dims = [d if d % 2 == 0 else d + 1 for d in (np.geomspace(start_dim, self.encoder_dim, self.num_encoder_blocks) + 0.5).astype(int)]
         encoder_blocks = []
         prev_dim = start_dim
         for i, dim in enumerate(dims):
@@ -94,7 +94,7 @@ class VQVAE3DResNet(nn.Module):
             nn.ReLU(),
         )
 
-        dims = list(np.geomspace(start_dim, self.decoder_dim, self.num_decoder_blocks).astype(int))[::-1]
+        dims = [d if d % 2 == 0 else d + 1 for d in (np.geomspace(start_dim, self.decoder_dim, self.num_decoder_blocks) + 0.5).astype(int)][::-1]
         # Decoder
         decoder_blocks = []
         dims = dims + [dims[-1]]
