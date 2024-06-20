@@ -7,7 +7,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
-from utils.metrics import GDTTS, LDDT
+from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
@@ -35,7 +35,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
-    gdtts.to(accelerator.device)
+    # gdtts.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
     processor = Protein3DProcessing()
@@ -62,7 +62,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     net.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
-            labels = data['target_coords']
+            labels = data['target_distance_map']
             # masks = data['masks']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
@@ -80,7 +80,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # Update the metrics
             mae.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
             rmse.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
-            gdtts.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
+            # gdtts.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
@@ -138,7 +138,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
+    # gdtts_score = gdtts.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
@@ -148,7 +148,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        writer.add_scalar('gdtts', gdtts_score, epoch)
+        # writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
 
@@ -162,7 +162,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "rec_loss": avg_rec_loss,
         "denormalized_rec_mae": denormalized_rec_mae,
         "denormalized_rec_rmse": denormalized_rec_rmse,
-        "gdtts": gdtts_score,
+        # "gdtts": gdtts_score,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
@@ -180,12 +180,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     # Prepare metrics to evaluation
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
-    # gdtts = GDTTS()
+    gdtts = GDTTS()
     # lddt = LDDT()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
-    # gdtts.to(accelerator.device)
+    gdtts.to(accelerator.device)
     # lddt.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
@@ -207,25 +207,30 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     net.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
-            labels = data['target_coords']
-            masks = data['masks']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            # Compute the loss
-            # masked_outputs = outputs[masks]
-            # masked_labels = labels[masks]
-            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
+            rec_loss = torch.nn.functional.l1_loss(outputs, data['target_distance_map'])
             loss = rec_loss + alpha * commit_loss
 
+            labels = data['target_coords']
+            masks = data['masks']
+
+            outputs = batch_distance_map_to_coordinates(outputs.squeeze(1)).to(accelerator.device)
+            outputs = outputs.reshape(outputs.shape[0], -1, 12)
+
+            # Compute the loss
+            masked_outputs = outputs[masks]
+            masked_labels = labels[masks]
+
             # Denormalize the outputs and labels
-            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
+            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
-            rmse.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
-            # gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
         progress_bar.update(1)
@@ -246,7 +251,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
-    # gdtts_score = gdtts.compute().cpu().item()
+    gdtts_score = gdtts.compute().cpu().item()
     # lddt_score = lddt.compute().cpu().item()
 
     # Log the metrics to TensorBoard
@@ -255,21 +260,21 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        # writer.add_scalar('gdtts', gdtts_score, epoch)
+        writer.add_scalar('gdtts', gdtts_score, epoch)
         # writer.add_scalar('val_lddt', lddt_score, epoch)
 
     # Reset the metrics for the next epoch
     mae.reset()
     rmse.reset()
-    # gdtts.reset()
+    gdtts.reset()
     # lddt.reset()
 
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
-        # "denormalized_rec_mae": denormalized_rec_mae,
-        # "denormalized_rec_rmse": denormalized_rec_rmse,
-        # "gdtts": gdtts_score,
+        "denormalized_rec_mae": denormalized_rec_mae,
+        "denormalized_rec_rmse": denormalized_rec_rmse,
+        "gdtts": gdtts_score,
         # "lddt": lddt_score,
         "counter": counter,
     }
@@ -379,7 +384,7 @@ def main(dict_config, config_file_path):
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
                 f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
                 f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                f'gdtts {training_loop_reports["gdtts"]:.4f}, '
+                # f'gdtts {training_loop_reports["gdtts"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
@@ -414,8 +419,8 @@ def main(dict_config, config_file_path):
                     f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
                     f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
-                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}'
-                    # f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
+                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
                     # f'lddt {valid_loop_reports["lddt"]:.4f}'
                 )
 
