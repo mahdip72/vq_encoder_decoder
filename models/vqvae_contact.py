@@ -229,9 +229,7 @@ if __name__ == "__main__":
     configs_contact = Box(config_file)
 
     # Data loader
-    prot_directory = "../data/PDB_database"
-    thresh = configs_contact.contact_map_settings.threshold
-    testloader = prepare_dataloaders(prot_directory, thresh)
+    testloader = prepare_dataloaders(configs_contact)
 
     logger_test = get_dummy_logger()
     accelerator_test = Accelerator()
