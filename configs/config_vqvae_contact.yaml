@@ -17,7 +17,7 @@ contact_map_settings:
 model:
   compile_model: False
   num_layers: 4
-  max_length:128
+  max_length: 128
 
   encoder:
     dim: 8
