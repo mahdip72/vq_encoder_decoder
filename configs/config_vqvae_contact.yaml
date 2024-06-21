@@ -12,11 +12,12 @@ resume:
 
 contact_map_settings:
   threshold: 8
-  protein_dir: /home/jren/dbl_research/vqvae/data/swissprot_pdb_v4
+  protein_dir: /home/jren/dbl_research/vqvae/data/swissprot_pdb_v4_small
 
 model:
   compile_model: False
   num_layers: 4
+  max_length:128
 
   encoder:
     dim: 8
@@ -39,6 +40,13 @@ train_settings:
   batch_size: 128
   num_workers: 8
   grad_accumulation: 1
+
+  max_task_samples: 100000
+  cutout:
+    enable: False
+    min_mask_size: 1
+    max_mask_size: 30
+    max_cuts: 4
 
 valid_settings:
   data_path: H:\Datasets\Joint_training
