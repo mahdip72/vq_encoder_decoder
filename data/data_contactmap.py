@@ -18,7 +18,7 @@ import pypstruct
 import Bio.PDB
 
 
-class ContactMapDataset(Dataset):
+class ContactMapDatasetOld(Dataset):
     """
     Dataset for converting PDB or mmCIF protein files to contact maps.
     """
