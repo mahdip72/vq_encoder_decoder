@@ -11,8 +11,6 @@ from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
-# from data.data_cifar import prepare_dataloaders
-# from models.models import prepare_models
 from tqdm import tqdm
 import time
 import torchmetrics
