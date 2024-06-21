@@ -11,7 +11,6 @@ import glob
 
 from utils.utils import load_configs
 from utils.utils import load_h5_file
-from data.dataset import Protein3DProcessing
 from data.preprocess_pdb import check_chains, filter_best_chains
 
 import pcmap
@@ -100,7 +99,7 @@ class DistanceMapVQVAEDataset(Dataset):
         self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
         self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
 
-        self.processor = Protein3DProcessing()
+        #self.processor = Protein3DProcessing()
 
         # Load saved pca and scaler models for processing
         #self.processor.load_normalizer(kwargs['configs'].normalizer_path)
@@ -307,7 +306,8 @@ class ContactMapDataset(Dataset):
         return len(self.dist_dataset)
 
     def __getitem__(self, idx):
-        return dmap_to_cmap(self.dist_dataset[idx])
+        distance_map = self.dist_dataset[idx]["input_distance_map"]
+        return dmap_to_cmap(distance_map)
 
 
 def prepare_dataloaders(configs):
@@ -319,7 +319,7 @@ def prepare_dataloaders(configs):
     """
     prot_dir = configs.contact_map_settings.protein_dir
     threshold = configs.contact_map_settings.threshold
-    dataset = ContactMapDataset(pdb_dir=prot_dir, configs=configs, threshold=threshold)
+    dataset = ContactMapDataset(prot_dir, configs, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     return data_loader, None
 
@@ -563,13 +563,15 @@ if __name__ == "__main__":
     dataloader, placeholder = prepare_dataloaders(main_configs)
 
     n = 0
-    for contactmap, pdb_filename in tqdm(dataloader, total=len(dataloader)):
+    for contactmap in tqdm(dataloader, total=len(dataloader)):
+        print(contactmap)
         #print(str(pdb_filename))
         # Plot the contact maps
         #"""
         if n < 11:
             fig, axes = plt.subplots()
-            plot_contact_map(contactmap[0], axes, title=str(pdb_filename[0]))
+            #plot_contact_map(contactmap[0], axes, title=str(pdb_filename[0]))
+            plot_contact_map(contactmap[0][0], axes)
             plt.show()
 
         #"""
