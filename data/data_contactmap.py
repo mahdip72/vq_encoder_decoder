@@ -67,7 +67,7 @@ def prepare_dataloaders(configs):
     threshold = configs.contact_map_settings.threshold
     dataset = ContactMapDataset(pdb_dir=prot_dir, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
-    return data_loader
+    return data_loader, None
 
 
 ###########################################################
@@ -293,7 +293,7 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
 
     main_configs = load_configs(config_file)
-    dataloader = prepare_dataloaders(main_configs)
+    dataloader, placeholder = prepare_dataloaders(main_configs)
 
     n = 0
     for contactmap, pdb_filename in tqdm(dataloader, total=len(dataloader)):
