@@ -289,6 +289,26 @@ class DistanceMapVQVAEDataset(Dataset):
                 'target_coords': coords.squeeze(0), 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
 
 
+class ContactMapDataset(Dataset):
+    """
+    Dataset for converting PDB or mmCIF protein files to contact maps.
+    """
+    def __init__(self, data_path, configs, threshold=8):
+        """
+        :param pdb_dir: (string or Path) path to directory of PDB or mmCIF files
+        :param threshold: (int) threshold distance for contacting residues
+        """
+        self.data_path = str(data_path)
+        self.threshold = threshold
+
+        self.dist_dataset = DistanceMapVQVAEDataset(self.data_path, configs=configs)
+
+    def __len__(self):
+        return len(self.dist_dataset)
+
+    def __getitem__(self, idx):
+        return dmap_to_cmap(self.dist_dataset[idx])
+
 
 def prepare_dataloaders(configs):
     """
