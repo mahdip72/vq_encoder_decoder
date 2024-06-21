@@ -88,6 +88,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # Compute the loss
             # masked_outputs = outputs[masks]
             # masked_labels = labels[masks]
+            outputs[labels == 0] = 0
             rec_loss = torch.nn.functional.l1_loss(outputs, labels)
             sym_loss = symmetry_loss(outputs) * beta
             loss = rec_loss + alpha * commit_loss + sym_loss
