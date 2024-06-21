@@ -239,7 +239,7 @@ if __name__ == "__main__":
 
     for data in tqdm(testloader):
         cmaps, labels = data
-        cmaps = cmaps.to(torch.float32) # Convert tensor type to
+        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
         cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
         print(cmaps.size())
         x_test, indices_test, commit_loss_test = model(cmaps)
