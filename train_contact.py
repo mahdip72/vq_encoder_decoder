@@ -128,19 +128,20 @@ def train_loop(model, train_loader, epoch, **kwargs):
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
-    # Reset the metrics for the next epoch
-    mae.reset()
-    rmse.reset()
-
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
-        "rec_mae": mae,
-        "rec_rmse": rmse,
+        "rec_mae": mae.compute().item(),
+        "rec_rmse": rmse.compute().item(),
         "counter": counter,
         "global_step": global_step
     }
+
+    # Reset the metrics for the next epoch
+    mae.reset()
+    rmse.reset()
+
     return return_dict
 
 
@@ -192,7 +193,6 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             # Update the metrics
             mae.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
             rmse.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
-
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.valid_settings.batch_size)).mean()
             valid_rec_loss += avg_rec_loss.item() / accum_iter
@@ -224,19 +224,19 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
-    # Reset the metrics for the next epoch
-    mae.reset()
-    rmse.reset()
-
-
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
-        "rec_mae": mae,
-        "rec_rmse": rmse,
+        "rec_mae": mae.compute().item(),
+        "rec_rmse": rmse.compute().item(),
         "counter": counter,
     }
+
+    # Reset the metrics for the next epoch
+    mae.reset()
+    rmse.reset()
+
     return return_dict
 
 
@@ -319,7 +319,7 @@ def main(dict_config, config_file_path):
 
         if accelerator.is_main_process:
             logging.info(
-                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
+                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, '
