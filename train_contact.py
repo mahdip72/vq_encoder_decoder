@@ -55,10 +55,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     # Training loop
     model.train()
-    for cmaps, pdb_filename in train_loader:
-
-        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
-        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
+    for cmaps in train_loader:
 
         # Train with gradient accumulation
         with accelerator.accumulate(model):
@@ -181,9 +178,6 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     # Validation loop
     model.eval()
     for cmaps in valid_loader:
-
-        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
-        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
 
         with torch.inference_mode():
             optimizer.zero_grad()
@@ -451,7 +445,7 @@ if __name__ == "__main__":
         config_file["model"]["decoder"]["dim"] = tune.choice([4,8,12])
 
         # Scheduler for Ray Tune
-        scheduler = ASHAScheduler(
+        ray_scheduler = ASHAScheduler(
             metric="val_rec_loss",
             mode="min",
             max_t=config_file["train_settings"]["num_epochs"],
@@ -462,7 +456,7 @@ if __name__ == "__main__":
         tuner = tune.Tuner(
             tune.with_parameters(run_ray_tune, config_file_path=config_path),
             tune_config=tune.TuneConfig(
-                scheduler=scheduler,
+                scheduler=ray_scheduler,
                 num_samples=8
             ),
             run_config=train.RunConfig(storage_path="~/vq_encoder_decoder/results/ray_tune"),
