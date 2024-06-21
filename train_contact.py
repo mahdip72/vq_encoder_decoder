@@ -445,7 +445,7 @@ if __name__ == "__main__":
         config_file["model"]["decoder"]["dim"] = tune.choice([4,8,12])
 
         # Scheduler for Ray Tune
-        scheduler = ASHAScheduler(
+        ray_scheduler = ASHAScheduler(
             metric="val_rec_loss",
             mode="min",
             max_t=config_file["train_settings"]["num_epochs"],
@@ -456,7 +456,7 @@ if __name__ == "__main__":
         tuner = tune.Tuner(
             tune.with_parameters(run_ray_tune, config_file_path=config_path),
             tune_config=tune.TuneConfig(
-                scheduler=scheduler,
+                scheduler=ray_scheduler,
                 num_samples=8
             ),
             run_config=train.RunConfig(storage_path="~/vq_encoder_decoder/results/ray_tune"),
