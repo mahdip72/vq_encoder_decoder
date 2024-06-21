@@ -55,7 +55,10 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     # Training loop
     model.train()
-    for cmaps in train_loader:
+    for cmaps, pdb_filename in train_loader:
+
+        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
+        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
 
         # Train with gradient accumulation
         with accelerator.accumulate(model):
@@ -178,6 +181,9 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     # Validation loop
     model.eval()
     for cmaps in valid_loader:
+
+        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
+        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
 
         with torch.inference_mode():
             optimizer.zero_grad()

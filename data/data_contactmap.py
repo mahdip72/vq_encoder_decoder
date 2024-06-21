@@ -6,7 +6,12 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import yaml
+import os
+import glob
+
 from utils.utils import load_configs
+from utils.utils import load_h5_file
+from data.dataset import Protein3DProcessing
 from data.preprocess_pdb import check_chains, filter_best_chains
 
 import pcmap
@@ -56,6 +61,255 @@ class ContactMapDataset(Dataset):
             return contactmaps[first_chain_id], pdb_file
 
 
+def merge_features_and_create_mask(features_list, max_length=512):
+    # Pad tensors and create mask
+    padded_tensors = []
+    mask_tensors = []
+    for t in features_list:
+        if t.size(0) < max_length:
+            size_diff = max_length - t.size(0)
+            pad = torch.zeros(size_diff, t.size(1), device=t.device)
+            t_padded = torch.cat([t, pad], dim=0)
+            mask = torch.cat([torch.ones(t.size(0), dtype=torch.bool, device=t.device),
+                              torch.zeros(size_diff, dtype=torch.bool, device=t.device)], dim=0)
+        else:
+            t_padded = t
+            mask = torch.ones(t.size(0), dtype=torch.bool, device=t.device)
+        padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
+        mask_tensors.append(mask.unsqueeze(0))  # Add an extra dimension for concatenation
+
+    # Concatenate tensors and masks
+    result = torch.cat(padded_tensors, dim=0)
+    mask = torch.cat(mask_tensors, dim=0)
+    return result, mask
+
+
+class DistanceMapVQVAEDataset(Dataset):
+    def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
+        super(DistanceMapVQVAEDataset, self).__init__()
+
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+
+        self.max_length = kwargs['configs'].model.max_length
+
+        self.train_mode = train_mode
+
+        self.rotate_randomly = rotate_randomly
+        self.cutout = kwargs['configs'].train_settings.cutout.enable
+        self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
+        self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
+        self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
+
+        self.processor = Protein3DProcessing()
+
+        # Load saved pca and scaler models for processing
+        #self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+
+    def __len__(self):
+        return len(self.h5_samples)
+
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The coordinates with NaN values replaced by the previous valid coordinate values.
+        """
+        # Flatten the coordinates for easier manipulation
+        original_shape = coords.shape
+        coords = coords.view(-1, 3)
+
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
+
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
+
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
+
+            for i in range(0, coords.shape[0] - 1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
+
+        return coords.view(original_shape)
+
+    @staticmethod
+    def random_rotation_matrix():
+        """
+        Creates a random 3D rotation matrix.
+
+        Returns:
+            torch.Tensor: A 3x3 rotation matrix.
+        """
+        theta = np.random.uniform(0, 2 * np.pi)
+        phi = np.random.uniform(0, 2 * np.pi)
+        psi = np.random.uniform(0, 2 * np.pi)
+
+        r_x = torch.Tensor([[1, 0, 0],
+                            [0, np.cos(theta), -np.sin(theta)],
+                            [0, np.sin(theta), np.cos(theta)]])
+
+        r_y = torch.Tensor([[np.cos(phi), 0, np.sin(phi)],
+                            [0, 1, 0],
+                            [-np.sin(phi), 0, np.cos(phi)]])
+
+        r_z = torch.Tensor([[np.cos(psi), -np.sin(psi), 0],
+                            [np.sin(psi), np.cos(psi), 0],
+                            [0, 0, 1]])
+
+        r = r_z @ r_y @ r_x
+
+        return r
+
+    def rotate_coords(self, coords):
+        """
+        Rotates the coordinates using a random rotation matrix.
+
+        Parameters:
+            coords (torch.Tensor): The coordinates to rotate.
+
+        Returns:
+            torch.Tensor: The rotated coordinates.
+        """
+        R = self.random_rotation_matrix()
+        rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
+
+        # Ensure orthogonality
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32),
+                              atol=1e-6), "Rotation matrix is not orthogonal"
+
+        # Ensure proper rotation
+        assert torch.isclose(torch.det(R),
+                             torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+
+        return rotated_coords
+
+    def cutout_augmentation(self, coords, min_mask_size, max_mask_size, max_cuts):
+        """
+        Apply cutout augmentation on the coordinates.
+
+        Parameters:
+        coords (torch.Tensor): The coordinates tensor to augment.
+        min_mask_size (int): The minimum size of the mask to apply.
+        max_mask_size (int): The maximum size of the mask to apply.
+        max_cuts (int): The maximum number of cuts to apply.
+
+        Returns:
+        torch.Tensor: The augmented coordinates.
+        """
+        # Get the total length of the coordinates
+        total_length = coords.shape[1]
+
+        # Randomly select the number of cuts
+        num_cuts = np.random.randint(1, max_cuts + 1)
+
+        for _ in range(num_cuts):
+            # Randomly select the size of the mask
+            mask_size = np.random.randint(min_mask_size, max_mask_size + 1)
+
+            # Randomly select the start index for the mask
+            start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
+
+            # Apply the mask
+            coords[:, start_idx:start_idx + mask_size, :] = 0
+
+        return coords
+
+    @staticmethod
+    def create_distance_map(coords):
+        """
+        Computes the pairwise distance map for CA coordinates using PyTorch.
+
+        Parameters:
+        ca_coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
+
+        Returns:
+        torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
+        """
+        diff = coords.unsqueeze(1) - coords.unsqueeze(0)
+        distance_map = torch.sqrt(torch.sum(diff ** 2, dim=-1))
+        return distance_map
+
+    def __getitem__(self, i):
+        sample_path = self.h5_samples[i]
+        sample = load_h5_file(sample_path)
+        basename = os.path.basename(sample_path)
+        pid = basename.split('.h5')[0].split('_')[0]
+        coords_list = sample[1].tolist()
+        coords_tensor = torch.Tensor(coords_list)
+
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        #coords_tensor = self.processor.normalize_coords(coords_tensor)
+
+        if self.rotate_randomly and self.train_mode:
+            # Apply random rotation
+            input_coords_tensor = self.rotate_coords(coords_tensor)
+        else:
+            input_coords_tensor = coords_tensor
+
+        # Merge the features and create a mask
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
+        if self.cutout and self.train_mode:
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
+                                                           max_mask_size=self.max_mask_size,
+                                                           max_cuts=self.max_cuts)
+
+        coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
+
+        input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
+        coords = coords[..., 3:6].reshape(1, -1, 3)
+
+        input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
+        target_distance_map = self.create_distance_map(coords.squeeze(0))
+
+        # input_coords_tensor = input_coords_tensor.reshape(-1, 12)
+        # coords = coords.reshape(-1, 12)
+
+        # expand the first dimension of distance maps
+        input_distance_map = input_distance_map.unsqueeze(0)
+        target_distance_map = target_distance_map.unsqueeze(0)
+        return {'pid': pid, 'input_coords': input_coords_tensor.squeeze(0), 'input_distance_map': input_distance_map,
+                'target_coords': coords.squeeze(0), 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
+
+
+class ContactMapDataset(Dataset):
+    """
+    Dataset for converting PDB or mmCIF protein files to contact maps.
+    """
+    def __init__(self, data_path, configs, threshold=8):
+        """
+        :param pdb_dir: (string or Path) path to directory of PDB or mmCIF files
+        :param threshold: (int) threshold distance for contacting residues
+        """
+        self.data_path = str(data_path)
+        self.threshold = threshold
+
+        self.dist_dataset = DistanceMapVQVAEDataset(self.data_path, configs=configs)
+
+    def __len__(self):
+        return len(self.dist_dataset)
+
+    def __getitem__(self, idx):
+        return dmap_to_cmap(self.dist_dataset[idx])
+
+
 def prepare_dataloaders(configs):
     """
     Get a contact map data loader for the given PDB directory.
@@ -65,9 +319,9 @@ def prepare_dataloaders(configs):
     """
     prot_dir = configs.contact_map_settings.protein_dir
     threshold = configs.contact_map_settings.threshold
-    dataset = ContactMapDataset(pdb_dir=prot_dir, threshold=threshold)
+    dataset = ContactMapDataset(pdb_dir=prot_dir, configs=configs, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
-    return data_loader
+    return data_loader, None
 
 
 ###########################################################
@@ -227,6 +481,18 @@ def calc_dist_matrix(chain, dictn, report_dict):
     return answer
 
 
+def dmap_to_cmap(dmap, threshold=8):
+    """
+    Convert a protein distance map to a contact map.
+    :param dmap: (torch.Tensor) distance map
+    :threshold: (int) threshold distance for contacts
+    :return: (torch.Tensor) contact map
+    """
+    contact_map = dmap < threshold
+    contact_map = contact_map.to(torch.float32)
+    return contact_map
+
+
 def pdb_to_cmap(protein_id, pdb_file, dictn, report_dict, threshold=8):
     """
     Construct a contact map from a PDB or mmCIF file. The contact map is a matrix
@@ -287,13 +553,14 @@ if __name__ == "__main__":
     #pdb_directory = "PDB_database"
     #pdb_directory = "../../data/swissprot_pdb_v4"
 
+
     config_path = "../configs/config_vqvae_contact.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
     main_configs = load_configs(config_file)
-    dataloader = prepare_dataloaders(main_configs)
+    dataloader, placeholder = prepare_dataloaders(main_configs)
 
     n = 0
     for contactmap, pdb_filename in tqdm(dataloader, total=len(dataloader)):
