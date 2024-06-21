@@ -319,7 +319,7 @@ def prepare_dataloaders(configs):
     """
     prot_dir = configs.contact_map_settings.protein_dir
     threshold = configs.contact_map_settings.threshold
-    dataset = ContactMapDataset(pdb_dir=prot_dir, threshold=threshold)
+    dataset = ContactMapDataset(pdb_dir=prot_dir, configs=configs, threshold=threshold)
     data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     return data_loader, None
 
