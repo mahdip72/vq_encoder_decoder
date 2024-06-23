@@ -15,12 +15,13 @@ def ensure_symmetry_torch_upper_to_lower(tensor):
         torch.Tensor: Symmetric distance matrix.
     """
     # Get the upper triangle indices, excluding the diagonal
-    triu_indices = torch.triu_indices(tensor.size(-2), tensor.size(-1), offset=1)
+    triu_indices = torch.triu_indices(tensor.shape[-2], tensor.shape[-1], offset=1)
 
     # Copy the upper triangle to the lower triangle
     tensor[..., triu_indices[1], triu_indices[0]] = tensor[..., triu_indices[0], triu_indices[1]]
 
     return tensor
+
 
 def batch_distance_map_to_coordinates(batch_distance_map):
     """
