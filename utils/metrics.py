@@ -4,18 +4,23 @@ import torch
 from sklearn.manifold import MDS
 
 
-def ensure_symmetry_torch(tensor):
+def ensure_symmetry_torch_upper_to_lower(tensor):
     """
-    Ensures that the input tensor is symmetric by averaging it with its transpose.
+    Ensures that the input tensor is symmetric by copying the upper triangle to the lower triangle.
 
     Args:
-        tensor (torch.Tensor): Input distance matrix.
+        tensor (torch.Tensor): Input distance matrix of shape (m x m).
 
     Returns:
         torch.Tensor: Symmetric distance matrix.
     """
-    return (tensor + tensor.T) / 2
+    # Get the upper triangle indices, excluding the diagonal
+    triu_indices = torch.triu_indices(tensor.size(-2), tensor.size(-1), offset=1)
 
+    # Copy the upper triangle to the lower triangle
+    tensor[..., triu_indices[1], triu_indices[0]] = tensor[..., triu_indices[0], triu_indices[1]]
+
+    return tensor
 
 def batch_distance_map_to_coordinates(batch_distance_map):
     """
@@ -36,7 +41,7 @@ def batch_distance_map_to_coordinates(batch_distance_map):
 
     # Loop over each distance map in the batch
     for i in range(batch_size):
-        distance_matrix_np = ensure_symmetry_torch(batch_distance_map[i].cpu().numpy())
+        distance_matrix_np = ensure_symmetry_torch_upper_to_lower(batch_distance_map[i].cpu().numpy())
 
         # Create an MDS model
         mds = MDS(n_components=3, dissimilarity='precomputed', random_state=42, n_init=4, max_iter=200, eps=1e-9,
