@@ -43,6 +43,21 @@ class NormalizerDataset(Dataset):
         random.shuffle(self.h5_samples)
         # self.h5_samples = self.h5_samples[:300000]
 
+    @staticmethod
+    def create_distance_map(coords):
+        """
+        Computes the pairwise distance map for CA coordinates using PyTorch.
+
+        Parameters:
+        ca_coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
+
+        Returns:
+        torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
+        """
+        diff = coords.unsqueeze(1) - coords.unsqueeze(0)
+        distance_map = torch.sqrt(torch.sum(diff ** 2, dim=-1))
+        return distance_map
+
     def __len__(self):
         return len(self.h5_samples)
 
@@ -51,7 +66,8 @@ class NormalizerDataset(Dataset):
         sample = load_h5_file(sample_path)
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
-        return coords_tensor
+        distance_map = self.create_distance_map(coords_tensor.reshape(1, -1, 12)[..., 3:6].reshape(1, -1, 3).squeeze(0))
+        return {"coordinates": coords_tensor, "distance_map": distance_map}
 
 
 class Protein3DProcessing:
@@ -278,8 +294,89 @@ class Protein3DProcessing:
         model_dict = joblib.load(file_path)
         self.normalizer = model_dict['normalizer']
 
+    def fit_normalizer_distance_map(self, distance_maps_batch: list):
+        """
+        Fit a normalizer on the given batch of distance maps.
 
-def fit_normalizer():
+        Parameters:
+        -----------
+        distance_maps_batch : list
+            A list of torch.Tensors, each of shape (N, N) representing the distance maps
+            of a batch of protein structures.
+        """
+        # Initialize the normalizer if it hasn't been initialized yet
+        if self.normalizer is None:
+            self.normalizer = StandardScaler()
+
+        # Flatten the distance maps and convert to a 2D array for partial fitting
+        batch_distance_maps = torch.cat([distance_map.view(-1, 1) for distance_map in distance_maps_batch], dim=0)
+        batch_distance_maps_np = batch_distance_maps.cpu().numpy()
+
+        # Partially fit the normalizer on the batch
+        self.normalizer.partial_fit(batch_distance_maps_np)
+
+    def normalize_distance_map(self, distance_map: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize the distance map using the fitted normalizer.
+
+        Parameters:
+        -----------
+        distance_map : torch.Tensor
+            A tensor of shape (N, N) representing the distance map of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The normalized distance map with the same shape as the input.
+        """
+        if self.normalizer is None:
+            raise ValueError("Normalizer has not been fitted. Please call fit_normalizer_distance_map() first "
+                             "or load a saved one using load_normalizer.")
+
+        # Flatten the distance map and convert to a 2D array for normalization
+        distance_map_np = distance_map.view(-1, 1).cpu().numpy()
+
+        # Normalize the distance map
+        normalized_distance_map_np = self.normalizer.transform(distance_map_np)
+
+        # Convert back to tensor and reshape to original shape
+        normalized_distance_map = torch.tensor(normalized_distance_map_np, dtype=distance_map.dtype, device=distance_map.device)
+        normalized_distance_map = normalized_distance_map.view(distance_map.shape)
+
+        return normalized_distance_map
+
+    def denormalize_distance_map(self, distance_map: torch.Tensor) -> torch.Tensor:
+        """
+        Denormalize the distance map using the fitted normalizer.
+
+        Parameters:
+        -----------
+        distance_map : torch.Tensor
+            A tensor of shape (N, N) representing the normalized distance map of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The denormalized distance map with the same shape as the input.
+        """
+        if self.normalizer is None:
+            raise ValueError("Normalizer has not been fitted. Please call fit_normalizer_distance_map() first "
+                             "or load a saved one using load_normalizer.")
+
+        # Flatten the distance map and convert to a 2D array for denormalization
+        distance_map_np = distance_map.view(-1, 1).cpu().numpy()
+
+        # Denormalize the distance map
+        denormalized_distance_map_np = self.normalizer.inverse_transform(distance_map_np)
+
+        # Convert back to tensor and reshape to original shape
+        denormalized_distance_map = torch.tensor(denormalized_distance_map_np, dtype=distance_map.dtype, device=distance_map.device)
+        denormalized_distance_map = denormalized_distance_map.view(distance_map.shape)
+
+        return denormalized_distance_map
+
+
+def fit_normalizer_coordinates():
     import yaml
     import tqdm
     from utils.utils import load_configs
@@ -298,7 +395,7 @@ def fit_normalizer():
 
     coords_list = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
-        coords_list.append(batch.squeeze(0).to(torch.float32))
+        coords_list.append(batch["coordinates"].squeeze(0).to(torch.float32))
 
     # Create an instance of the class
     processor = Protein3DProcessing()
@@ -323,5 +420,53 @@ def fit_normalizer():
     print("Normalizer fitted successfully!")
 
 
+def fit_normalizer_distance_map():
+    import yaml
+    import tqdm
+    from utils.utils import load_configs
+    from torch.utils.data import DataLoader
+
+    config_path = "../configs/config_gvp.yaml"
+
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+
+    test_configs = load_configs(config_file)
+
+    dataset = NormalizerDataset(test_configs.train_settings.data_path, configs=test_configs)
+
+    test_loader = DataLoader(dataset, batch_size=1, num_workers=16, pin_memory=True)
+
+    # Create an instance of the class
+    processor = Protein3DProcessing()
+
+    batch_distance_maps_list = []
+    for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
+        batch_distance_maps_list.append(batch["distance_map"].squeeze(0).to(torch.float16))
+        if len(batch_distance_maps_list) == 4000:
+            processor.fit_normalizer_distance_map(batch_distance_maps_list)
+            batch_distance_maps_list = []
+    else:
+        # Fit the normalizer on the distance maps
+        processor.fit_normalizer_distance_map(batch_distance_maps_list)
+
+    # Save the normalizer to a file for future use
+    processor.save_normalizer("normalizer_distance_map.pkl")
+
+    # Load the normalizer from the file
+    processor.load_normalizer("normalizer_distance_map.pkl")
+
+    # Normalize a distance map using the loaded normalizer
+    new_distance_map = batch_distance_maps_list[-1]  # Example new distance map
+    normalized_distance_map = processor.normalize_distance_map(new_distance_map)
+
+    # Denormalize the distance map to get back the original values
+    denormalized_distance_map = processor.denormalize_distance_map(normalized_distance_map)
+
+    print(denormalized_distance_map)
+    print("Normalizer for distance maps fitted and saved successfully!")
+
+
 if __name__ == '__main__':
-    fit_normalizer()
+    # fit_normalizer_coordinates()
+    fit_normalizer_distance_map()
