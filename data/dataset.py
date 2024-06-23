@@ -907,14 +907,14 @@ class DistanceMapVQVAEDataset(Dataset):
                                                            max_mask_size=self.max_mask_size,
                                                            max_cuts=self.max_cuts)
 
-        coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        coords_tensor, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
         input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
-        coords = coords[..., 3:6].reshape(1, -1, 3)
+        coords_tensor = coords_tensor[..., 3:6].reshape(1, -1, 3)
 
         input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
-        target_distance_map = self.create_distance_map(coords.squeeze(0))
+        target_distance_map = self.create_distance_map(coords_tensor.squeeze(0))
 
         # input_coords_tensor = input_coords_tensor.reshape(-1, 12)
         # coords = coords.reshape(-1, 12)
@@ -923,7 +923,7 @@ class DistanceMapVQVAEDataset(Dataset):
         input_distance_map = input_distance_map.unsqueeze(0)
         target_distance_map = target_distance_map.unsqueeze(0)
         return {'pid': pid, 'input_coords': input_coords_tensor.squeeze(0), 'input_distance_map': input_distance_map,
-                'target_coords': coords.squeeze(0), 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
+                'target_coords': coords_tensor.squeeze(0), 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
 
 
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
@@ -1176,6 +1176,7 @@ if __name__ == '__main__':
     from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
+    from utils.metrics import batch_distance_map_to_coordinates
 
     config_path = "../configs/config_distance_map_vqvae.yaml"
 
@@ -1207,12 +1208,15 @@ if __name__ == '__main__':
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
-        labels = batch['target_coords']
+        labels = batch['target_distance_map']
+        labels = batch_distance_map_to_coordinates(labels.squeeze(1))
         # batch['coords'] = dataset.processor.denormalize_coords(batch['input_coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
         # plot_3d_coords_lines_plotly(batch["coords"][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords(batch["coords"][batch["masks"].squeeze(0)].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
-        # plot_3d_coords_lines_plotly(batch["input_coords"][5, ...][batch["masks"][5, ...]].cpu().numpy().reshape(-1, 3))
-        # plot_3d_coords_lines_plotly(batch["target_coords"][5, ...][batch["masks"][5, ...]].cpu().numpy().reshape(-1, 3))
+        s = DistanceMapVQVAEDataset.create_distance_map(batch["target_coords"][5, ...]).unsqueeze(0)
+        plot_3d_coords_lines_plotly(labels[5, ...].cpu().numpy().reshape(-1, 3))
+        plot_3d_coords_lines_plotly(batch["target_coords"][5, ...].cpu().numpy().reshape(-1, 3))
+        plot_3d_coords_lines_plotly(batch_distance_map_to_coordinates(s).squeeze(0).numpy())
         break
         # pass
