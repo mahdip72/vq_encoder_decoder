@@ -88,10 +88,16 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # Compute the loss
             # masked_outputs = outputs[masks]
             # masked_labels = labels[masks]
-            outputs[labels == 0] = 0
             rec_loss = torch.nn.functional.l1_loss(outputs, labels)
             sym_loss = symmetry_loss(outputs) * beta
             loss = rec_loss + alpha * commit_loss + sym_loss
+
+            labels = processor.denormalize_distance_map(labels.squeeze(1))
+            outputs = processor.denormalize_distance_map(outputs.squeeze(1).detach())
+
+            # make the diagonal of the distance map to be zero (batch_size x m x m)
+            labels[torch.abs(labels) < 1.0e-5] = 0
+            outputs[labels == 0] = 0
 
             # Update the metrics
             mae.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
@@ -227,13 +233,22 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     net.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
+            labels = data['target_distance_map']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            rec_loss = torch.nn.functional.l1_loss(outputs, data['target_distance_map'])
+            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
             sym_loss = symmetry_loss(outputs) * beta
             loss = rec_loss + alpha * commit_loss + sym_loss
-            labels = data['target_coords']
+
+            labels = processor.denormalize_distance_map(labels.squeeze(1))
+            outputs = processor.denormalize_distance_map(outputs.squeeze(1).detach())
+
+            # make the diagonal of the distance map to be zero (batch_size x m x m)
+            labels[torch.abs(labels) < 1.0e-5] = 0.0
+            outputs[labels == 0] = 0.0
+
+            labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
             masks = data['masks']
 
             outputs = batch_distance_map_to_coordinates(outputs.squeeze(1)).to(accelerator.device)
@@ -243,9 +258,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
 
+            # masked_outputs = processor.apply_pca(masked_outputs)
+
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
-            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 3))
+            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
+            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 3))
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
