@@ -891,7 +891,7 @@ class DistanceMapVQVAEDataset(Dataset):
         coords_tensor = coords_tensor[:self.max_length, ...]
 
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
 
         if self.rotate_randomly and self.train_mode:
             # Apply random rotation
@@ -915,6 +915,9 @@ class DistanceMapVQVAEDataset(Dataset):
 
         input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
         target_distance_map = self.create_distance_map(coords_tensor.squeeze(0))
+
+        input_distance_map = self.processor.normalize_distance_map(input_distance_map)
+        target_distance_map = self.processor.normalize_distance_map(target_distance_map)
 
         # input_coords_tensor = input_coords_tensor.reshape(-1, 12)
         # coords = coords.reshape(-1, 12)
