@@ -53,7 +53,7 @@ class VQVAE3DResNet(nn.Module):
                 ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
-            if i+1 % 16 == 0:
+            if i+1 % 8 == 0:
                 pooling_block = nn.Sequential(
                     nn.Conv1d(dim, dim, 3, stride=2, padding=1),
                     nn.BatchNorm1d(dim),
@@ -98,7 +98,7 @@ class VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if i+1 % 16 == 0:
+            if i+1 % 8 == 0:
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv1d(dim, dim, 3, padding=1),
