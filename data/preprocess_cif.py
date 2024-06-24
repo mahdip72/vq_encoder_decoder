@@ -2,6 +2,8 @@ import argparse
 import os
 from tqdm import tqdm
 from Bio.PDB import PDBParser
+from Bio.PDB.MMCIFParser import MMCIFParser
+
 from Bio.PDB.Polypeptide import PPBuilder
 from Bio import pairwise2
 import math
@@ -120,7 +122,8 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
 
 
 def preprocess_file(file_path, max_len, save_path, dictn, report_dict):
-    parser = PDBParser(QUIET=True)
+    #parser = PDBParser(QUIET=True)
+    parser = MMCIFParser()
     structure = parser.get_structure('protein', file_path)
 
     chain_sequences = check_chains(structure, report_dict)
@@ -188,7 +191,7 @@ def main():
                         help='Set the number of workers for parallel processing.')
     args = parser.parse_args()
 
-    data_path = [os.path.join(args.data, path) for path in os.listdir(args.data) if os.path.isfile(os.path.join(args.data, path)) and path.endswith('pdb')]
+    data_path = [os.path.join(args.data, path) for path in os.listdir(args.data) if os.path.isfile(os.path.join(args.data, path)) and path.endswith('cif')]
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
 
@@ -203,7 +206,7 @@ def main():
     with Manager() as manager:
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
                                     'single_amino_acid': 0, 'error': 0})
-        with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+        with ProcessPoolExecutor(max_workers=int(args.max_workers)) as executor:
             futures = {executor.submit(preprocess_file, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for file_path in data_path}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
                 file_path = futures[future]
@@ -217,3 +220,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
