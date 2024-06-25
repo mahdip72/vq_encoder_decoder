@@ -74,6 +74,30 @@ def distance_map_loss(predicted_coords, real_coords):
     return loss
 
 
+def calculate_radius_of_gyration(coordinates):
+    # Calculate the centroid
+    centroid = torch.mean(coordinates, dim=0)
+
+    # Calculate squared distances from centroid
+    squared_distances = torch.sum((coordinates - centroid) ** 2, dim=1)
+
+    # Calculate radius of gyration
+    radius_of_gyration = torch.sqrt(torch.mean(squared_distances))
+
+    return radius_of_gyration
+
+
+def radius_of_gyration_loss(predicted_coords, real_coords):
+    # Calculate the radius of gyration for predicted and real coordinates
+    predicted_radius_of_gyration = calculate_radius_of_gyration(predicted_coords)
+    real_radius_of_gyration = calculate_radius_of_gyration(real_coords)
+
+    # Define the loss as the L2 difference between the radii of gyration
+    loss = torch.nn.functional.mse_loss(predicted_radius_of_gyration, real_radius_of_gyration)
+
+    return loss
+
+
 def test_distance_map_loss():
     # Example coordinates (replace with actual coordinates)
     predicted_coords = torch.randn(512, 3, requires_grad=True)
@@ -94,6 +118,17 @@ def test_surface_area_loss():
     print("Surface Area Loss:", loss.item())
 
 
+def test_radius_of_gyration_loss():
+    # Example coordinates (replace with actual coordinates)
+    predicted_coords = torch.randn(512, 3, requires_grad=True)
+    real_coords = torch.randn(512, 3)
+
+    # Calculate the loss
+    loss = radius_of_gyration_loss(predicted_coords, real_coords)
+    print("Radius of Gyration Loss:", loss.item())
+
+
 if __name__ == '__main__':
     test_surface_area_loss()
     test_distance_map_loss()
+    test_radius_of_gyration_loss()
