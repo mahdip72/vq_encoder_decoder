@@ -1,0 +1,6 @@
+checkpoint_dir: "results/important_models/2024-06-05__13-28-05/checkpoints/"
+test_dataset: "/home/renjz/data/swissprot_1024_h5"
+batch_size: 1
+output_dir: ""
+max_length: 128
+tqdm_progress_bar: True
