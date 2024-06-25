@@ -4,6 +4,7 @@ from box import Box
 import torch
 import cv2
 from utils.utils import load_checkpoints_simple
+from accelerate import Accelerator
 from data.data_contactmap import prepare_dataloaders
 from models.vqvae_contact import prepare_models
 import yaml
@@ -63,6 +64,11 @@ def main():
     net = load_checkpoints_simple(checkpoint_path, net)
     print('Loaded model from', str(checkpoint_path))
 
+    accelerator = Accelerator(
+        mixed_precision=configs.train_settings.mixed_precision,
+        dispatch_batches=False
+    )
+
     train_dataloader,test_dataloader = prepare_dataloaders(configs)
 
     with (torch.inference_mode()):
@@ -70,14 +76,12 @@ def main():
         # Initialize the progress bar using tqdm
         progress_bar = tqdm(test_dataloader,
                             leave=False,
-                            disable=not (configs.tqdm_progress_bar))
-        #disable = not (accelerator.is_main_process and configs.tqdm_progress_bar))
+                            disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
 
         for cmaps in progress_bar:
             vq_output, indices, commit_loss = net(cmaps)
-            for cmap in cmaps:
-
-                pass
+            #for cmap in cmaps:
+                #pass
                 # Save codebooks
 
 
