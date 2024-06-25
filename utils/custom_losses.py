@@ -91,6 +91,7 @@ def test_surface_area_loss():
 
     # Calculate the loss
     loss = surface_area_loss(predicted_coords, real_coords)
+    print("Surface Area Loss:", loss.item())
 
 
 if __name__ == '__main__':
