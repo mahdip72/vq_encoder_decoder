@@ -56,3 +56,30 @@ def surface_area_loss(predicted_coords, real_coords, grid_size=32):
     # Define the loss as the L2 difference between the surface areas
     loss = torch.nn.functional.mse_loss(predicted_surface_area, real_surface_area)
     return loss
+
+
+def compute_distance_map(coordinates):
+    # Calculate the pairwise distances
+    distance_map = torch.cdist(coordinates, coordinates, p=2)
+    return distance_map
+
+
+def distance_map_loss(predicted_coords, real_coords):
+    # Compute the distance maps
+    predicted_distance_map = compute_distance_map(predicted_coords)
+    real_distance_map = compute_distance_map(real_coords)
+
+    # Define the loss as the L2 difference between the distance maps
+    loss = torch.nn.functional.mse_loss(predicted_distance_map, real_distance_map)
+    return loss
+
+
+def test_distance_map_loss():
+    # Example coordinates (replace with actual coordinates)
+    predicted_coords = torch.randn(512, 3, requires_grad=True)
+    real_coords = torch.randn(512, 3)
+
+    # Calculate the loss
+    loss = distance_map_loss(predicted_coords, real_coords)
+    print("Distance Map Loss:", loss.item())
+
