@@ -1,5 +1,6 @@
 import numpy as np
 from pathlib import Path
+from box import Box
 import torch
 import cv2
 from utils.utils import load_checkpoints_simple
@@ -8,6 +9,7 @@ from models.vqvae_contact import prepare_models
 import yaml
 from utils.utils import load_configs
 from torchvision.transforms import transforms
+from tqdm import tqdm
 
 
 def normalize_img(image):
@@ -47,13 +49,12 @@ def get_latest_checkpoint(checkpoint_dir):
 
 def main():
 
-    config_path = "configs/config_vqvae_contact.yaml"
-    checkpoint_dir = "./results/important_models/2024-06-05__13-28-05/checkpoints/"
-
+    config_path = "configs/inference_config.yaml"
     with open(config_path) as file:
         config_file = yaml.full_load(file)
-
     configs = load_configs(config_file)
+
+    checkpoint_dir = configs.checkpoint_dir
 
     # Load the latest checkpoint in the checkpoint directory
     # Assume the latest checkpoint contains the best model (lowest loss)
@@ -64,48 +65,20 @@ def main():
 
     train_dataloader,test_dataloader = prepare_dataloaders(configs)
 
-    with torch.inference_mode():
+    with (torch.inference_mode()):
 
-        for inputs, labels in test_dataloader:
-            vq_output, indices, commit_loss = net(inputs)
+        # Initialize the progress bar using tqdm
+        progress_bar = tqdm(test_dataloader,
+                            leave=False,
+                            disable=not (configs.tqdm_progress_bar))
+        #disable = not (accelerator.is_main_process and configs.tqdm_progress_bar))
 
-            for i in range(len(inputs)):
-
-                # Display the input image
-                img_input = inputs[i]
-                img_before = img_input.squeeze()
-                # img_before = (img_before * 255).astype(np.uint8)
-                img_before = normalize_img(img_before).numpy()
-                # Move channels from index 0 to index 2
-                img_before = np.transpose(img_before, (1, 2, 0))
-                img_before = cv2.resize(img_before, (256, 256))
-                input_name = 'input ' + str(i)
-                # Reverse order of channels (RGB --> BGR)
-                cv2.imshow(input_name, img_before[:, :, ::-1])
-
-                # Display the reconstructed output image
-                img_output = vq_output[i]
-                img_after = img_output.squeeze()
-                print(img_after.shape)
-                #img_after = np.clip(img_after, 0, 1)
-                #img_after = (img_after * 255).astype(np.uint8)
-                img_after = normalize_img(img_after).numpy()
-                # Move channels from index 0 to index 2
-                img_after = np.transpose(img_after, (1, 2, 0))
-                img_after = cv2.resize(img_after, (256, 256))
-                recons_name = 'recons ' + str(i)
-                # Reverse order of channels (RGB --> BGR)
-                cv2.imshow('recons ' + str(i), img_after[:, :, ::-1])
-
-                # Set position of images
-                cv2.moveWindow(input_name, 100, 50)
-                cv2.moveWindow(recons_name, 600, 50)
-
-                print('Indices:\n', indices[i].squeeze())
-
-                # Proceed with the loop when a key is pressed
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
+        for cmaps in progress_bar:
+            vq_output, indices, commit_loss = net(cmaps)
+            for cmap in cmaps:
+                
+                pass
+                # Save codebooks
 
 
 if __name__ == '__main__':
