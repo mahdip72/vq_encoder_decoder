@@ -563,6 +563,39 @@ class VQVAEDataset(Dataset):
     def __len__(self):
         return len(self.h5_samples)
 
+    def compute_spherical_coords(self, coords):
+        x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
+        r = torch.sqrt(x**2 + y**2 + z**2)
+        theta = torch.acos(z / r)
+        phi = torch.atan2(y, x)
+        spherical_coords = torch.stack((r, theta, phi), dim=-1)
+        return spherical_coords
+
+    def compute_rdf(self, coords):
+        dist_matrix = torch.cdist(coords, coords)
+        histograms = torch.zeros(coords.size(0), self.rdf_bins, dtype=torch.float32)
+        bin_edges = torch.linspace(0, self.rdf_cutoff, self.rdf_bins + 1)
+        for i in range(coords.size(0)):
+            distances = dist_matrix[i]
+            hist = torch.histc(distances, bins=self.rdf_bins, min=0, max=self.rdf_cutoff)
+            histograms[i] = hist
+        return histograms
+
+    def compute_local_angles(self, coords):
+        num_points = coords.size(0)
+        k = min(self.k_neighbors + 1, num_points)  # including the point itself
+        dist_matrix = torch.cdist(coords, coords)
+        knn_indices = torch.topk(dist_matrix, k, largest=False).indices
+        ref_vec = torch.tensor([1, 0, 0], dtype=torch.float32)
+
+        angles = torch.zeros(num_points, self.k_neighbors, dtype=torch.float32)
+        for i in range(num_points):
+            for j in range(1, k):
+                vec = coords[knn_indices[i, j]] - coords[i]
+                cos_angle = torch.dot(vec, ref_vec) / (torch.norm(vec) * torch.norm(ref_vec))
+                angles[i, j-1] = torch.acos(cos_angle)
+        return angles
+
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
