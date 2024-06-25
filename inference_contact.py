@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 from pathlib import Path
 from box import Box
@@ -48,12 +49,7 @@ def get_latest_checkpoint(checkpoint_dir):
     return latest_checkpoint
 
 
-def main():
-
-    config_path = "configs/inference_config.yaml"
-    with open(config_path) as file:
-        config_file = yaml.full_load(file)
-    configs = load_configs(config_file)
+def main(configs):
 
     checkpoint_dir = configs.checkpoint_dir
 
@@ -79,11 +75,23 @@ def main():
                             disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
 
         for cmaps in progress_bar:
+            pass
             vq_output, indices, commit_loss = net(cmaps)
-            #for cmap in cmaps:
-                #pass
+            for cmap in cmaps:
+                pass
                 # Save codebooks
 
 
 if __name__ == '__main__':
-    main()
+
+    parser = argparse.ArgumentParser(description="Inference on contact maps.")
+    parser.add_argument("--config_path", "-c", help="The location of config file", default='configs/inference_config.yaml')
+
+    args = parser.parse_args()
+    config_path = args.config_path
+
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+    main_configs = load_configs(config_file)
+
+    main(main_configs)
