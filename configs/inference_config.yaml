@@ -1,6 +1,6 @@
 checkpoint_dir: "results/2024-06-25__10-07-10/checkpoints/"
 batch_size: 1
-output_dir: ""
+output_dir: "inference_results"
 tqdm_progress_bar: True
 
 contact_map_settings:

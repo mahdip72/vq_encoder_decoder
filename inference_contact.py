@@ -49,6 +49,25 @@ def get_latest_checkpoint(checkpoint_dir):
     return latest_checkpoint
 
 
+def write_codebook(codebook, write_file):
+    """
+    Write a codebook to a file.
+    :param codebook: (torch.Tensor) codebook (2D int array)
+    :param write_file: (file) file to which to write the codebook
+    :return: None
+    """
+    for row in codebook:
+
+        for item in row:
+            write_file.write(str(item.item()))
+            write_file.write(" ")
+
+        write_file.write("\n")
+
+    write_file.write("------------------------------------------")
+    write_file.write("\n")
+
+
 def main(configs):
 
     checkpoint_dir = configs.checkpoint_dir
@@ -74,12 +93,18 @@ def main(configs):
                             leave=False,
                             disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
 
-        for cmaps in progress_bar:
-            pass
-            vq_output, indices, commit_loss = net(cmaps)
-            for cmap in cmaps:
-                pass
-                # Save codebooks
+        # Prepare output txt file for writing
+        output_dir = Path(configs.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        file_path = output_dir / Path("inference_contact_codebooks.txt")
+
+        with open(file_path, "w") as write_file:
+            for cmaps in progress_bar:
+                vq_output, indices, commit_loss = net(cmaps)
+                for i in range(len(indices)):
+                    codebook = indices[i]
+                    # Write codebook to txt file
+                    write_codebook(codebook, write_file)
 
 
 if __name__ == '__main__':
