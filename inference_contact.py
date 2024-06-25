@@ -76,7 +76,7 @@ def main():
         for cmaps in progress_bar:
             vq_output, indices, commit_loss = net(cmaps)
             for cmap in cmaps:
-                
+
                 pass
                 # Save codebooks
 

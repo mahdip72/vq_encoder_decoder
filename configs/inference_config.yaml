@@ -1,7 +1,6 @@
 checkpoint_dir: "results/2024-06-25__10-07-10/checkpoints/"
 batch_size: 1
 output_dir: ""
-max_length: 128
 tqdm_progress_bar: True
 
 contact_map_settings:
@@ -26,6 +25,21 @@ model:
 
   decoder:
     dim: 8
+
+train_settings:
+  num_epochs: 32
+  shuffle: True
+  mixed_precision: fp16 # no, fp16, bf16, fp8
+  batch_size: 128
+  num_workers: 8
+  grad_accumulation: 1
+
+  max_task_samples: 100000
+  cutout:
+    enable: False
+    min_mask_size: 1
+    max_mask_size: 30
+    max_cuts: 4
 
 optimizer:
   name: adam
