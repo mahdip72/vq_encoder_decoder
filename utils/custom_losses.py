@@ -83,3 +83,16 @@ def test_distance_map_loss():
     loss = distance_map_loss(predicted_coords, real_coords)
     print("Distance Map Loss:", loss.item())
 
+
+def test_surface_area_loss():
+    # Example coordinates (replace with actual coordinates)
+    predicted_coords = torch.randn(512, 3, requires_grad=True)
+    real_coords = torch.randn(512, 3)
+
+    # Calculate the loss
+    loss = surface_area_loss(predicted_coords, real_coords)
+
+
+if __name__ == '__main__':
+    test_surface_area_loss()
+    test_distance_map_loss()
