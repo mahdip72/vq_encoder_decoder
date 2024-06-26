@@ -138,6 +138,64 @@ def orientation_loss(pred_coords, true_coords):
     return alignment_error
 
 
+def bond_lengths_loss(true_coords, pred_coords):
+    """
+    Computes the bond lengths loss between true and predicted coordinates
+    for the backbone atoms ['N', 'CA', 'C', 'O'] in a protein structure.
+
+    Args:
+        true_coords (torch.Tensor): Tensor of shape (batch, amino_acids, 4, 3)
+                                    containing the true coordinates.
+        pred_coords (torch.Tensor): Tensor of shape (batch, amino_acids, 4, 3)
+                                    containing the predicted coordinates.
+
+    Returns:
+        torch.Tensor: The computed bond lengths loss.
+    """
+    # Define the ideal bond lengths (in Ångströms)
+    ideal_lengths = {
+        ('N', 'CA'): 1.46,
+        ('CA', 'C'): 1.53,
+        ('C', 'O'): 1.23
+    }
+
+    # Extract the relevant pairs of atoms
+    n_ca_dist = torch.norm(pred_coords[:, :, 0, :] - pred_coords[:, :, 1, :], dim=2)
+    ca_c_dist = torch.norm(pred_coords[:, :, 1, :] - pred_coords[:, :, 2, :], dim=2)
+    c_o_dist = torch.norm(pred_coords[:, :, 2, :] - pred_coords[:, :, 3, :], dim=2)
+
+    # Compute the loss for each pair
+    n_ca_loss = (n_ca_dist - ideal_lengths[('N', 'CA')]) ** 2
+    ca_c_loss = (ca_c_dist - ideal_lengths[('CA', 'C')]) ** 2
+    c_o_loss = (c_o_dist - ideal_lengths[('C', 'O')]) ** 2
+
+    # Average the losses over all amino acids and the batch
+    bond_length_loss = (n_ca_loss.mean() + ca_c_loss.mean() + c_o_loss.mean()) / 3
+
+    return bond_length_loss
+
+
+def test_bond_lengths_loss():
+    """
+    Test function for bond_lengths_loss.
+    Generates random predicted and true coordinates for testing.
+    """
+    # Example usage
+    batch_size = 2  # Number of batches
+    num_amino_acids = 10  # Number of amino acids per batch
+    num_atoms = 4  # Number of atoms per amino acid
+    num_coordinates = 3  # Number of coordinates (x, y, z)
+
+    # Generate random predicted and true coordinates
+    pred_coords = torch.randn(batch_size, num_amino_acids, num_atoms, num_coordinates)
+    true_coords = torch.randn(batch_size, num_amino_acids, num_atoms, num_coordinates)
+
+    # Calculate the bond lengths loss
+    loss = bond_lengths_loss(true_coords, pred_coords)
+
+    print("Bond Lengths Loss:", loss.item())
+
+
 def test_orientation_loss():
     # Example usage
     N = 10  # Number of atoms
