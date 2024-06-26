@@ -4,6 +4,7 @@ import torch.nn as nn
 from torchmetrics import Metric
 import torch
 from sklearn.manifold import MDS
+from utils.utils import load_h5_file
 
 
 def ensure_symmetry_torch_upper_to_lower(tensor):
@@ -81,6 +82,29 @@ def calc_tm_score(coords1, coords2, seq1, seq2):
 
     # Return the TM score, normalized by the length of the first sequence
     return tm_result.tm_norm_chain1
+
+
+def tm_from_h5(h5_file1, h5_file2):
+    """
+    Calculate a TM-score from the h5 files of two protein structures.
+    :param h5_file1: (Path or str) path to h5 file for first protein structure
+    :param h5_file2: (Path or str) path to h5 file for second protein structure
+    :return tm_score: (float) TM-score for the protein structures
+    """
+    seq1, n_ca_c_o_coord1, plddt_scores = load_h5_file(h5_file1)
+    seq2, n_ca_c_o_coord2, plddt_scores = load_h5_file(h5_file2)
+
+    # Get the alpha carbon coordinates
+    ca_coords1 = n_ca_c_o_coord1[:,1,:]
+    ca_coords2 = n_ca_c_o_coord2[:,1,:]
+
+    # Convert the sequences from byte strings to strings
+    seq1 = str(seq1, encoding="utf-8")
+    seq2 = str(seq2, encoding="utf-8")
+
+    # Calculate TM-score
+    tm_score = calc_tm_score(ca_coords1, seq1, ca_coords2, seq2)
+    return tm_score
 
 
 class GDTTS(Metric):
