@@ -98,6 +98,56 @@ def radius_of_gyration_loss(predicted_coords, real_coords):
     return loss
 
 
+def compute_principal_components(coords):
+    """
+    Compute the principal components of a set of coordinates.
+
+    Args:
+        coords (torch.Tensor): Tensor of shape (N, 3) where N is the number of atoms.
+
+    Returns:
+        torch.Tensor: Principal components of shape (3, 3).
+    """
+    # Subtract the mean to center the coordinates
+    centered_coords = coords - coords.mean(dim=0)
+
+    # Perform Singular Value Decomposition (SVD)
+    _, _, V = torch.svd(centered_coords)
+
+    return V
+
+
+def orientation_loss(pred_coords, true_coords):
+    """
+    Compute the orientation loss based on the principal components.
+
+    Args:
+        pred_coords (torch.Tensor): Predicted coordinates of shape (N, 3).
+        true_coords (torch.Tensor): True coordinates of shape (N, 3).
+
+    Returns:
+        torch.Tensor: The orientation loss.
+    """
+    # Compute the principal components of the predicted and true coordinates
+    pred_pc = compute_principal_components(pred_coords)
+    true_pc = compute_principal_components(true_coords)
+
+    # Compute the alignment error between the principal components
+    alignment_error = torch.sum(1 - torch.abs(torch.sum(pred_pc * true_pc, dim=0)))
+
+    return alignment_error
+
+
+def test_orientation_loss():
+    # Example usage
+    N = 10  # Number of atoms
+    pred_coords = torch.randn(N, 3)
+    true_coords = torch.randn(N, 3)
+
+    loss = orientation_loss(pred_coords, true_coords)
+    print("Orientation Loss:", loss.item())
+
+
 def test_distance_map_loss():
     # Example coordinates (replace with actual coordinates)
     predicted_coords = torch.randn(512, 3, requires_grad=True)
