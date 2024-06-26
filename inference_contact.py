@@ -84,7 +84,7 @@ def main(configs):
         dispatch_batches=False
     )
 
-    train_dataloader,test_dataloader = prepare_dataloaders(configs)
+    train_dataloader,test_dataloader, vis_dataloader = prepare_dataloaders(configs)
 
     with (torch.inference_mode()):
 

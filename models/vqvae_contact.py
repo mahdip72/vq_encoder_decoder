@@ -229,7 +229,7 @@ if __name__ == "__main__":
     configs_contact = Box(config_file)
 
     # Data loader
-    testloader, placeholder = prepare_dataloaders(configs_contact)
+    testloader, valid_loader, vis_loader = prepare_dataloaders(configs_contact)
 
     logger_test = get_dummy_logger()
     accelerator_test = Accelerator()

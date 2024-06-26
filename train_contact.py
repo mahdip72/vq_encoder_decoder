@@ -11,6 +11,7 @@ from tqdm import tqdm
 import os
 import time
 import torchmetrics
+from visualization.main import compute_visualization
 
 from ray import tune
 from ray import train
@@ -259,7 +260,7 @@ def main(dict_config, config_file_path):
     )
 
     # Prepare dataloader, model, and optimizer
-    train_dataloader, valid_dataloader = prepare_dataloaders(configs)
+    train_dataloader, valid_dataloader, visualization_dataloader = prepare_dataloaders(configs)
 
     if accelerator.is_main_process:
         logging.info('Finished preparing dataloaders')

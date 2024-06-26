@@ -315,13 +315,24 @@ def prepare_dataloaders(configs):
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
     :param configs: configurations for contact map
-    :return: data loader
+    :return: train dataloader, validation dataloader, visualization dataloader
     """
-    prot_dir = configs.contact_map_settings.protein_dir
+    train_data = configs.train_settings.data_path
+    valid_data = configs.valid_settings.data_path
+    visualization_data = configs.visualization_settings.data_path
     threshold = configs.contact_map_settings.threshold
-    dataset = ContactMapDataset(prot_dir, configs, threshold=threshold)
-    data_loader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
-    return data_loader, None
+
+    # Make datasets
+    train_dataset = ContactMapDataset(train_data, configs, threshold=threshold)
+    valid_dataset = ContactMapDataset(valid_data, configs, threshold=threshold)
+    visualization_dataset = ContactMapDataset(visualization_data, configs, threshold=threshold)
+
+    # Prepare dataloaders
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=1, shuffle=False)
+    valid_dataloader = DataLoader(dataset=valid_dataset, batch_size=1, shuffle=False)
+    visualization_dataloader = DataLoader(dataset=visualization_dataset, batch_size=1, shuffle=False)
+
+    return train_dataloader, valid_dataloader, visualization_dataloader
 
 
 ###########################################################
@@ -560,7 +571,7 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
 
     main_configs = load_configs(config_file)
-    dataloader, placeholder = prepare_dataloaders(main_configs)
+    dataloader, valid_loader, vis_loader = prepare_dataloaders(main_configs)
 
     n = 0
     for contactmap in tqdm(dataloader, total=len(dataloader)):
