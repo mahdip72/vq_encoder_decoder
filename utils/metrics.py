@@ -64,6 +64,15 @@ def batch_distance_map_to_coordinates(batch_distance_map):
 
 
 def calc_tm_score(coords1, coords2, seq1, seq2):
+    """
+    Perform TM alignment on two protein structures and calculate the TM-score.
+    The score is normalized based on the first structure. 
+    :param coords1: (torch.Tensor) list of 3D coordinates of the first structure
+    :param coords2: (torch.Tensor) list of 3D coordinates of the second structure
+    :param seq1: (str) sequence of first structure
+    :param seq2: (str) sequence of second structure
+    :return: (float) TM-score normalized based on first structure
+    """
     coords1 = coords1.numpy()
     coords2 = coords2.numpy()
 
