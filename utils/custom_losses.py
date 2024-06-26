@@ -152,22 +152,20 @@ def bond_lengths_loss(true_coords, pred_coords):
     Returns:
         torch.Tensor: The computed bond lengths loss.
     """
-    # Define the ideal bond lengths (in Ångströms)
-    ideal_lengths = {
-        ('N', 'CA'): 1.46,
-        ('CA', 'C'): 1.53,
-        ('C', 'O'): 1.23
-    }
+    # Extract the relevant pairs of atoms for true coordinates
+    n_ca_true_dist = torch.norm(true_coords[:, :, 0, :] - true_coords[:, :, 1, :], dim=2)
+    ca_c_true_dist = torch.norm(true_coords[:, :, 1, :] - true_coords[:, :, 2, :], dim=2)
+    c_o_true_dist = torch.norm(true_coords[:, :, 2, :] - true_coords[:, :, 3, :], dim=2)
 
-    # Extract the relevant pairs of atoms
-    n_ca_dist = torch.norm(pred_coords[:, :, 0, :] - pred_coords[:, :, 1, :], dim=2)
-    ca_c_dist = torch.norm(pred_coords[:, :, 1, :] - pred_coords[:, :, 2, :], dim=2)
-    c_o_dist = torch.norm(pred_coords[:, :, 2, :] - pred_coords[:, :, 3, :], dim=2)
+    # Extract the relevant pairs of atoms for predicted coordinates
+    n_ca_pred_dist = torch.norm(pred_coords[:, :, 0, :] - pred_coords[:, :, 1, :], dim=2)
+    ca_c_pred_dist = torch.norm(pred_coords[:, :, 1, :] - pred_coords[:, :, 2, :], dim=2)
+    c_o_pred_dist = torch.norm(pred_coords[:, :, 2, :] - pred_coords[:, :, 3, :], dim=2)
 
     # Compute the loss for each pair
-    n_ca_loss = (n_ca_dist - ideal_lengths[('N', 'CA')]) ** 2
-    ca_c_loss = (ca_c_dist - ideal_lengths[('CA', 'C')]) ** 2
-    c_o_loss = (c_o_dist - ideal_lengths[('C', 'O')]) ** 2
+    n_ca_loss = (n_ca_pred_dist - n_ca_true_dist) ** 2
+    ca_c_loss = (ca_c_pred_dist - ca_c_true_dist) ** 2
+    c_o_loss = (c_o_pred_dist - c_o_true_dist) ** 2
 
     # Average the losses over all amino acids and the batch
     bond_length_loss = (n_ca_loss.mean() + ca_c_loss.mean() + c_o_loss.mean()) / 3
@@ -189,14 +187,6 @@ def bond_angles_loss(true_coords, pred_coords):
     Returns:
         torch.Tensor: The computed bond angles loss.
     """
-    # Ideal bond angles (in degrees)
-    ideal_angles = {
-        ('N', 'CA', 'C'): 110.6,
-        ('CA', 'C', 'O'): 120.0
-    }
-
-    # Convert angles to radians
-    ideal_angles = {k: torch.tensor(v * (torch.pi / 180.0)) for k, v in ideal_angles.items()}
 
     def compute_angle(a, b, c):
         # Vectors
@@ -218,8 +208,8 @@ def bond_angles_loss(true_coords, pred_coords):
     ca_c_o_true = compute_angle(true_coords[:, :, 1, :], true_coords[:, :, 2, :], true_coords[:, :, 3, :])
 
     # Compute the loss for each angle
-    n_ca_c_loss = (n_ca_c_pred - ideal_angles[('N', 'CA', 'C')]) ** 2
-    ca_c_o_loss = (ca_c_o_pred - ideal_angles[('CA', 'C', 'O')]) ** 2
+    n_ca_c_loss = (n_ca_c_pred - n_ca_c_true) ** 2
+    ca_c_o_loss = (ca_c_o_pred - ca_c_o_true) ** 2
 
     # Average the losses over all amino acids and the batch
     bond_angle_loss = (n_ca_c_loss.mean() + ca_c_o_loss.mean()) / 2
