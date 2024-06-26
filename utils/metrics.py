@@ -95,15 +95,15 @@ def tm_from_h5(h5_file1, h5_file2):
     seq2, n_ca_c_o_coord2, plddt_scores = load_h5_file(h5_file2)
 
     # Get the alpha carbon coordinates
-    ca_coords1 = n_ca_c_o_coord1[:,1,:]
-    ca_coords2 = n_ca_c_o_coord2[:,1,:]
+    ca_coords1 = torch.from_numpy(n_ca_c_o_coord1[:,1,:])
+    ca_coords2 = torch.from_numpy(n_ca_c_o_coord2[:,1,:])
 
     # Convert the sequences from byte strings to strings
     seq1 = str(seq1, encoding="utf-8")
     seq2 = str(seq2, encoding="utf-8")
 
     # Calculate TM-score
-    tm_score = calc_tm_score(ca_coords1, seq1, ca_coords2, seq2)
+    tm_score = calc_tm_score(ca_coords1, ca_coords2, seq1, seq2)
     return tm_score
 
 
