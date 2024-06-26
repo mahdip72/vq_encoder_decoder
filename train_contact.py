@@ -260,7 +260,7 @@ def main(dict_config, config_file_path):
     )
 
     # Prepare dataloader, model, and optimizer
-    train_dataloader, valid_dataloader, visualization_dataloader = prepare_dataloaders(configs)
+    train_dataloader, valid_dataloader, visualization_loader = prepare_dataloaders(configs)
 
     if accelerator.is_main_process:
         logging.info('Finished preparing dataloaders')
@@ -273,8 +273,8 @@ def main(dict_config, config_file_path):
     if accelerator.is_main_process:
         logging.info('Finished preparing optimizer')
 
-    net, optimizer, train_dataloader, scheduler = accelerator.prepare(
-        net, optimizer, train_dataloader, scheduler
+    net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
     )
 
     # Load checkpoints if needed
@@ -388,6 +388,14 @@ def main(dict_config, config_file_path):
                 else:
                     if accelerator.is_main_process:
                         logging.info(f'\tvalidation loss higher than previous minimum; did not save model')
+
+        if epoch % configs.visualization_settings.do_every == 0:
+            if accelerator.is_main_process:
+                logging.info(f'\tstart visualization at epoch {epoch}')
+
+            accelerator.wait_for_everyone()
+            # Visualize the embeddings using T-SNE
+            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
 
     train_writer.close()
     valid_writer.close()
