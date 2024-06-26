@@ -1,3 +1,5 @@
+import numpy as np
+from tmtools import tm_align
 import torch.nn as nn
 from torchmetrics import Metric
 import torch
@@ -59,6 +61,17 @@ def batch_distance_map_to_coordinates(batch_distance_map):
     batch_coordinates = torch.stack(all_coordinates)
 
     return batch_coordinates
+
+
+def calc_tm_score(coords1, coords2, seq1, seq2):
+    coords1 = coords1.numpy()
+    coords2 = coords2.numpy()
+
+    # Align the two structures
+    tm_result = tm_align(coords1, coords2, seq1, seq2)
+
+    # Return the TM score, normalized by the length of the first sequence
+    return tm_result.tm_norm_chain1
 
 
 class GDTTS(Metric):
