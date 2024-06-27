@@ -72,17 +72,19 @@ def main(configs):
 
     checkpoint_dir = configs.checkpoint_dir
 
-    # Load the latest checkpoint in the checkpoint directory
-    # Assume the latest checkpoint contains the best model (lowest loss)
-    net = prepare_models(configs, None, None)
-    checkpoint_path = get_latest_checkpoint(checkpoint_dir)
-    net = load_checkpoints_simple(checkpoint_path, net)
-    print('Loaded model from', str(checkpoint_path))
-
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
         dispatch_batches=False
     )
+
+    # Load the latest checkpoint in the checkpoint directory
+    # Assume the latest checkpoint contains the best model (lowest loss)
+    net = prepare_models(configs, None, accelerator)
+    checkpoint_path = get_latest_checkpoint(checkpoint_dir)
+    net = load_checkpoints_simple(checkpoint_path, net)
+    print('Loaded model from', str(checkpoint_path))
+
+    net.to(accelerator.device)
 
     train_dataloader,test_dataloader, vis_dataloader = prepare_dataloaders(configs)
 
@@ -99,8 +101,11 @@ def main(configs):
         file_path = output_dir / Path("inference_contact_codebooks.txt")
 
         with open(file_path, "w") as write_file:
+            
             for cmaps in progress_bar:
+                cmaps = cmaps.to(accelerator.device)
                 vq_output, indices, commit_loss = net(cmaps)
+
                 for i in range(len(indices)):
                     codebook = indices[i]
                     # Write codebook to txt file
