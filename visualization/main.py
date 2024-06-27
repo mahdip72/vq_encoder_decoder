@@ -352,7 +352,7 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
     representations = {'ids': [], 'rep': []}
     for batch in tqdm(test_loader, total=len(test_loader), desc="Computing representations", leave=False,
                       disable=not configs.tqdm_progress_bar):
-        batch['input_coords'] = batch['target_coords']
+        # batch['input_coords'] = batch['target_coords']
         pid = batch['pid']
         with torch.inference_mode():
             x, *_ = net(batch, return_vq_only=True)
