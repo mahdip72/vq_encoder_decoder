@@ -306,7 +306,7 @@ class ContactMapDataset(Dataset):
         return len(self.dist_dataset)
 
     def __getitem__(self, idx):
-        output_dict = self.dict_dataset[idx]
+        output_dict = self.dist_dataset[idx]
         input_cmap = dmap_to_cmap(output_dict["input_distance_map"])
         target_cmap = dmap_to_cmap(output_dict["target_distance_map"])
         output_dict["input_contact_map"] = input_cmap
