@@ -196,6 +196,10 @@ class VQVAEResNet(nn.Module):
         )
 
     def forward(self, x, return_vq_only=False):
+
+        if type(x) == dict:
+            x = x["input_contact_map"]
+
         x = self.encoder_layers(x)
         x, indices, commit_loss = self.vq_layer(x)
 
