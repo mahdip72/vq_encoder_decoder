@@ -12,7 +12,6 @@ resume:
 
 contact_map_settings:
   threshold: 8
-  protein_dir: /home/jren/dbl_research/vqvae/data/cath_4_3_0
 
 model:
   compile_model: False
@@ -34,6 +33,7 @@ model:
     dim: 8
 
 train_settings:
+  data_path: /home/renjz/data/swissprot_1024_h5/
   num_epochs: 32
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
@@ -49,11 +49,18 @@ train_settings:
     max_cuts: 4
 
 valid_settings:
-  data_path: H:\Datasets\Joint_training
+  data_path: /home/renjz/data/cath_4_3_0/
   do_every: 1
   shuffle: True
   batch_size: 128
   num_workers: 8
+
+visualization_settings:
+  data_path: /home/renjz/data/cath_4_3_0/
+  fasta_path: visualization/Rep_subfamily_basedon_S40pdb.fa
+  do_every: 4
+  batch_size: 1
+  num_workers: 2
 
 optimizer:
   name: adam

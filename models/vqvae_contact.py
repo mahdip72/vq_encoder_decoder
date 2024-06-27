@@ -195,9 +195,13 @@ class VQVAEResNet(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, x):
+    def forward(self, x, return_vq_only=False):
         x = self.encoder_layers(x)
         x, indices, commit_loss = self.vq_layer(x)
+
+        if return_vq_only:
+            return x, indices, commit_loss
+
         x = self.decoder_layers(x)
         return x, indices, commit_loss
 
@@ -229,7 +233,7 @@ if __name__ == "__main__":
     configs_contact = Box(config_file)
 
     # Data loader
-    testloader, placeholder = prepare_dataloaders(configs_contact)
+    testloader, valid_loader, vis_loader = prepare_dataloaders(configs_contact)
 
     logger_test = get_dummy_logger()
     accelerator_test = Accelerator()
@@ -238,9 +242,7 @@ if __name__ == "__main__":
     model = prepare_models(configs_contact, logger_test, accelerator_test)
 
     for data in tqdm(testloader):
-        cmaps, labels = data
-        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
-        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
+        cmaps = data["input_contact_map"]
         print(cmaps.size())
         x_test, indices_test, commit_loss_test = model(cmaps)
         print(cmaps[0].size(), x_test[0].size())
