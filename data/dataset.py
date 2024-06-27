@@ -120,8 +120,10 @@ class GVPDataset(Dataset):
                  ):
         super(GVPDataset, self).__init__()
         from gvp.rotary_embedding import RotaryEmbedding
-
-        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+        if "cath_4_3_0" in data_path:
+            self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
+        else:
+            self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
         self.num_rbf = num_rbf
         self.num_positional_embeddings = num_positional_embeddings
@@ -1020,10 +1022,12 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
                               collate_fn=custom_collate)
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=2,
                               pin_memory=False,
+                              shuffle = False,
                               collate_fn=custom_collate)
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
                                       num_workers=1,
                                       pin_memory=False,
+                                      shuffle = False,
                                       collate_fn=custom_collate)
     return train_loader, valid_loader, visualization_loader
 
