@@ -6,6 +6,28 @@ from utils.utils import print_trainable_parameters
 import torch.nn.functional as F
 
 
+class ConvNeXtBlock(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(ConvNeXtBlock, self).__init__()
+        self.dw_conv = nn.Conv1d(input_dim, input_dim, kernel_size=7, padding=3, groups=input_dim)  # Depthwise convolution
+        self.norm = nn.LayerNorm([input_dim, 1])
+        self.pw_conv1 = nn.Conv1d(input_dim, hidden_dim, kernel_size=1)  # Pointwise convolution
+        self.gelu = nn.GELU()
+        self.pw_conv2 = nn.Conv1d(hidden_dim, input_dim, kernel_size=1)  # Pointwise convolution
+
+    def forward(self, x):
+        residual = x
+        out = self.dw_conv(x)
+        out = out.permute(0, 2, 1)  # Change to (batch, sequence, channels) for LayerNorm
+        out = self.norm(out)
+        out = out.permute(0, 2, 1)  # Change back to (batch, channels, sequence)
+        out = self.pw_conv1(out)
+        out = self.gelu(out)
+        out = self.pw_conv2(out)
+        out += residual
+        return out
+
+
 class ResidualBlock(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super(ResidualBlock, self).__init__()
@@ -54,6 +76,7 @@ class VQVAE3DResNet(nn.Module):
             )
             encoder_blocks.append(block)
             if i+1 % 8 == 0:
+                print('Use pooling layer')
                 pooling_block = nn.Sequential(
                     nn.Conv1d(dim, dim, 3, stride=2, padding=1),
                     nn.BatchNorm1d(dim),

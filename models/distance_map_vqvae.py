@@ -6,6 +6,28 @@ from utils.utils import print_trainable_parameters
 import torch.nn.functional as F
 
 
+class ConvNeXtBlock(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(ConvNeXtBlock, self).__init__()
+        self.dw_conv = nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, groups=input_dim)  # Depthwise convolution
+        self.norm = nn.LayerNorm([input_dim, 1, 1])
+        self.pw_conv1 = nn.Conv2d(input_dim, hidden_dim, kernel_size=1)  # Pointwise convolution
+        self.gelu = nn.GELU()
+        self.pw_conv2 = nn.Conv2d(hidden_dim, input_dim, kernel_size=1)  # Pointwise convolution
+
+    def forward(self, x):
+        residual = x
+        out = self.dw_conv(x)
+        out = out.permute(0, 2, 3, 1)  # Change to (batch, height, width, channels) for LayerNorm
+        out = self.norm(out)
+        out = out.permute(0, 3, 1, 2)  # Change back to (batch, channels, height, width)
+        out = self.pw_conv1(out)
+        out = self.gelu(out)
+        out = self.pw_conv2(out)
+        out += residual
+        return out
+
+
 class ResidualBlock(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super(ResidualBlock, self).__init__()
