@@ -397,7 +397,8 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
-            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
+            if accelerator.is_main_process:
+                compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
 
     train_writer.close()
     valid_writer.close()
