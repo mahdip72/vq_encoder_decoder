@@ -195,9 +195,13 @@ class VQVAEResNet(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, x):
+    def forward(self, x, return_vq_only=False):
         x = self.encoder_layers(x)
         x, indices, commit_loss = self.vq_layer(x)
+
+        if return_vq_only:
+            return x, indices, commit_loss
+
         x = self.decoder_layers(x)
         return x, indices, commit_loss
 
