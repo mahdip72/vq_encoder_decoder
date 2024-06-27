@@ -306,8 +306,12 @@ class ContactMapDataset(Dataset):
         return len(self.dist_dataset)
 
     def __getitem__(self, idx):
-        distance_map = self.dist_dataset[idx]["input_distance_map"]
-        return dmap_to_cmap(distance_map)
+        output_dict = self.dict_dataset[idx]
+        input_cmap = dmap_to_cmap(output_dict["input_distance_map"])
+        target_cmap = dmap_to_cmap(output_dict["target_distance_map"])
+        output_dict["input_contact_map"] = input_cmap
+        output_dict["target_distance_map"] = target_cmap
+        return output_dict
 
 
 def prepare_dataloaders(configs):
@@ -574,7 +578,8 @@ if __name__ == "__main__":
     dataloader, valid_loader, vis_loader = prepare_dataloaders(main_configs)
 
     n = 0
-    for contactmap in tqdm(dataloader, total=len(dataloader)):
+    for cmap_output in tqdm(dataloader, total=len(dataloader)):
+        contactmap = cmap_output["input_contact_map"]
         print(contactmap)
         #print(str(pdb_filename))
         # Plot the contact maps

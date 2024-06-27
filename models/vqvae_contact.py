@@ -238,9 +238,7 @@ if __name__ == "__main__":
     model = prepare_models(configs_contact, logger_test, accelerator_test)
 
     for data in tqdm(testloader):
-        cmaps, labels = data
-        cmaps = cmaps.to(torch.float32) # Convert tensor type to float32
-        cmaps = cmaps[None,:,:,:] # Add a dimension to make cmaps 4D
+        cmaps = data["input_contact_map"]
         print(cmaps.size())
         x_test, indices_test, commit_loss_test = model(cmaps)
         print(cmaps[0].size(), x_test[0].size())

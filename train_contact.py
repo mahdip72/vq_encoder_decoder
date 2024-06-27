@@ -56,7 +56,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     # Training loop
     model.train()
-    for cmaps in train_loader:
+    for data in train_loader:
+        cmaps = data["input_contact_map"]
 
         # Train with gradient accumulation
         with accelerator.accumulate(model):
@@ -179,7 +180,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
 
     # Validation loop
     model.eval()
-    for cmaps in valid_loader:
+    for data in valid_loader:
+        cmaps = data["input_contact_map"]
 
         with torch.inference_mode():
             optimizer.zero_grad()
