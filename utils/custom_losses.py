@@ -59,12 +59,31 @@ def surface_area_loss(predicted_coords, real_coords, grid_size=32):
 
 
 def compute_distance_map(coordinates):
+    """
+    Calculate the pairwise distances between all atoms in the given coordinates.
+
+    Args:
+        coordinates (torch.Tensor): A tensor of shape (N, 3) where N is the number of atoms.
+
+    Returns:
+        torch.Tensor: A tensor of shape (N, N) containing the pairwise distances between atoms.
+    """
     # Calculate the pairwise distances
     distance_map = torch.cdist(coordinates, coordinates, p=2)
     return distance_map
 
 
 def distance_map_loss(predicted_coords, real_coords):
+    """
+    Compute the distance map loss between the predicted and real coordinates.
+
+    Args:
+        predicted_coords (torch.Tensor): A tensor of shape (N, 3) representing the predicted coordinates.
+        real_coords (torch.Tensor): A tensor of shape (N, 3) representing the true coordinates.
+
+    Returns:
+        torch.Tensor: The computed distance map loss.
+    """
     # Compute the distance maps
     predicted_distance_map = compute_distance_map(predicted_coords)
     real_distance_map = compute_distance_map(real_coords)
@@ -138,7 +157,7 @@ def orientation_loss(pred_coords, true_coords):
     return alignment_error
 
 
-def bond_lengths_loss(true_coords, pred_coords):
+def bond_lengths_loss(true_coords, pred_coords, masked_atoms):
     """
     Computes the bond lengths loss between true and predicted coordinates
     for the backbone atoms ['N', 'CA', 'C', 'O'] in a protein structure.
@@ -148,6 +167,7 @@ def bond_lengths_loss(true_coords, pred_coords):
                                     containing the true coordinates.
         pred_coords (torch.Tensor): Tensor of shape (batch, amino_acids, 4, 3)
                                     containing the predicted coordinates.
+        masked_atoms (torch.Tensor): A boolean tensor of shape (batch, amino_acids)
 
     Returns:
         torch.Tensor: The computed bond lengths loss.
@@ -167,13 +187,17 @@ def bond_lengths_loss(true_coords, pred_coords):
     ca_c_loss = (ca_c_pred_dist - ca_c_true_dist) ** 2
     c_o_loss = (c_o_pred_dist - c_o_true_dist) ** 2
 
+    n_ca_loss[masked_atoms == False] = 0
+    ca_c_loss[masked_atoms == False] = 0
+    c_o_loss[masked_atoms == False] = 0
+
     # Average the losses over all amino acids and the batch
     bond_length_loss = (n_ca_loss.mean() + ca_c_loss.mean() + c_o_loss.mean()) / 3
 
     return bond_length_loss
 
 
-def bond_angles_loss(true_coords, pred_coords):
+def bond_angles_loss(true_coords, pred_coords, masked_atoms):
     """
     Computes the bond angles loss between true and predicted coordinates
     for the backbone atoms ['N', 'CA', 'C', 'O'] in a protein structure.
@@ -183,6 +207,7 @@ def bond_angles_loss(true_coords, pred_coords):
                                     containing the true coordinates.
         pred_coords (torch.Tensor): Tensor of shape (batch, amino_acids, 4, 3)
                                     containing the predicted coordinates.
+        masked_atoms (torch.Tensor): A boolean tensor of shape (batch, amino_acids)
 
     Returns:
         torch.Tensor: The computed bond angles loss.
@@ -211,6 +236,9 @@ def bond_angles_loss(true_coords, pred_coords):
     n_ca_c_loss = (n_ca_c_pred - n_ca_c_true) ** 2
     ca_c_o_loss = (ca_c_o_pred - ca_c_o_true) ** 2
 
+    n_ca_c_loss[masked_atoms == False] = 0
+    ca_c_o_loss[masked_atoms == False] = 0
+
     # Average the losses over all amino acids and the batch
     bond_angle_loss = (n_ca_c_loss.mean() + ca_c_o_loss.mean()) / 2
 
@@ -231,9 +259,10 @@ def test_bond_angles_loss():
     # Generate random predicted and true coordinates
     pred_coords = torch.randn(batch_size, num_amino_acids, num_atoms, num_coordinates)
     true_coords = torch.randn(batch_size, num_amino_acids, num_atoms, num_coordinates)
+    masked_atoms = torch.randint(0, 2, (batch_size, num_amino_acids), dtype=torch.bool)
 
     # Calculate the bond angles loss
-    loss = bond_angles_loss(true_coords, pred_coords)
+    loss = bond_angles_loss(true_coords, pred_coords, masked_atoms)
 
     print("Bond Angles Loss:", loss.item())
 
@@ -252,9 +281,10 @@ def test_bond_lengths_loss():
     # Generate random predicted and true coordinates
     pred_coords = torch.randn(batch_size, num_amino_acids, num_atoms, num_coordinates)
     true_coords = torch.randn(batch_size, num_amino_acids, num_atoms, num_coordinates)
+    masked_atoms = torch.randint(0, 2, (batch_size, num_amino_acids), dtype=torch.bool)
 
     # Calculate the bond lengths loss
-    loss = bond_lengths_loss(true_coords, pred_coords)
+    loss = bond_lengths_loss(true_coords, pred_coords, masked_atoms)
 
     print("Bond Lengths Loss:", loss.item())
 
@@ -303,3 +333,6 @@ if __name__ == '__main__':
     test_surface_area_loss()
     test_distance_map_loss()
     test_radius_of_gyration_loss()
+    test_orientation_loss()
+    test_bond_lengths_loss()
+    test_bond_angles_loss()
