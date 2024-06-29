@@ -1,8 +1,8 @@
 fix_seed: 0
-checkpoints_every: 16
+checkpoints_every: 128
 tensorboard_log: True
-tqdm_progress_bar: True
-result_path: ./results/test
+tqdm_progress_bar: False
+result_path: ./results/vqvae_convnext
 normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
 resume:
@@ -15,10 +15,11 @@ model:
   compile_model: False
   max_length: 1024
   vqvae:
+    add_features: True
     vector_quantization:
       dim: 256
       decay: 0.8
-      codebook_size: 512
+      codebook_size: 1024
       commitment_weight : 1.0
       alpha: 1.0
     encoder:
@@ -34,11 +35,11 @@ model:
       num_layers: 10
       activation_function: gelu
     residual_encoder:
-      dimension: 512
-      num_blocks: 8
+      dimension: 256
+      num_blocks: 12
     residual_decoder:
-      dimension: 512
-      num_blocks: 8
+      dimension: 256
+      num_blocks: 12
 
 train_settings:
   data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
@@ -47,12 +48,12 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 512
+  batch_size: 2
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 50000
+  max_task_samples: 600000
   cutout:
-    enable: True
+    enable: False
     min_mask_size: 1
     max_mask_size: 30
     max_cuts: 4
@@ -66,13 +67,13 @@ valid_settings:
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 1
+  do_every: 4
   batch_size: 1
   num_workers: 4
 
 optimizer:
   name: adam
-  lr: 1e-3
+  lr: 1e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -81,7 +82,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 0
+    warmup: 1000
     min_lr: 5e-6
     gamma: 0.2
     num_restarts: 1

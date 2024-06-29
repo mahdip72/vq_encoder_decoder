@@ -123,7 +123,8 @@ class GVPDataset(Dataset):
         if "cath_4_3_0" in data_path:
             self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
         else:
-            self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+            self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[
+                              :kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
         self.num_rbf = num_rbf
         self.num_positional_embeddings = num_positional_embeddings
@@ -551,6 +552,11 @@ class VQVAEDataset(Dataset):
 
         self.train_mode = train_mode
 
+        self.rdf_bins = 10
+        self.rdf_cutoff = 1.0
+        self.k_neighbors = 20
+        self.add_features = kwargs['configs'].model.vqvae.add_features
+
         self.rotate_randomly = rotate_randomly
         self.cutout = kwargs['configs'].train_settings.cutout.enable
         self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
@@ -566,14 +572,32 @@ class VQVAEDataset(Dataset):
         return len(self.h5_samples)
 
     def compute_spherical_coords(self, coords):
+        """
+        Converts Cartesian coordinates to spherical coordinates.
+
+        Args:
+            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+
+        Returns:
+            torch.Tensor: Tensor of shape (n_points, 3) containing spherical coordinates (r, theta, phi).
+        """
         x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
-        r = torch.sqrt(x**2 + y**2 + z**2)
+        r = torch.sqrt(x ** 2 + y ** 2 + z ** 2)
         theta = torch.acos(z / r)
         phi = torch.atan2(y, x)
         spherical_coords = torch.stack((r, theta, phi), dim=-1)
         return spherical_coords
 
     def compute_rdf(self, coords):
+        """
+        Computes the Radial Distribution Function (RDF) for the given coordinates.
+
+        Args:
+            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+
+        Returns:
+            torch.Tensor: Tensor of shape (n_points, rdf_bins) containing RDF histograms.
+        """
         dist_matrix = torch.cdist(coords, coords)
         histograms = torch.zeros(coords.size(0), self.rdf_bins, dtype=torch.float32)
         bin_edges = torch.linspace(0, self.rdf_cutoff, self.rdf_bins + 1)
@@ -584,6 +608,15 @@ class VQVAEDataset(Dataset):
         return histograms
 
     def compute_local_angles(self, coords):
+        """
+        Computes local angles with the k nearest neighbors for the given coordinates.
+
+        Args:
+            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+
+        Returns:
+            torch.Tensor: Tensor of shape (n_points, k_neighbors) containing local angles.
+        """
         num_points = coords.size(0)
         k = min(self.k_neighbors + 1, num_points)  # including the point itself
         dist_matrix = torch.cdist(coords, coords)
@@ -595,7 +628,7 @@ class VQVAEDataset(Dataset):
             for j in range(1, k):
                 vec = coords[knn_indices[i, j]] - coords[i]
                 cos_angle = torch.dot(vec, ref_vec) / (torch.norm(vec) * torch.norm(ref_vec))
-                angles[i, j-1] = torch.acos(cos_angle)
+                angles[i, j - 1] = torch.acos(cos_angle)
         return angles
 
     @staticmethod
@@ -738,15 +771,42 @@ class VQVAEDataset(Dataset):
             input_coords_tensor = coords_tensor
 
         # Merge the features and create a mask
+        # if self.add_features:
+        rbf_feature = self.compute_rdf(coords_tensor.reshape(-1, 3))
+        spherical_coords_feature = self.compute_spherical_coords(coords_tensor.reshape(-1, 3))
+        local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
+
+        rbf_feature = rbf_feature.reshape(1, coords_tensor.shape[0], -1)
+        spherical_coords_feature = spherical_coords_feature.reshape(1, coords_tensor.shape[0], -1)
+        local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
+
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
         if self.cutout and self.train_mode:
             input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
                                                            max_mask_size=self.max_mask_size,
                                                            max_cuts=self.max_cuts)
+        if self.add_features and self.cutout and self.train_mode:
+            rbf_feature = self.cutout_augmentation(rbf_feature, min_mask_size=self.min_mask_size,
+                                                   max_mask_size=self.max_mask_size,
+                                                   max_cuts=self.max_cuts)
+            spherical_coords_feature = self.cutout_augmentation(spherical_coords_feature,
+                                                                min_mask_size=self.min_mask_size,
+                                                                max_mask_size=self.max_mask_size,
+                                                                max_cuts=self.max_cuts)
+            local_angles_feature = self.cutout_augmentation(local_angles_feature, min_mask_size=self.min_mask_size,
+                                                            max_mask_size=self.max_mask_size,
+                                                            max_cuts=self.max_cuts)
 
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
+
+        if self.add_features:
+            rbf_feature = merge_features_and_create_mask(rbf_feature, self.max_length)[0]
+            spherical_coords_feature = merge_features_and_create_mask(spherical_coords_feature, self.max_length)[0]
+            local_angles_feature = merge_features_and_create_mask(local_angles_feature, self.max_length)[0]
+            input_coords_tensor = torch.cat(
+                (input_coords_tensor, rbf_feature, spherical_coords_feature, local_angles_feature), dim=-1)
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
@@ -961,7 +1021,8 @@ class DistanceMapVQVAEDataset(Dataset):
         input_distance_map = input_distance_map.unsqueeze(0)
         target_distance_map = target_distance_map.unsqueeze(0)
         return {'pid': pid, 'input_coords': input_coords_tensor.squeeze(0), 'input_distance_map': input_distance_map,
-                'target_coords': coords_tensor.squeeze(0), 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
+                'target_coords': coords_tensor.squeeze(0), 'target_distance_map': target_distance_map,
+                'masks': masks.squeeze(0)}
 
 
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
@@ -1022,12 +1083,12 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
                               collate_fn=custom_collate)
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=2,
                               pin_memory=False,
-                              shuffle = False,
+                              shuffle=False,
                               collate_fn=custom_collate)
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
                                       num_workers=1,
                                       pin_memory=False,
-                                      shuffle = False,
+                                      shuffle=False,
                                       collate_fn=custom_collate)
     return train_loader, valid_loader, visualization_loader
 
