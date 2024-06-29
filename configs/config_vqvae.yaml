@@ -15,7 +15,11 @@ model:
   compile_model: False
   max_length: 1024
   vqvae:
-    add_features: True
+    add_features:
+        enable: False
+        rdf_bins: 10
+        rdf_cutoff: 1.0
+        k_neighbors: 20
     vector_quantization:
       dim: 256
       decay: 0.8

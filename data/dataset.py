@@ -552,10 +552,10 @@ class VQVAEDataset(Dataset):
 
         self.train_mode = train_mode
 
-        self.rdf_bins = 10
-        self.rdf_cutoff = 1.0
-        self.k_neighbors = 20
-        self.add_features = kwargs['configs'].model.vqvae.add_features
+        self.rdf_bins = kwargs['configs'].model.vqvae.add_features.rdf_bins
+        self.rdf_cutoff = kwargs['configs'].model.vqvae.add_features.rdf_cutoff
+        self.k_neighbors = kwargs['configs'].model.vqvae.add_features.k_neighbors
+        self.add_features = kwargs['configs'].model.vqvae.add_features.enable
 
         self.rotate_randomly = rotate_randomly
         self.cutout = kwargs['configs'].train_settings.cutout.enable
@@ -571,7 +571,8 @@ class VQVAEDataset(Dataset):
     def __len__(self):
         return len(self.h5_samples)
 
-    def compute_spherical_coords(self, coords):
+    @staticmethod
+    def compute_spherical_coords(coords):
         """
         Converts Cartesian coordinates to spherical coordinates.
 
