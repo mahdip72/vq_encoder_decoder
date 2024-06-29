@@ -7,10 +7,10 @@ import torch.nn.functional as F
 
 
 class ConvNeXtBlock(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, sequence_length):
         super(ConvNeXtBlock, self).__init__()
         self.dw_conv = nn.Conv1d(input_dim, input_dim, kernel_size=7, padding=3, groups=input_dim)  # Depthwise convolution
-        self.norm = nn.LayerNorm([input_dim, 1])
+        self.norm = nn.LayerNorm([sequence_length, input_dim])
         self.pw_conv1 = nn.Conv1d(input_dim, hidden_dim, kernel_size=1)  # Pointwise convolution
         self.gelu = nn.GELU()
         self.pw_conv2 = nn.Conv1d(hidden_dim, input_dim, kernel_size=1)  # Pointwise convolution
@@ -56,13 +56,18 @@ class VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 32
+        input_shape = 12
+        if configs.model.vqvae.add_features.enable:
+            input_shape += configs.model.vqvae.add_features.rdf_bins * 4
+            input_shape += configs.model.vqvae.add_features.k_neighbors * 4
+            input_shape += 12
+
+        start_dim = configs.model.vqvae.start_dimension
+        pooling_layer_every = configs.model.vqvae.pooling_layer_every
+
         # Encoder
         self.encoder_tail = nn.Sequential(
-            nn.Conv1d(12, start_dim, kernel_size=1),
-            nn.Conv1d(start_dim, start_dim, kernel_size=3, padding=1),
-            nn.BatchNorm1d(start_dim),
-            nn.ReLU()
+            nn.Conv1d(input_shape, start_dim, kernel_size=1),
         )
 
         dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
@@ -71,32 +76,29 @@ class VQVAE3DResNet(nn.Module):
         for i, dim in enumerate(dims):
             block = nn.Sequential(
                 nn.Conv1d(prev_dim, dim, 3, padding=1),
-                ResidualBlock(dim, dim),
-                ResidualBlock(dim, dim),
+                ConvNeXtBlock(dim, dim, self.max_length),
+                ConvNeXtBlock(dim, dim, self.max_length),
             )
             encoder_blocks.append(block)
-            if i+1 % 8 == 0:
+            if i+1 % pooling_layer_every == 0:
                 print('Use pooling layer')
                 pooling_block = nn.Sequential(
                     nn.Conv1d(dim, dim, 3, stride=2, padding=1),
-                    nn.BatchNorm1d(dim),
-                    nn.ReLU())
+                    # nn.BatchNorm1d(dim),
+                    nn.GELU())
                 encoder_blocks.append(pooling_block)
             prev_dim = dim
         self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
         self.encoder_head = nn.Sequential(
             nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU(),
+            # nn.BatchNorm1d(self.encoder_dim),
+            nn.GELU(),
 
             nn.Conv1d(self.encoder_dim, latent_dim, 1),
         )
 
+        # Vector Quantizer layer
         self.vector_quantizer = VectorQuantize(
             dim=latent_dim,
             codebook_size=codebook_size,
@@ -106,14 +108,9 @@ class VQVAE3DResNet(nn.Module):
 
         self.decoder_tail = nn.Sequential(
             nn.Conv1d(latent_dim, self.decoder_dim, 1),
-
             nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
+            # nn.BatchNorm1d(self.decoder_dim),
+            nn.GELU(),
         )
 
         dims = list(np.linspace(self.decoder_dim, start_dim, self.num_encoder_blocks).astype(int))
@@ -121,16 +118,16 @@ class VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if i+1 % 8 == 0:
+            if i+1 % pooling_layer_every == 0:
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv1d(dim, dim, 3, padding=1),
-                    nn.BatchNorm1d(dim),
-                    nn.ReLU())
+                    # nn.BatchNorm1d(dim),
+                    nn.GELU())
                 decoder_blocks.append(pooling_block)
             block = nn.Sequential(
-                ResidualBlock(dim, dim),
-                ResidualBlock(dim, dim),
+                ConvNeXtBlock(dim, dim, self.max_length),
+                ConvNeXtBlock(dim, dim, self.max_length),
                 nn.Conv1d(dim, dims[i + 1], 3, padding=1),
             )
             decoder_blocks.append(block)
@@ -138,8 +135,6 @@ class VQVAE3DResNet(nn.Module):
 
         self.decoder_head = nn.Sequential(
             nn.Conv1d(start_dim, 12, 1),
-            # nn.BatchNorm1d(12),
-            # nn.ReLU(),
         )
 
     def forward(self, batch, return_vq_only=False):

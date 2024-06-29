@@ -1,7 +1,7 @@
 fix_seed: 0
 checkpoints_every: 128
 tensorboard_log: True
-tqdm_progress_bar: False
+tqdm_progress_bar: True
 result_path: ./results/vqvae_convnext
 normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
@@ -13,10 +13,10 @@ resume:
 model:
   architecture: vqvae
   compile_model: False
-  max_length: 1024
+  max_length: 512
   vqvae:
     add_features:
-        enable: False
+        enable: True
         rdf_bins: 10
         rdf_cutoff: 1.0
         k_neighbors: 20
@@ -26,18 +26,8 @@ model:
       codebook_size: 1024
       commitment_weight : 1.0
       alpha: 1.0
-    encoder:
-      dimension: 128
-      dim_feedforward: 256
-      num_heads: 8
-      num_layers: 10
-      activation_function: gelu
-    decoder:
-      dimension: 128
-      dim_feedforward: 256
-      num_heads: 8
-      num_layers: 10
-      activation_function: gelu
+    start_dimension: 128
+    pooling_layer_every: 8
     residual_encoder:
       dimension: 256
       num_blocks: 12
@@ -57,9 +47,9 @@ train_settings:
   grad_accumulation: 1
   max_task_samples: 600000
   cutout:
-    enable: False
+    enable: True
     min_mask_size: 1
-    max_mask_size: 30
+    max_mask_size: 5
     max_cuts: 4
 
 valid_settings:
@@ -95,5 +85,5 @@ auxiliary_loss:
   coefficient: 0.1
   orientation: False
   bond_angles: False
-  bond_lengths: False
+  bond_lengths: True
   distance_map: False
