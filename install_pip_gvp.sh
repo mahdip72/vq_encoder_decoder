@@ -2,7 +2,7 @@
 
 pip install uv
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip install torchmetrics
+uv pip install torchmetrics
 uv pip install h5py
 uv pip install matplotlib
 uv pip install pandas
@@ -18,3 +18,5 @@ uv pip install rdkit-pypi
 uv pip install vector-quantize-pytorch
 uv pip install plotly
 uv pip install joblib
+uv pip install tmtools
+
