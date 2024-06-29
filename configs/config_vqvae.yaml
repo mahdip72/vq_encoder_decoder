@@ -90,3 +90,10 @@ optimizer:
     min_lr: 5e-6
     gamma: 0.2
     num_restarts: 1
+
+auxiliary_loss:
+  coefficient: 0.1
+  orientation: False
+  bond_angles: False
+  bond_lengths: False
+  distance_map: False
