@@ -721,12 +721,12 @@ class VQVAEDataset(Dataset):
 
         return rotated_coords
 
-    def cutout_augmentation(self, coords, min_mask_size, max_mask_size, max_cuts):
+    def cutout_augmentation(self, input_tensor, min_mask_size, max_mask_size, max_cuts):
         """
         Apply cutout augmentation on the coordinates.
 
         Parameters:
-        coords (torch.Tensor): The coordinates tensor to augment.
+        input_tensor (torch.Tensor): The coordinates tensor to augment.
         min_mask_size (int): The minimum size of the mask to apply.
         max_mask_size (int): The maximum size of the mask to apply.
         max_cuts (int): The maximum number of cuts to apply.
@@ -735,7 +735,7 @@ class VQVAEDataset(Dataset):
         torch.Tensor: The augmented coordinates.
         """
         # Get the total length of the coordinates
-        total_length = coords.shape[1]
+        total_length = input_tensor.shape[1]
 
         # Randomly select the number of cuts
         num_cuts = np.random.randint(1, max_cuts + 1)
@@ -748,9 +748,9 @@ class VQVAEDataset(Dataset):
             start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
 
             # Apply the mask
-            coords[:, start_idx:start_idx + mask_size, :] = 0
+            input_tensor[:, start_idx:start_idx + mask_size, :] = 0
 
-        return coords
+        return input_tensor
 
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
