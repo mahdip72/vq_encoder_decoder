@@ -17,6 +17,7 @@ from tqdm import tqdm
 import time
 import torchmetrics
 from utils.custom_losses import orientation_loss, bond_angles_loss, bond_lengths_loss, distance_map_loss
+from utils.custom_losses import MultiTaskLossWrapper
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -25,6 +26,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     scheduler = kwargs.pop('scheduler')
     configs = kwargs.pop('configs')
     writer = kwargs.pop('writer')
+    loss_wrapper = kwargs.pop('loss_wrapper')
     alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
@@ -81,37 +83,41 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            # Compute the auxiliary losses and add auxiliary losses
-            auxilary_loss = 0.0
+            # Compute the auxiliary losses
+            auxilary_loss_list = []
 
             orientation_loss_value = orientation_loss(masked_outputs, masked_labels)
             if configs.auxiliary_loss.orientation:
-                auxilary_loss += orientation_loss_value
+                auxilary_loss_list.append(orientation_loss_value)
             else:
                 orientation_loss_value = orientation_loss_value.detach()
 
-            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks)
+            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
+                                                      labels.reshape(-1, labels.shape[1], 4, 3), masks)
             if configs.auxiliary_loss.bond_angles:
-                auxilary_loss += bond_angles_loss_value
+                auxilary_loss_list.append(bond_angles_loss_value)
             else:
                 bond_angles_loss_value = bond_angles_loss_value.detach()
 
-            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks)
+            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
+                                                        labels.reshape(-1, labels.shape[1], 4, 3), masks)
             if configs.auxiliary_loss.bond_lengths:
-                auxilary_loss += bond_lengths_loss_value
+                auxilary_loss_list.append(bond_lengths_loss_value)
             else:
                 bond_lengths_loss_value = bond_lengths_loss_value.detach()
 
             distance_map_loss_value = distance_map_loss(outputs, labels)
             if configs.auxiliary_loss.distance_map:
-                auxilary_loss += distance_map_loss_value
+                auxilary_loss_list.append(distance_map_loss_value)
             else:
                 distance_map_loss_value = distance_map_loss_value.detach()
 
-            auxilary_loss = auxilary_coeff * auxilary_loss
-
-            if auxilary_loss > 0:
+            if len(auxilary_loss_list) > 0:
+                # Combine auxiliary losses using the loss wrapper
+                auxilary_loss = loss_wrapper(auxilary_loss_list) * auxilary_coeff
                 loss += auxilary_loss
+            else:
+                auxilary_loss = 0
 
             # Denormalize the outputs and labels
             masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
@@ -253,7 +259,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    total_auxilary_loss = 0.0
     total_orientation_loss = 0.0
     total_bond_angles_loss = 0.0
     total_bond_lengths_loss = 0.0
@@ -278,8 +283,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_labels = labels[masks]
             rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
             orientation_loss_value = orientation_loss(masked_outputs, masked_labels).detach()
-            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
-            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
+            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
+                                                      labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
+            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
+                                                        labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
             distance_map_loss_value = distance_map_loss(outputs, labels).detach()
             loss = rec_loss + alpha * commit_loss
 
@@ -300,7 +307,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         total_loss += loss.item()
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
-        total_auxilary_loss += orientation_loss_value
         total_orientation_loss += orientation_loss_value
         total_bond_angles_loss += bond_angles_loss_value
         total_bond_lengths_loss += bond_lengths_loss_value
@@ -314,7 +320,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    avg_auxilary_loss = total_auxilary_loss / counter
     avg_orientation_loss = total_orientation_loss / counter
     avg_bond_angles_loss = total_bond_angles_loss / counter
     avg_bond_lengths_loss = total_bond_lengths_loss / counter
@@ -342,7 +347,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
-        "auxilary_loss": avg_auxilary_loss,
         "orientation_loss": avg_orientation_loss,
         "bond_angles_loss": avg_bond_angles_loss,
         "bond_lengths_loss": avg_bond_lengths_loss,
@@ -435,6 +439,10 @@ def main(dict_config, config_file_path):
         train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
         logging.info(f'number of train steps per epoch: {int(train_steps)}')
 
+    num_losses = sum(1 for loss in list(configs.auxiliary_loss.values())[1:] if loss is True)
+    # Combine the losses using adaptive weighting
+    loss_wrapper = MultiTaskLossWrapper(num_losses=num_losses)
+
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
@@ -446,7 +454,7 @@ def main(dict_config, config_file_path):
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
                                            logging=logging, global_step=global_step,
-                                           writer=train_writer)
+                                           writer=train_writer, loss_wrapper=loss_wrapper)
         end_time = time.time()
         training_time = end_time - start_time
         if accelerator.is_main_process:
@@ -487,7 +495,7 @@ def main(dict_config, config_file_path):
                                             optimizer=optimizer,
                                             scheduler=scheduler, configs=configs,
                                             logging=logging, global_step=global_step,
-                                            writer=valid_writer)
+                                            writer=valid_writer, loss_wrapper=loss_wrapper)
             end_time = time.time()
             valid_time = end_time - start_time
             if accelerator.is_main_process:
@@ -495,7 +503,6 @@ def main(dict_config, config_file_path):
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
                     f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
-                    f'auxilary loss {valid_loop_reports["auxilary_loss"]:.4f}, '
                     f'orientation loss {valid_loop_reports["orientation_loss"]:.4f}, '
                     f'bond angles loss {valid_loop_reports["bond_angles_loss"]:.4f}, '
                     f'bond lengths loss {valid_loop_reports["bond_lengths_loss"]:.4f}, '

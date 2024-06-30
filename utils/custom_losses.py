@@ -1,6 +1,21 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
+
+
+class MultiTaskLossWrapper(nn.Module):
+    def __init__(self, num_losses):
+        super(MultiTaskLossWrapper, self).__init__()
+        # Initialize learnable log variances for each loss
+        self.log_vars = nn.Parameter(torch.zeros(num_losses))
+
+    def forward(self, losses):
+        total_loss = 0
+        for i, loss in enumerate(losses):
+            precision = torch.exp(-self.log_vars[i])
+            total_loss += precision * loss + self.log_vars[i]
+        return total_loss
 
 
 def create_voxel_grid(coordinates, grid_size=32):
