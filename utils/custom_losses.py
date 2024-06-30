@@ -212,35 +212,35 @@ def bond_angles_loss(true_coords, pred_coords, masked_atoms):
     Returns:
         torch.Tensor: The computed bond angles loss.
     """
-
     def compute_angle(a, b, c):
         # Vectors
         ba = a - b
         bc = c - b
         # Normalize vectors
-        ba = ba / torch.norm(ba, dim=2, keepdim=True)
-        bc = bc / torch.norm(bc, dim=2, keepdim=True)
+        ba = ba / torch.norm(ba, dim=2, keepdim=True).clamp(min=1e-8)
+        bc = bc / torch.norm(bc, dim=2, keepdim=True).clamp(min=1e-8)
         # Dot product and angle
         cos_angle = (ba * bc).sum(dim=2)
-        angle = torch.acos(cos_angle)
+        angle = torch.acos(cos_angle.clamp(-1 + 1e-7, 1 - 1e-7))
         return angle
 
-    # Compute angles for the predicted and true coordinates
-    n_ca_c_pred = compute_angle(pred_coords[:, :, 0, :], pred_coords[:, :, 1, :], pred_coords[:, :, 2, :])
-    ca_c_o_pred = compute_angle(pred_coords[:, :, 1, :], pred_coords[:, :, 2, :], pred_coords[:, :, 3, :])
+    # Compute angles for the true coordinates
+    n_ca_true_angle = compute_angle(true_coords[:, :, 0, :], true_coords[:, :, 1, :], true_coords[:, :, 2, :])
+    ca_c_true_angle = compute_angle(true_coords[:, :, 1, :], true_coords[:, :, 2, :], true_coords[:, :, 3, :])
 
-    n_ca_c_true = compute_angle(true_coords[:, :, 0, :], true_coords[:, :, 1, :], true_coords[:, :, 2, :])
-    ca_c_o_true = compute_angle(true_coords[:, :, 1, :], true_coords[:, :, 2, :], true_coords[:, :, 3, :])
+    # Compute angles for the predicted coordinates
+    n_ca_pred_angle = compute_angle(pred_coords[:, :, 0, :], pred_coords[:, :, 1, :], pred_coords[:, :, 2, :])
+    ca_c_pred_angle = compute_angle(pred_coords[:, :, 1, :], pred_coords[:, :, 2, :], pred_coords[:, :, 3, :])
 
     # Compute the loss for each angle
-    n_ca_c_loss = (n_ca_c_pred - n_ca_c_true) ** 2
-    ca_c_o_loss = (ca_c_o_pred - ca_c_o_true) ** 2
+    n_ca_loss = (n_ca_pred_angle - n_ca_true_angle) ** 2
+    ca_c_loss = (ca_c_pred_angle - ca_c_true_angle) ** 2
 
-    n_ca_c_loss[masked_atoms == False] = 0
-    ca_c_o_loss[masked_atoms == False] = 0
+    n_ca_loss[masked_atoms == False] = 0
+    ca_c_loss[masked_atoms == False] = 0
 
     # Average the losses over all amino acids and the batch
-    bond_angle_loss = (n_ca_c_loss.mean() + ca_c_o_loss.mean()) / 2
+    bond_angle_loss = (n_ca_loss.sum() + ca_c_loss.sum()) / masked_atoms.sum()
 
     return bond_angle_loss
 
