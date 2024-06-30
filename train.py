@@ -78,24 +78,40 @@ def train_loop(net, train_loader, epoch, **kwargs):
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
             rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
-            orientation_loss_value = orientation_loss(masked_outputs, masked_labels).detach()
-            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
-            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
-            distance_map_loss_value = distance_map_loss(outputs, labels).detach()
 
-            # Add auxiliary losses
+            loss = rec_loss + alpha * commit_loss
+
+            # Compute the auxiliary losses and add auxiliary losses
             auxilary_loss = 0.0
+
+            orientation_loss_value = orientation_loss(masked_outputs, masked_labels)
             if configs.auxiliary_loss.orientation:
                 auxilary_loss += orientation_loss_value
+            else:
+                orientation_loss_value = orientation_loss_value.detach()
+
+            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks)
             if configs.auxiliary_loss.bond_angles:
                 auxilary_loss += bond_angles_loss_value
+            else:
+                bond_angles_loss_value = bond_angles_loss_value.detach()
+
+            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3), labels.reshape(-1, labels.shape[1], 4, 3), masks)
             if configs.auxiliary_loss.bond_lengths:
                 auxilary_loss += bond_lengths_loss_value
+            else:
+                bond_lengths_loss_value = bond_lengths_loss_value.detach()
+
+            distance_map_loss_value = distance_map_loss(outputs, labels)
             if configs.auxiliary_loss.distance_map:
                 auxilary_loss += distance_map_loss_value
+            else:
+                distance_map_loss_value = distance_map_loss_value.detach()
+
             auxilary_loss = auxilary_coeff * auxilary_loss
 
-            loss = rec_loss + alpha * commit_loss + auxilary_loss
+            if auxilary_loss > 0:
+                loss += auxilary_loss
 
             # Denormalize the outputs and labels
             masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
@@ -157,7 +173,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 "step_loss": loss.detach().item(),
                 "rec_loss": rec_loss.detach().item(),
                 "cmt_loss": commit_loss.detach().item(),
-                "auxilary_loss": auxilary_loss.detach().item(),
+                "auxilary_loss": auxilary_loss.detach().item() if auxilary_loss > 0 else 0,
                 "activation": indices.unique().numel() / codebook_size * 100,
                 "global_step": global_step
             }
