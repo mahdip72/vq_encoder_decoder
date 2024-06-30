@@ -58,7 +58,7 @@ class VQVAE3DResNet(nn.Module):
 
         input_shape = 12
         if configs.model.vqvae.add_features.enable:
-            input_shape += configs.model.vqvae.add_features.rdf_bins * 4
+            # input_shape += configs.model.vqvae.add_features.rdf_bins * 4
             input_shape += configs.model.vqvae.add_features.k_neighbors * 4
             input_shape += 12
 

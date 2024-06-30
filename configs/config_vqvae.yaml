@@ -16,10 +16,10 @@ model:
   max_length: 512
   vqvae:
     add_features:
-        enable: True
-        rdf_bins: 10
-        rdf_cutoff: 1.0
-        k_neighbors: 20
+        enable: False
+#        rdf_bins: 5
+#        rdf_cutoff: 0.05
+        k_neighbors: 3
     vector_quantization:
       dim: 256
       decay: 0.8
@@ -42,14 +42,14 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 2
-  num_workers: 8
+  batch_size: 128
+  num_workers: 12
   grad_accumulation: 1
-  max_task_samples: 600000
+  max_task_samples: 5000
   cutout:
-    enable: True
+    enable: False
     min_mask_size: 1
-    max_mask_size: 5
+    max_mask_size: 3
     max_cuts: 4
 
 valid_settings:
@@ -76,7 +76,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 1000
+    warmup: 128
     min_lr: 5e-6
     gamma: 0.2
     num_restarts: 1
@@ -85,5 +85,5 @@ auxiliary_loss:
   coefficient: 0.1
   orientation: False
   bond_angles: False
-  bond_lengths: True
+  bond_lengths: False
   distance_map: False

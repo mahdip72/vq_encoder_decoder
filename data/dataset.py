@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from sklearn.decomposition import PCA
 from data.normalizer import Protein3DProcessing
+from scipy.spatial import KDTree
 
 
 def merge_features_and_create_mask(features_list, max_length=512):
@@ -552,8 +553,8 @@ class VQVAEDataset(Dataset):
 
         self.train_mode = train_mode
 
-        self.rdf_bins = kwargs['configs'].model.vqvae.add_features.rdf_bins
-        self.rdf_cutoff = kwargs['configs'].model.vqvae.add_features.rdf_cutoff
+        # self.rdf_bins = kwargs['configs'].model.vqvae.add_features.rdf_bins
+        # self.rdf_cutoff = kwargs['configs'].model.vqvae.add_features.rdf_cutoff
         self.k_neighbors = kwargs['configs'].model.vqvae.add_features.k_neighbors
         self.add_features = kwargs['configs'].model.vqvae.add_features.enable
 
@@ -610,26 +611,30 @@ class VQVAEDataset(Dataset):
 
     def compute_local_angles(self, coords):
         """
-        Computes local angles with the k nearest neighbors for the given coordinates.
+        Computes local angles with the k nearest neighbors for the given coordinates using KD-Tree.
 
         Args:
             coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+            k_neighbors (int): Number of nearest neighbors to consider for angle calculation.
 
         Returns:
             torch.Tensor: Tensor of shape (n_points, k_neighbors) containing local angles.
         """
-        num_points = coords.size(0)
-        k = min(self.k_neighbors + 1, num_points)  # including the point itself
-        dist_matrix = torch.cdist(coords, coords)
-        knn_indices = torch.topk(dist_matrix, k, largest=False).indices
-        ref_vec = torch.tensor([1, 0, 0], dtype=torch.float32)
+        coords_np = coords.numpy()
+        kdtree = KDTree(coords_np)
+        distances, knn_indices = kdtree.query(coords_np, k=self.k_neighbors + 1)  # +1 to include the point itself
 
+        ref_vec = torch.tensor([1, 0, 0], dtype=torch.float32)
+        ref_norm = torch.norm(ref_vec)
+
+        num_points = coords.size(0)
         angles = torch.zeros(num_points, self.k_neighbors, dtype=torch.float32)
+
         for i in range(num_points):
-            for j in range(1, k):
-                vec = coords[knn_indices[i, j]] - coords[i]
-                cos_angle = torch.dot(vec, ref_vec) / (torch.norm(vec) * torch.norm(ref_vec))
-                angles[i, j - 1] = torch.acos(cos_angle)
+            neighbor_vecs = coords[knn_indices[i, 1:]] - coords[i]  # Exclude the point itself
+            cos_angles = torch.einsum('ij,j->i', neighbor_vecs, ref_vec) / (torch.norm(neighbor_vecs, dim=1) * ref_norm)
+            angles[i, :self.k_neighbors] = torch.acos(cos_angles)
+
         return angles
 
     @staticmethod
@@ -772,14 +777,14 @@ class VQVAEDataset(Dataset):
             input_coords_tensor = coords_tensor
 
         # Merge the features and create a mask
-        # if self.add_features:
-        rbf_feature = self.compute_rdf(coords_tensor.reshape(-1, 3))
-        spherical_coords_feature = self.compute_spherical_coords(coords_tensor.reshape(-1, 3))
-        local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
+        if self.add_features:
+            # rbf_feature = self.compute_rdf(coords_tensor.reshape(-1, 3))
+            spherical_coords_feature = self.compute_spherical_coords(coords_tensor.reshape(-1, 3))
+            local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
 
-        rbf_feature = rbf_feature.reshape(1, coords_tensor.shape[0], -1)
-        spherical_coords_feature = spherical_coords_feature.reshape(1, coords_tensor.shape[0], -1)
-        local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
+            # rbf_feature = rbf_feature.reshape(1, coords_tensor.shape[0], -1)
+            spherical_coords_feature = spherical_coords_feature.reshape(1, coords_tensor.shape[0], -1)
+            local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
@@ -788,9 +793,9 @@ class VQVAEDataset(Dataset):
                                                            max_mask_size=self.max_mask_size,
                                                            max_cuts=self.max_cuts)
         if self.add_features and self.cutout and self.train_mode:
-            rbf_feature = self.cutout_augmentation(rbf_feature, min_mask_size=self.min_mask_size,
-                                                   max_mask_size=self.max_mask_size,
-                                                   max_cuts=self.max_cuts)
+            # rbf_feature = self.cutout_augmentation(rbf_feature, min_mask_size=self.min_mask_size,
+            #                                        max_mask_size=self.max_mask_size,
+            #                                        max_cuts=self.max_cuts)
             spherical_coords_feature = self.cutout_augmentation(spherical_coords_feature,
                                                                 min_mask_size=self.min_mask_size,
                                                                 max_mask_size=self.max_mask_size,
@@ -803,11 +808,11 @@ class VQVAEDataset(Dataset):
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
         if self.add_features:
-            rbf_feature = merge_features_and_create_mask(rbf_feature, self.max_length)[0]
+            # rbf_feature = merge_features_and_create_mask(rbf_feature, self.max_length)[0]
             spherical_coords_feature = merge_features_and_create_mask(spherical_coords_feature, self.max_length)[0]
             local_angles_feature = merge_features_and_create_mask(local_angles_feature, self.max_length)[0]
             input_coords_tensor = torch.cat(
-                (input_coords_tensor, rbf_feature, spherical_coords_feature, local_angles_feature), dim=-1)
+                (input_coords_tensor, spherical_coords_feature, local_angles_feature), dim=-1)
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
