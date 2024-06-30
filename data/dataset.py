@@ -555,7 +555,7 @@ class VQVAEDataset(Dataset):
 
         # self.rdf_bins = kwargs['configs'].model.vqvae.add_features.rdf_bins
         # self.rdf_cutoff = kwargs['configs'].model.vqvae.add_features.rdf_cutoff
-        self.k_neighbors = kwargs['configs'].model.vqvae.add_features.k_neighbors
+        # self.k_neighbors = kwargs['configs'].model.vqvae.add_features.k_neighbors
         self.add_features = kwargs['configs'].model.vqvae.add_features.enable
 
         self.rotate_randomly = rotate_randomly
@@ -780,11 +780,11 @@ class VQVAEDataset(Dataset):
         if self.add_features:
             # rbf_feature = self.compute_rdf(coords_tensor.reshape(-1, 3))
             spherical_coords_feature = self.compute_spherical_coords(coords_tensor.reshape(-1, 3))
-            local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
+            # local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
 
             # rbf_feature = rbf_feature.reshape(1, coords_tensor.shape[0], -1)
             spherical_coords_feature = spherical_coords_feature.reshape(1, coords_tensor.shape[0], -1)
-            local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
+            # local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
@@ -800,9 +800,9 @@ class VQVAEDataset(Dataset):
                                                                 min_mask_size=self.min_mask_size,
                                                                 max_mask_size=self.max_mask_size,
                                                                 max_cuts=self.max_cuts)
-            local_angles_feature = self.cutout_augmentation(local_angles_feature, min_mask_size=self.min_mask_size,
-                                                            max_mask_size=self.max_mask_size,
-                                                            max_cuts=self.max_cuts)
+            # local_angles_feature = self.cutout_augmentation(local_angles_feature, min_mask_size=self.min_mask_size,
+            #                                                 max_mask_size=self.max_mask_size,
+            #                                                 max_cuts=self.max_cuts)
 
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
@@ -810,9 +810,9 @@ class VQVAEDataset(Dataset):
         if self.add_features:
             # rbf_feature = merge_features_and_create_mask(rbf_feature, self.max_length)[0]
             spherical_coords_feature = merge_features_and_create_mask(spherical_coords_feature, self.max_length)[0]
-            local_angles_feature = merge_features_and_create_mask(local_angles_feature, self.max_length)[0]
+            # local_angles_feature = merge_features_and_create_mask(local_angles_feature, self.max_length)[0]
             input_coords_tensor = torch.cat(
-                (input_coords_tensor, spherical_coords_feature, local_angles_feature), dim=-1)
+                (input_coords_tensor, spherical_coords_feature), dim=-1)
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)

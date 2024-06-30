@@ -16,17 +16,17 @@ model:
   max_length: 512
   vqvae:
     add_features:
-        enable: False
+        enable: True
 #        rdf_bins: 5
 #        rdf_cutoff: 0.05
-        k_neighbors: 3
+#        k_neighbors: 3
     vector_quantization:
       dim: 256
       decay: 0.8
       codebook_size: 1024
       commitment_weight : 1.0
       alpha: 1.0
-    start_dimension: 128
+    start_dimension: 32
     pooling_layer_every: 8
     residual_encoder:
       dimension: 256
