@@ -38,7 +38,7 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         residual = x
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.gelu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += residual
         return F.relu(out)
@@ -68,6 +68,7 @@ class VQVAE3DResNet(nn.Module):
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, start_dim, kernel_size=1),
+            nn.BatchNorm1d(start_dim),
         )
 
         dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
@@ -76,15 +77,15 @@ class VQVAE3DResNet(nn.Module):
         for i, dim in enumerate(dims):
             block = nn.Sequential(
                 nn.Conv1d(prev_dim, dim, 3, padding=1),
-                ConvNeXtBlock(dim, dim, self.max_length),
-                ConvNeXtBlock(dim, dim, self.max_length),
+                ResidualBlock(dim, dim),
+                ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
             if i+1 % pooling_layer_every == 0:
                 print('Use pooling layer')
                 pooling_block = nn.Sequential(
                     nn.Conv1d(dim, dim, 3, stride=2, padding=1),
-                    # nn.BatchNorm1d(dim),
+                    nn.BatchNorm1d(dim),
                     nn.GELU())
                 encoder_blocks.append(pooling_block)
             prev_dim = dim
@@ -92,9 +93,14 @@ class VQVAE3DResNet(nn.Module):
 
         self.encoder_head = nn.Sequential(
             nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            # nn.BatchNorm1d(self.encoder_dim),
+            nn.BatchNorm1d(self.encoder_dim),
             nn.GELU(),
-
+            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
+            nn.BatchNorm1d(self.encoder_dim),
+            nn.GELU(),
+            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
+            nn.BatchNorm1d(self.encoder_dim),
+            nn.GELU(),
             nn.Conv1d(self.encoder_dim, latent_dim, 1),
         )
 
@@ -109,7 +115,13 @@ class VQVAE3DResNet(nn.Module):
         self.decoder_tail = nn.Sequential(
             nn.Conv1d(latent_dim, self.decoder_dim, 1),
             nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            # nn.BatchNorm1d(self.decoder_dim),
+            nn.BatchNorm1d(self.decoder_dim),
+            nn.GELU(),
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm1d(self.decoder_dim),
+            nn.GELU(),
+            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm1d(self.decoder_dim),
             nn.GELU(),
         )
 
@@ -122,12 +134,12 @@ class VQVAE3DResNet(nn.Module):
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv1d(dim, dim, 3, padding=1),
-                    # nn.BatchNorm1d(dim),
+                    nn.BatchNorm1d(dim),
                     nn.GELU())
                 decoder_blocks.append(pooling_block)
             block = nn.Sequential(
-                ConvNeXtBlock(dim, dim, self.max_length),
-                ConvNeXtBlock(dim, dim, self.max_length),
+                ResidualBlock(dim, dim),
+                ResidualBlock(dim, dim),
                 nn.Conv1d(dim, dims[i + 1], 3, padding=1),
             )
             decoder_blocks.append(block)
