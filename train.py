@@ -443,6 +443,8 @@ def main(dict_config, config_file_path):
     # Combine the losses using adaptive weighting
     loss_wrapper = MultiTaskLossWrapper(num_losses=num_losses)
 
+    loss_wrapper = accelerator.prepare([loss_wrapper])[0]
+
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
