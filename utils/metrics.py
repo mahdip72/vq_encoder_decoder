@@ -26,12 +26,13 @@ def ensure_symmetry_torch_upper_to_lower(tensor):
     return tensor
 
 
-def batch_distance_map_to_coordinates(batch_distance_map):
+def batch_distance_map_to_coordinates(batch_distance_map, **kwargs):
     """
     Converts a batch of distance maps from a PyTorch tensor format to 3D coordinates.
 
     Args:
         batch_distance_map (torch.Tensor): A (b x m x m) batch of distance matrices in PyTorch tensor format.
+        **kwargs: non-default arguments for MDS (optional)
 
     Returns:
         torch.Tensor: A (b x m x 3) tensor of 3D coordinates.
@@ -43,13 +44,20 @@ def batch_distance_map_to_coordinates(batch_distance_map):
     # Initialize an empty list to hold the coordinates
     all_coordinates = []
 
+    # Default MDS arguments if kwargs were not provided
+    if len(kwargs) == 0:
+        mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
+                  'n_init': 4, 'max_iter': 200, 'eps': 1e-9, 'n_jobs': -1}
+
+    else:
+        mds_args = kwargs
+
     # Loop over each distance map in the batch
     for i in range(batch_size):
         distance_matrix_np = ensure_symmetry_torch_upper_to_lower(batch_distance_map[i].cpu().numpy())
 
-        # Create an MDS model
-        mds = MDS(n_components=3, dissimilarity='precomputed', random_state=42, n_init=4, max_iter=200, eps=1e-9,
-                  n_jobs=-1)
+        mds = MDS(n_components=mds_args['n_components'], dissimilarity=mds_args['dissimilarity'], random_state=mds_args['random_state'],
+                  n_init=mds_args['n_init'], max_iter=mds_args['max_iter'], eps=mds_args['eps'], n_jobs=mds_args['n_jobs'])
 
         # Fit the model to the distance matrix
         coordinates_np = mds.fit_transform(distance_matrix_np)
