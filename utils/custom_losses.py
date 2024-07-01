@@ -134,42 +134,45 @@ def radius_of_gyration_loss(predicted_coords, real_coords):
 
 def compute_principal_components(coords):
     """
-    Compute the principal components of a set of coordinates.
+    Computes the principal components of the coordinates.
 
     Args:
-        coords (torch.Tensor): Tensor of shape (N, 3) where N is the number of atoms.
+        coords (torch.Tensor): The input coordinates of shape (batch, num_points, 3).
 
     Returns:
-        torch.Tensor: Principal components of shape (3, 3).
+        torch.Tensor: The principal components.
     """
-    # Subtract the mean to center the coordinates
-    centered_coords = coords - coords.mean(dim=0)
+    # Center the coordinates
+    centered_coords = coords - coords.mean(dim=0, keepdim=True)
 
-    # Perform Singular Value Decomposition (SVD)
-    _, _, V = torch.svd(centered_coords)
+    # Add a small amount of noise to avoid repeated singular values
+    noise = torch.randn_like(centered_coords) * 1e-6
+    centered_coords += noise
+
+    # Compute SVD
+    U, S, V = torch.svd(centered_coords)
 
     return V
 
 
 def orientation_loss(pred_coords, true_coords):
     """
-    Compute the orientation loss based on the principal components.
+    Computes the orientation loss between predicted and true coordinates.
 
     Args:
-        pred_coords (torch.Tensor): Predicted coordinates of shape (N, 3).
-        true_coords (torch.Tensor): True coordinates of shape (N, 3).
+        pred_coords (torch.Tensor): The predicted coordinates of shape (num_points, 3).
+        true_coords (torch.Tensor): The true coordinates of shape (num_points, 3).
 
     Returns:
         torch.Tensor: The orientation loss.
     """
-    # Compute the principal components of the predicted and true coordinates
     pred_pc = compute_principal_components(pred_coords)
     true_pc = compute_principal_components(true_coords)
 
-    # Compute the alignment error between the principal components
-    alignment_error = torch.sum(1 - torch.abs(torch.sum(pred_pc * true_pc, dim=0)))
+    # Compute the loss based on the principal components
+    loss = torch.norm(pred_pc - true_pc, dim=-1).mean()
 
-    return alignment_error
+    return loss
 
 
 def bond_lengths_loss(true_coords, pred_coords, masked_atoms):
