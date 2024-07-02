@@ -2,6 +2,8 @@ import argparse
 import numpy as np
 import yaml
 import torch
+from scipy._lib.array_api_compat.common._linalg import outer
+from torch.nn import CrossEntropyLoss
 from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
@@ -31,19 +33,24 @@ def train_loop(model, train_loader, epoch, **kwargs):
     # Prepare metrics for evaluation
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
+    cross_entropy = CrossEntropyLoss()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
+    cross_entropy.to(accelerator.device)
 
     optimizer.zero_grad()
 
+    train_ce_loss = 0.0
     train_total_loss = 0.0
     train_rec_loss = 0.0
     train_cmt_loss = 0.0
 
+    total_ce_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
+
     total_activation = 0.0
     counter = 0
     global_step = kwargs.get('global_step', 0)
@@ -68,6 +75,21 @@ def train_loop(model, train_loader, epoch, **kwargs):
             rec_loss = torch.nn.functional.l1_loss(cmaps, outputs)
             loss = rec_loss + alpha * commit_loss
 
+            # Cross entropy loss
+            ce_loss = cross_entropy(cmaps.reshape(cmaps.shape[0], -1), outputs.reshape(outputs.shape[0], -1))
+            #ce_loss.requires_grad=True
+
+            print("CROSS ENTROPY LOSS:", ce_loss)
+            exit()
+
+            # # Prevent overflow errors if loss is too large
+            # if ce_loss.item() > 2**15:
+            #     ce_loss = torch.tensor(float(2**15), requires_grad=True)
+            #     ce_loss.to(accelerator.device)
+            #
+            # print(ce_loss.get_device())
+            # exit()
+
             # Update the metrics
             mae.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
             rmse.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
@@ -79,9 +101,12 @@ def train_loop(model, train_loader, epoch, **kwargs):
             avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
             train_cmt_loss += avg_cmt_loss.item() / accum_iter
 
+            avg_ce_loss = accelerator.gather(ce_loss.repeat(configs.train_settings.batch_size)).mean()
+            train_ce_loss += avg_ce_loss.item() / accum_iter
+
             train_total_loss = train_rec_loss + alpha * train_cmt_loss
 
-            accelerator.backward(loss)
+            accelerator.backward(ce_loss)
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
 
@@ -98,14 +123,16 @@ def train_loop(model, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
+            total_ce_loss += train_ce_loss
             total_activation += indices.unique().numel() / codebook_size
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
             train_cmt_loss = 0.0
+            train_ce_loss = 0.0
 
             progress_bar.set_description(f"epoch {epoch} "
-                                         + f"[loss: {total_loss / counter:.3f}, "
+                                         + f"[ce loss: {total_ce_loss / counter:.3f}, "
                                          + f"rec loss: {total_rec_loss / counter:.3f}, "
                                          + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
@@ -116,6 +143,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
         progress_bar.set_postfix(
             {
                 "lr": optimizer.param_groups[0]['lr'],
+                "ce_loss": ce_loss.detach().item(),
                 "step_loss": loss.detach().item(),
                 "rec_loss": rec_loss.detach().item(),
                 "cmt_loss": commit_loss.detach().item(),
@@ -128,9 +156,11 @@ def train_loop(model, train_loader, epoch, **kwargs):
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
+    avg_ce_loss = total_ce_loss / counter
     avg_activation = total_activation / counter
 
     return_dict = {
+        "ce_loss": avg_ce_loss,
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
@@ -157,16 +187,20 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     # Prepare metrics to evaluation
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
+    cross_entropy = CrossEntropyLoss()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
+    cross_entropy.to(accelerator.device)
 
     optimizer.zero_grad()
 
+    total_ce_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
 
+    valid_ce_loss = 0.0
     valid_total_loss = 0.0
     valid_rec_loss = 0.0
     valid_cmt_loss = 0.0
@@ -193,15 +227,22 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             rec_loss = torch.nn.functional.l1_loss(cmaps, outputs)
             loss = rec_loss + alpha * commit_loss
 
+            # Cross entropy loss
+            ce_loss = cross_entropy(cmaps.squeeze(), outputs.squeeze())
+
             # Update the metrics
             mae.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
             rmse.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
+
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.valid_settings.batch_size)).mean()
             valid_rec_loss += avg_rec_loss.item() / accum_iter
 
             avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.valid_settings.batch_size)).mean()
             valid_cmt_loss += avg_cmt_loss.item() / accum_iter
+
+            avg_ce_loss = accelerator.gather(ce_loss.repeat(configs.train_settings.batch_size)).mean()
+            valid_ce_loss += avg_ce_loss.item() / accum_iter
 
             valid_total_loss = valid_rec_loss + alpha * valid_cmt_loss
 
@@ -213,21 +254,26 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
         total_loss += valid_total_loss
         total_rec_loss += valid_rec_loss
         total_cmt_loss += valid_cmt_loss
+        total_ce_loss += valid_ce_loss
+        total_ce_loss += valid_ce_loss
 
         valid_total_loss = 0.0
         valid_rec_loss = 0.0
         valid_cmt_loss = 0.0
+        valid_ce_loss = 0.0
 
         progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"[loss: {total_loss / counter:.3f}, "
+                                     + f"[ce loss: {total_ce_loss / counter:.3f}, "
                                      + f"rec loss: {total_rec_loss / counter:.3f}, "
                                      + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
+    avg_ce_loss = total_ce_loss / counter
 
     return_dict = {
+        "ce_loss": avg_ce_loss,
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
