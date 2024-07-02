@@ -272,7 +272,7 @@ def main(dict_config, config_file_path):
 
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
-        # gradient_accumulation_steps=configs.train_settings.grad_accumulation,
+        gradient_accumulation_steps=configs.train_settings.grad_accumulation,
         # dispatch_batches=False
     )
 
