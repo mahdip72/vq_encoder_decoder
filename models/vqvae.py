@@ -9,7 +9,8 @@ import torch.nn.functional as F
 class ConvNeXtBlock(nn.Module):
     def __init__(self, input_dim, hidden_dim, sequence_length):
         super(ConvNeXtBlock, self).__init__()
-        self.dw_conv = nn.Conv1d(input_dim, input_dim, kernel_size=7, padding=3, groups=input_dim)  # Depthwise convolution
+        self.dw_conv = nn.Conv1d(input_dim, input_dim, kernel_size=7, padding=3,
+                                 groups=input_dim)  # Depthwise convolution
         self.norm = nn.LayerNorm([sequence_length, input_dim])
         self.pw_conv1 = nn.Conv1d(input_dim, hidden_dim, kernel_size=1)  # Pointwise convolution
         self.gelu = nn.GELU()
@@ -81,7 +82,7 @@ class VQVAE3DResNet(nn.Module):
                 ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
-            if i+1 % pooling_layer_every == 0:
+            if i + 1 % pooling_layer_every == 0:
                 print('Use pooling layer')
                 pooling_block = nn.Sequential(
                     nn.Conv1d(dim, dim, 3, stride=2, padding=1),
@@ -109,7 +110,10 @@ class VQVAE3DResNet(nn.Module):
             dim=latent_dim,
             codebook_size=codebook_size,
             decay=decay,
-            commitment_weight=1.0,
+            commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+            orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
+            orthogonal_reg_max_codes=128,  # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+            orthogonal_reg_active_codes_only=False  # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
         )
 
         self.decoder_tail = nn.Sequential(
@@ -130,7 +134,7 @@ class VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if i+1 % pooling_layer_every == 0:
+            if i + 1 % pooling_layer_every == 0:
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv1d(dim, dim, 3, padding=1),
