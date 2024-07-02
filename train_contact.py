@@ -3,7 +3,8 @@ import numpy as np
 import yaml
 import torch
 from torch.nn import BCELoss
-from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
+from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, \
+    save_checkpoint
 from utils.utils import load_checkpoints
 from accelerate import Accelerator
 from data.data_contactmap import prepare_dataloaders
@@ -13,6 +14,7 @@ import os
 import time
 import torchmetrics
 from visualization.main import compute_visualization
+
 
 # from ray import tune
 # from ray import train
@@ -314,7 +316,7 @@ def main(dict_config, config_file_path):
         logging.info(f'Number of train steps per epoch: {int(train_steps)}')
 
     # Keep track of global step across all processes; useful for continuing training from a checkpoint.
-    global_step=0
+    global_step = 0
     # Keep track of best metrics
     best_valid_metrics = {'loss': float('inf'), 'mae': 0.0, 'rmse': 0.0}
     training_loop_reports = dict()
@@ -325,11 +327,11 @@ def main(dict_config, config_file_path):
         # Training
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
-                                                                accelerator=accelerator,
-                                                                optimizer=optimizer,
-                                                                scheduler=scheduler, configs=configs,
-                                                                logging=logging, global_step=global_step,
-                                                                train_writer=train_writer)
+                                           accelerator=accelerator,
+                                           optimizer=optimizer,
+                                           scheduler=scheduler, configs=configs,
+                                           logging=logging, global_step=global_step,
+                                           train_writer=train_writer)
         end_time = time.time()
         training_time = end_time - start_time
         torch.cuda.empty_cache()
@@ -359,11 +361,11 @@ def main(dict_config, config_file_path):
         if epoch % configs.valid_settings.do_every == 0:
             start_time = time.time()
             valid_loop_reports = valid_loop(net, valid_dataloader, epoch,
-                                                                    accelerator=accelerator,
-                                                                    optimizer=optimizer,
-                                                                    scheduler=scheduler, configs=configs,
-                                                                    logging=logging, global_step=global_step,
-                                                                    valid_writer=valid_writer)
+                                            accelerator=accelerator,
+                                            optimizer=optimizer,
+                                            scheduler=scheduler, configs=configs,
+                                            logging=logging, global_step=global_step,
+                                            valid_writer=valid_writer)
             end_time = time.time()
             valid_time = end_time - start_time
             if accelerator.is_main_process:
@@ -398,7 +400,8 @@ def main(dict_config, config_file_path):
                     model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
 
                     if accelerator.is_main_process:
-                        save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+                        save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer,
+                                        scheduler=scheduler)
                         logging.info(f'\tsaving the best models in {model_path}')
 
                 else:
@@ -447,9 +450,9 @@ def main(dict_config, config_file_path):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Train a VQ-VAE model.")
-    parser.add_argument("--config_path", "-c", help="The location of config file", default='./configs/config_vqvae_contact.yaml')
+    parser.add_argument("--config_path", "-c", help="The location of config file",
+                        default='./configs/config_vqvae_contact.yaml')
 
     # ray_tune flag for tuning hyperparameters
     parser.add_argument("--ray_tune", action='store_true')
