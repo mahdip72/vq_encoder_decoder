@@ -143,7 +143,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
 
         if accelerator.sync_gradients:
             progress_bar.update(1)
