@@ -78,7 +78,7 @@ for data in progress_bar:
     target_coords = data["target_coords"]
 
     mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
-                'n_init': 10, 'max_iter': 300, 'eps': 1e-9, 'n_jobs': -1}
+                'n_init': 4, 'max_iter': 200, 'eps': 1e-7, 'n_jobs': -1}
 
     # Denormalize distance maps
     for i in range(len(distance_maps)):
