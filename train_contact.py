@@ -76,20 +76,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Cross entropy loss
-            ce_loss = cross_entropy(cmaps.reshape(cmaps.shape[0], -1), outputs.reshape(outputs.shape[0], -1))
-            #ce_loss.requires_grad=True
-
-            print("CROSS ENTROPY LOSS:", ce_loss)
-            exit()
-
-            # # Prevent overflow errors if loss is too large
-            # if ce_loss.item() > 2**15:
-            #     ce_loss = torch.tensor(float(2**15), requires_grad=True)
-            #     ce_loss.to(accelerator.device)
-            #
-            # print(ce_loss.get_device())
-            # exit()
-
+            ce_loss = cross_entropy(cmaps.reshape(-1, 1), outputs.reshape(-1, 1))
             # Update the metrics
             mae.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
             rmse.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
