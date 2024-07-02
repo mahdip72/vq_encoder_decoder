@@ -208,9 +208,6 @@ class VQVAEResNet(nn.Module):
 
         x = self.decoder_layers(x)
 
-        # Convert results to 0 and 1 using a threshold of 0.5
-        x = (x >= 0.5).float()
-
         return x, indices, commit_loss
 
 
