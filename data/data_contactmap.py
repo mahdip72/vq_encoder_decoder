@@ -332,8 +332,8 @@ def prepare_dataloaders(configs):
     visualization_dataset = ContactMapDataset(visualization_data, configs, threshold=threshold)
 
     # Prepare dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=1, shuffle=False)
-    valid_dataloader = DataLoader(dataset=valid_dataset, batch_size=1, shuffle=False)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=configs.train_settings.batch_size, shuffle=False)
+    valid_dataloader = DataLoader(dataset=valid_dataset, batch_size=configs.valid_settings.batch_size, shuffle=False)
     visualization_dataloader = DataLoader(dataset=visualization_dataset, batch_size=1, shuffle=False)
 
     return train_dataloader, valid_dataloader, visualization_dataloader
