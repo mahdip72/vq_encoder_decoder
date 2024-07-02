@@ -166,11 +166,13 @@ def orientation_loss(pred_coords, true_coords):
     Returns:
         torch.Tensor: The orientation loss.
     """
-    pred_pc = compute_principal_components(pred_coords)
-    true_pc = compute_principal_components(true_coords)
-
-    # Compute the loss based on the principal components
-    loss = torch.norm(pred_pc - true_pc, dim=-1).mean()
+    try:
+        pred_pc = compute_principal_components(pred_coords)
+        true_pc = compute_principal_components(true_coords)
+        # Compute the loss based on the principal components
+        loss = torch.norm(pred_pc - true_pc, dim=-1).mean()
+    except:
+        loss = torch.tensor(0.0)
 
     return loss
 
