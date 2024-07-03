@@ -13,6 +13,7 @@ from tqdm import tqdm
 import os
 import time
 import torchmetrics
+from torchmetrics.classification import BinaryAccuracy, BinaryF1Score
 from visualization.main import compute_visualization
 import gc
 
@@ -32,12 +33,12 @@ def train_loop(model, train_loader, epoch, **kwargs):
     accum_iter = configs.train_settings.grad_accumulation
 
     # Prepare metrics for evaluation
-    rmse = torchmetrics.MeanSquaredError(squared=False)
-    mae = torchmetrics.MeanAbsoluteError()
+    accuracy = BinaryAccuracy(threshold=0.5)
+    f1_score = BinaryF1Score(threshold=0.5)
     bce = BCELoss()
 
-    rmse.to(accelerator.device)
-    mae.to(accelerator.device)
+    accuracy.to(accelerator.device)
+    f1_score.to(accelerator.device)
     bce.to(accelerator.device)
 
     optimizer.zero_grad()
@@ -79,8 +80,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Update the metrics
-            mae.update(accelerator.gather(cmaps.detach()), accelerator.gather(outputs.detach()))
-            rmse.update(accelerator.gather(cmaps.detach()), accelerator.gather(outputs.detach()))
+            accuracy.update(accelerator.gather(cmaps.detach()), accelerator.gather(outputs.detach()))
+            f1_score.update(accelerator.gather(cmaps.detach()), accelerator.gather(outputs.detach()))
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.detach().repeat(configs.train_settings.batch_size)).mean()
@@ -149,15 +150,15 @@ def train_loop(model, train_loader, epoch, **kwargs):
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
-        "rec_mae": mae.compute().item(),
-        "rec_rmse": rmse.compute().item(),
+        "accuracy": accuracy.compute().item(),
+        "f1_score": f1_score.compute().item(),
         "counter": counter,
         "global_step": global_step
     }
 
     # Reset the metrics for the next epoch
-    mae.reset()
-    rmse.reset()
+    accuracy.reset()
+    f1_score.reset()
 
     accelerator.wait_for_everyone()
     del progress_bar
@@ -175,13 +176,12 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     accum_iter = configs.train_settings.grad_accumulation
 
     # Prepare metrics to evaluation
-    rmse = torchmetrics.MeanSquaredError(squared=False)
-    mae = torchmetrics.MeanAbsoluteError()
+    accuracy = BinaryAccuracy(threshold=0.5)
+    f1_score = BinaryF1Score(threshold=0.5)
     bce = BCELoss()
 
-    rmse.to(accelerator.device)
-    mae.to(accelerator.device)
-    bce.to(accelerator.device)
+    accuracy.to(accelerator.device)
+    f1_score.to(accelerator.device)
 
     optimizer.zero_grad()
 
@@ -220,8 +220,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Update the metrics
-            mae.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
-            rmse.update(accelerator.gather(cmaps).detach(), accelerator.gather(outputs).detach())
+            accuracy.update(accelerator.gather(cmaps.detach()), accelerator.gather(outputs.detach()))
+            f1_score.update(accelerator.gather(cmaps.detach()), accelerator.gather(outputs.detach()))
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.valid_settings.batch_size)).mean()
@@ -264,14 +264,14 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
-        "rec_mae": mae.compute().item(),
-        "rec_rmse": rmse.compute().item(),
+        "accuracy": accuracy.compute().item(),
+        "f1_score": f1_score.compute().item(),
         "counter": counter,
     }
 
     # Reset the metrics for the next epoch
-    mae.reset()
-    rmse.reset()
+    accuracy.reset()
+    f1_score.reset()
 
     accelerator.wait_for_everyone()
     del progress_bar
@@ -341,7 +341,7 @@ def main(dict_config, config_file_path):
     # Keep track of global step across all processes; useful for continuing training from a checkpoint.
     global_step = 0
     # Keep track of best metrics
-    best_valid_metrics = {'loss': float('inf'), 'mae': 0.0, 'rmse': 0.0}
+    best_valid_metrics = {'loss': float('inf'), 'accuracy': 0.0, 'f1_score': 0.0}
     training_loop_reports = dict()
     valid_loop_reports = dict()
 
@@ -366,8 +366,8 @@ def main(dict_config, config_file_path):
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, '
-                f'rec mae {training_loop_reports["rec_mae"]:.4f}, '
-                f'rec rmse {training_loop_reports["rec_rmse"]:.4f}'
+                f'accuracy {training_loop_reports["accuracy"]:.4f}, '
+                f'f1_score {training_loop_reports["f1_score"]:.4f}'
             )
 
         global_step = training_loop_reports["global_step"]
@@ -377,8 +377,8 @@ def main(dict_config, config_file_path):
             train_writer.add_scalar('Combined Loss', training_loop_reports['loss'], epoch)
             train_writer.add_scalar('Reconstruction Loss', training_loop_reports["rec_loss"], epoch)
             train_writer.add_scalar('Commitment Loss', training_loop_reports["cmt_loss"], epoch)
-            train_writer.add_scalar('Reconstruction MAE', training_loop_reports["rec_mae"], epoch)
-            train_writer.add_scalar('Reconstruction RMSE', training_loop_reports["rec_rmse"], epoch)
+            train_writer.add_scalar('Accuracy', training_loop_reports["accuracy"], epoch)
+            train_writer.add_scalar('F1 Score', training_loop_reports["f1_score"], epoch)
             train_writer.flush()
 
         # Validation
@@ -397,8 +397,8 @@ def main(dict_config, config_file_path):
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
                     f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
-                    f'rec mae {training_loop_reports["rec_mae"]:.4f}, '
-                    f'rec rmse {training_loop_reports["rec_rmse"]:.4f}'
+                    f'accuracy {training_loop_reports["accuracy"]:.4f}, '
+                    f'f1 score {training_loop_reports["f1_score"]:.4f}'
                 )
 
             # Add validation losses to TensorBoard
@@ -407,8 +407,8 @@ def main(dict_config, config_file_path):
                 valid_writer.add_scalar('Combined Loss', valid_loss, epoch)
                 valid_writer.add_scalar('Reconstruction Loss', valid_loop_reports["rec_loss"], epoch)
                 valid_writer.add_scalar('Commitment Loss', valid_loop_reports["cmt_loss"], epoch)
-                valid_writer.add_scalar('Reconstruction MAE', valid_loop_reports["rec_mae"], epoch)
-                valid_writer.add_scalar('Reconstruction RMSE', valid_loop_reports["rec_rmse"], epoch)
+                valid_writer.add_scalar('Accuracy', valid_loop_reports["accuracy"], epoch)
+                valid_writer.add_scalar('F1 Score', valid_loop_reports["f1_score"], epoch)
                 valid_writer.flush()
 
             # Save checkpoints only if current validation loss is less than previous minimum validation loss
@@ -416,8 +416,8 @@ def main(dict_config, config_file_path):
 
                 if valid_loss < best_valid_metrics['loss']:
                     best_valid_metrics['loss'] = valid_loss
-                    best_valid_metrics['mae'] = valid_loop_reports['rec_mae']
-                    best_valid_metrics['rmse'] = valid_loop_reports['rec_rmse']
+                    best_valid_metrics['accuracy'] = valid_loop_reports['accuracy']
+                    best_valid_metrics['f1_score'] = valid_loop_reports['f1_score']
 
                     accelerator.wait_for_everyone()
                     # Set the path to save the model's checkpoint.
@@ -449,8 +449,8 @@ def main(dict_config, config_file_path):
 
         # Log best metrics
         logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
-        logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
-        logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
+        logging.info(f"best valid accuracy: {best_valid_metrics['accuracy']:.4f}")
+        logging.info(f"best valid f1 score: {best_valid_metrics['f1_score']:.4f}")
 
     accelerator.wait_for_everyone()
     accelerator.free_memory()
