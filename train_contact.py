@@ -15,12 +15,14 @@ import time
 import torchmetrics
 from visualization.main import compute_visualization
 import gc
+from memory_profiler import profile
 
 # from ray import tune
 # from ray import train
 # from ray.tune.schedulers import ASHAScheduler
 
 
+@profile
 def train_loop(model, train_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
@@ -160,6 +162,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
     rmse.reset()
 
     accelerator.wait_for_everyone()
+    del progress_bar
     torch.cuda.empty_cache()
     gc.collect()
 
@@ -273,6 +276,7 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     rmse.reset()
 
     accelerator.wait_for_everyone()
+    del progress_bar
     torch.cuda.empty_cache()
     gc.collect()
 
