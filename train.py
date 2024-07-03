@@ -16,6 +16,7 @@ import time
 import torchmetrics
 from utils.custom_losses import orientation_loss, bond_angles_loss, bond_lengths_loss, distance_map_loss
 from utils.custom_losses import MultiTaskLossWrapper
+import gc
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -122,15 +123,15 @@ def train_loop(net, train_loader, epoch, **kwargs):
             masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            rmse.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            gdtts.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
 
             # Gather the losses across all processes for logging (if we use distributed training).
-            avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
+            avg_rec_loss = accelerator.gather(rec_loss.detach().repeat(configs.train_settings.batch_size)).mean()
             train_rec_loss += avg_rec_loss.item() / accum_iter
 
-            avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
+            avg_cmt_loss = accelerator.gather(commit_loss.detach().repeat(configs.train_settings.batch_size)).mean()
             train_cmt_loss += avg_cmt_loss.item() / accum_iter
 
             train_total_loss = train_rec_loss + alpha * train_cmt_loss
@@ -143,7 +144,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
             scheduler.step()
 
         if accelerator.sync_gradients:
-            progress_bar.update(1)
+            if configs.tqdm_progress_bar:
+                progress_bar.update(1)
+
             global_step += 1
             counter += 1
 
@@ -165,22 +168,27 @@ def train_loop(net, train_loader, epoch, **kwargs):
             if configs.tensorboard_log:
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
 
-            progress_bar.set_description(f"epoch {epoch} "
-                                         + f"[loss: {total_loss / counter:.3f}, "
-                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
-
-        progress_bar.set_postfix(
-            {
-                "lr": optimizer.param_groups[0]['lr'],
-                "step_loss": loss.detach().item(),
-                "rec_loss": rec_loss.detach().item(),
-                "cmt_loss": commit_loss.detach().item(),
-                "auxilary_loss": auxilary_loss.detach().item() if auxilary_loss > 0 else 0,
-                "activation": indices.unique().numel() / codebook_size * 100,
-                "global_step": global_step
-            }
-        )
+            if configs.tqdm_progress_bar:
+                progress_bar.set_description(f"epoch {epoch} "
+                                             + f"[loss: {total_loss / counter:.3f}, "
+                                             + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                             + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+        if configs.tqdm_progress_bar:
+            progress_bar.set_postfix(
+                {
+                    "lr": optimizer.param_groups[0]['lr'],
+                    "step_loss": loss.detach().item(),
+                    "rec_loss": rec_loss.detach().item(),
+                    "cmt_loss": commit_loss.detach().item(),
+                    "auxilary_loss": auxilary_loss.detach().item() if auxilary_loss > 0 else 0,
+                    "activation": indices.unique().numel() / codebook_size * 100,
+                    "global_step": global_step
+                }
+            )
+        # Clear unused variables to avoid memory leakages
+        del data, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss
+        del auxilary_loss, auxilary_loss_list, masked_outputs, masked_labels, orientation_loss_value
+        del bond_angles_loss_value, bond_lengths_loss_value, distance_map_loss_value
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
@@ -227,6 +235,12 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "counter": counter,
         "global_step": global_step
     }
+
+    accelerator.wait_for_everyone()
+    del progress_bar
+    torch.cuda.empty_cache()
+    gc.collect()
+
     return return_dict
 
 
@@ -293,12 +307,13 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            rmse.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            gdtts.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            # lddt.update(accelerator.gather(masked_outputs.detach(), accelerator.gather(masked_labels.detach())
 
-        progress_bar.update(1)
+        if configs.tqdm_progress_bar:
+            progress_bar.update(1)
         counter += 1
 
         # Keep track of total combined loss, total reconstruction loss, and total commit loss
@@ -310,10 +325,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         total_bond_lengths_loss += bond_lengths_loss_value
         total_distance_map_loss += distance_map_loss_value
 
-        progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"[loss: {total_loss / counter:.3f}, "
-                                     + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                     + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+        if configs.tqdm_progress_bar:
+            progress_bar.set_description(f"validation epoch {epoch} "
+                                         + f"[loss: {total_loss / counter:.3f}, "
+                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
@@ -356,6 +372,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         # "lddt": lddt_score,
         "counter": counter,
     }
+
+    accelerator.wait_for_everyone()
+    del progress_bar
+    torch.cuda.empty_cache()
+    gc.collect()
+
     return return_dict
 
 
@@ -458,6 +480,9 @@ def main(dict_config, config_file_path):
                                            writer=train_writer, loss_wrapper=loss_wrapper)
         end_time = time.time()
         training_time = end_time - start_time
+        torch.cuda.empty_cache()
+        gc.collect()
+
         if accelerator.is_main_process:
             logging.info(
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
