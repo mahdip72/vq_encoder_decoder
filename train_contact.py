@@ -14,7 +14,7 @@ import os
 import time
 import torchmetrics
 from visualization.main import compute_visualization
-
+import gc
 
 # from ray import tune
 # from ray import train
@@ -99,7 +99,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
             scheduler.step()
 
         if accelerator.sync_gradients:
-            progress_bar.update(1)
+            if configs.tqdm_progress_bar:
+                progress_bar.update(1)
             global_step += 1
             counter += 1
 
@@ -113,24 +114,30 @@ def train_loop(model, train_loader, epoch, **kwargs):
             train_rec_loss = 0.0
             train_cmt_loss = 0.0
 
-            progress_bar.set_description(f"epoch {epoch} "
-                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+            if configs.tqdm_progress_bar:
+                progress_bar.set_description(f"epoch {epoch} "
+                                             + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                             + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
             # Add learning rate to TensorBoard for each global step
             if accelerator.is_main_process and configs.tensorboard_log:
                 train_writer.add_scalar('Train/Learning Rate', optimizer.param_groups[0]['lr'], global_step)
+                train_writer.flush()
 
-        progress_bar.set_postfix(
-            {
-                "lr": optimizer.param_groups[0]['lr'],
-                "step_loss": loss.detach().item(),
-                "rec_loss": rec_loss.detach().item(),
-                "cmt_loss": commit_loss.detach().item(),
-                "activation": indices.unique().numel() / codebook_size * 100,
-                "global_step": global_step
-            }
-        )
+        if configs.tqdm_progress_bar:
+            progress_bar.set_postfix(
+                {
+                    "lr": optimizer.param_groups[0]['lr'],
+                    "step_loss": loss.detach().item(),
+                    "rec_loss": rec_loss.detach().item(),
+                    "cmt_loss": commit_loss.detach().item(),
+                    "activation": indices.unique().numel() / codebook_size * 100,
+                    "global_step": global_step
+                }
+            )
+
+        # Clear unused variables
+        del data, cmaps, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
@@ -151,6 +158,10 @@ def train_loop(model, train_loader, epoch, **kwargs):
     # Reset the metrics for the next epoch
     mae.reset()
     rmse.reset()
+
+    accelerator.wait_for_everyone()
+    torch.cuda.empty_cache()
+    gc.collect()
 
     return return_dict
 
@@ -221,7 +232,9 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             valid_total_loss = valid_rec_loss + alpha * valid_cmt_loss
 
         # global_step += 1
-        progress_bar.update(1)
+        if configs.tqdm_progress_bar:
+            progress_bar.update(1)
+
         counter += 1
 
         # Keep track of total combined loss, total reconstruction loss, and total commit loss
@@ -234,9 +247,13 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
         valid_cmt_loss = 0.0
         valid_ce_loss = 0.0
 
-        progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                     + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+        if configs.tqdm_progress_bar:
+            progress_bar.set_description(f"validation epoch {epoch} "
+                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+
+        # Clear unused variables
+        del data, cmaps, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss
 
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
@@ -254,6 +271,10 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     # Reset the metrics for the next epoch
     mae.reset()
     rmse.reset()
+
+    accelerator.wait_for_everyone()
+    torch.cuda.empty_cache()
+    gc.collect()
 
     return return_dict
 
@@ -335,6 +356,7 @@ def main(dict_config, config_file_path):
         end_time = time.time()
         training_time = end_time - start_time
         torch.cuda.empty_cache()
+        gc.collect()
 
         if accelerator.is_main_process:
             logging.info(
