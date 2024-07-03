@@ -37,7 +37,7 @@ train_settings:
   num_epochs: 32
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 128
+  batch_size: 32
   num_workers: 8
   grad_accumulation: 1
 
@@ -52,7 +52,7 @@ valid_settings:
   data_path: /home/renjz/data/cath_4_3_0/
   do_every: 1
   shuffle: True
-  batch_size: 128
+  batch_size: 32
   num_workers: 8
 
 visualization_settings:
