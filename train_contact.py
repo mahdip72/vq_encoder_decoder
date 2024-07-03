@@ -15,14 +15,12 @@ import time
 import torchmetrics
 from visualization.main import compute_visualization
 import gc
-from memory_profiler import profile
 
 # from ray import tune
 # from ray import train
 # from ray.tune.schedulers import ASHAScheduler
 
 
-@profile
 def train_loop(model, train_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
