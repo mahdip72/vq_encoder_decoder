@@ -207,6 +207,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
+        writer.flush()
 
     # Reset the metrics for the next epoch
     mae.reset()
@@ -336,6 +337,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
         # writer.add_scalar('val_lddt', lddt_score, epoch)
+        writer.flush()
 
     # Reset the metrics for the next epoch
     mae.reset()
