@@ -314,17 +314,32 @@ class ContactMapDataset(Dataset):
         return output_dict
 
 
-def prepare_dataloaders(configs):
+def prepare_dataloaders(configs, inference=False):
     """
     Get a contact map data loader for the given PDB directory.
     Batch size = 1 because different proteins may have different numbers of residues.
     :param configs: configurations for contact map
     :return: train dataloader, validation dataloader, visualization dataloader
     """
+
+    threshold = configs.contact_map_settings.threshold
+
+    if inference:
+        # Load the train configs from the result directory
+        train_config_path = Path(configs.result_dir) / Path("config_vqvae_contact.yaml")
+        with open(train_config_path) as con_file:
+            train_config_file = yaml.full_load(con_file)
+        train_configs = load_configs(train_config_file)
+
+        inference_data = configs.data_path
+        inference_dataset = ContactMapDataset(inference_data, train_configs, threshold=threshold)
+        inference_dataloader = DataLoader(dataset=inference_dataset, batch_size=configs.batch_size,
+                                      shuffle=False, pin_memory=True)
+        return inference_dataloader
+
     train_data = configs.train_settings.data_path
     valid_data = configs.valid_settings.data_path
     visualization_data = configs.visualization_settings.data_path
-    threshold = configs.contact_map_settings.threshold
 
     # Make datasets
     train_dataset = ContactMapDataset(train_data, configs, threshold=threshold)
@@ -567,7 +582,6 @@ if __name__ == "__main__":
     #pdb_dir = "/media/mpngf/Samsung USB/PDB_files/Alphafold database/swissprot_pdb_v4/"
     #pdb_directory = "PDB_database"
     #pdb_directory = "../../data/swissprot_pdb_v4"
-
 
     config_path = "../configs/config_vqvae_contact.yaml"
 

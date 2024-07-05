@@ -81,12 +81,12 @@ def main(configs):
 
     net.to(accelerator.device)
 
-    train_dataloader,test_dataloader, vis_dataloader = prepare_dataloaders(configs)
+    inference_dataloader = prepare_dataloaders(configs, inference=True)
 
     with (torch.inference_mode()):
 
         # Initialize the progress bar using tqdm
-        progress_bar = tqdm(test_dataloader,
+        progress_bar = tqdm(inference_dataloader,
                             leave=False,
                             disable=not (accelerator.is_main_process and configs.tqdm_progress_bar))
 
