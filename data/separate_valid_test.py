@@ -3,6 +3,7 @@ import glob
 import shutil
 from sklearn.model_selection import train_test_split
 
+
 def split_and_copy_h5_files(source_directory, validation_directory, test_directory, validation_size):
     """
     Splits h5 files found in the source directory and its subdirectories into validation and test sets,
