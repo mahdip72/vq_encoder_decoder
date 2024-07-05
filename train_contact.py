@@ -72,10 +72,10 @@ def train_loop(model, train_loader, epoch, **kwargs):
             outputs, indices, commit_loss = model(cmaps)
 
             # Consider both reconstruction loss and commit loss
-            # rec_loss = torch.nn.functional.l1_loss(cmaps, outputs)
+            # rec_loss = torch.nn.functional.l1_loss(outputs, cmaps)
 
             # Binary cross entropy loss
-            rec_loss = bce(cmaps.reshape(-1, 1), outputs.reshape(-1, 1))
+            rec_loss = bce(outputs.reshape(-1, 1), cmaps.reshape(-1, 1))
 
             loss = rec_loss + alpha * commit_loss
 
@@ -212,10 +212,10 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             outputs = outputs.to(accelerator.device)
 
             # Consider both reconstruction loss and commit loss
-            # rec_loss = torch.nn.functional.l1_loss(cmaps, outputs)
+            # rec_loss = torch.nn.functional.l1_loss(outputs, cmaps)
 
             # Binary cross entropy loss
-            rec_loss = bce(cmaps.reshape(-1, 1), outputs.reshape(-1, 1))
+            rec_loss = bce(outputs.reshape(-1, 1), cmaps.reshape(-1, 1))
 
             loss = rec_loss + alpha * commit_loss
 
