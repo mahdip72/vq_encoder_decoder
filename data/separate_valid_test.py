@@ -18,7 +18,8 @@ def split_and_copy_h5_files(source_directory, validation_directory, test_directo
     h5_files = glob.glob(os.path.join(source_directory, '**', '*.h5'), recursive=True)
 
     # Split the files into validation and test sets based on the validation_size
-    validation_files, test_files = train_test_split(h5_files, train_size=validation_size, shuffle=True)
+    validation_files, test_files = train_test_split(h5_files, train_size=validation_size,
+                                                    shuffle=True, random_state=42)
 
     # Ensure the target directories exist
     os.makedirs(validation_directory, exist_ok=True)
