@@ -1,4 +1,4 @@
-checkpoint_dir: "results/2024-06-25__10-07-10/checkpoints/"
+result_dir: "results/2024-07-03__13-01-41/"
 batch_size: 1
 output_dir: "inference_results"
 tqdm_progress_bar: True

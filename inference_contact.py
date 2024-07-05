@@ -58,7 +58,14 @@ def write_codebook(codebook, write_file):
 
 def main(configs):
 
-    checkpoint_dir = configs.checkpoint_dir
+    # Load the train configs from the result directory
+    train_config_path = Path(configs.result_dir) / Path("config_vqvae_contact.yaml")
+    with open(train_config_path) as con_file:
+        train_config_file = yaml.full_load(con_file)
+    train_configs = load_configs(train_config_file)
+
+    # Get checkpoint directory
+    checkpoint_dir = Path(configs.result_dir) / Path("checkpoints")
 
     accelerator = Accelerator(
         mixed_precision=configs.train_settings.mixed_precision,
@@ -67,7 +74,7 @@ def main(configs):
 
     # Load the latest checkpoint in the checkpoint directory
     # Assume the latest checkpoint contains the best model (lowest loss)
-    net = prepare_models(configs, None, accelerator)
+    net = prepare_models(train_configs, None, accelerator)
     checkpoint_path = get_latest_checkpoint(checkpoint_dir)
     net = load_checkpoints_simple(checkpoint_path, net)
     print('Loaded model from', str(checkpoint_path))
