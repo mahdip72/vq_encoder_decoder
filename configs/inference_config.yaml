@@ -1,7 +1,9 @@
 result_dir: "results/2024-07-03__13-01-41/"
 data_path:  "/home/renjz/data/swissprot_1024_h5"
-batch_size: 1
 output_dir: "inference_results"
+batch_size: 1
+max_task_samples: 1000
+max_length: 128
 tqdm_progress_bar: True
 
 contact_map_settings:

@@ -87,9 +87,17 @@ class DistanceMapVQVAEDataset(Dataset):
     def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
         super(DistanceMapVQVAEDataset, self).__init__()
 
-        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+        if 'max_task_samples' in kwargs:
+            self.max_task_samples = kwargs['max_task_samples']
+        else:
+            self.max_task_samples = kwargs['configs'].train_settings.max_task_samples
 
-        self.max_length = kwargs['configs'].model.max_length
+        if 'max_length' in kwargs:
+            self.max_length = kwargs['max_length']
+        else:
+            self.max_length = kwargs['configs'].model.max_length
+
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:self.max_task_samples]
 
         self.train_mode = train_mode
 
@@ -292,7 +300,7 @@ class ContactMapDataset(Dataset):
     """
     Dataset for converting PDB or mmCIF protein files to contact maps.
     """
-    def __init__(self, data_path, configs, threshold=8):
+    def __init__(self, data_path, configs, threshold=8, inference_params=None):
         """
         :param pdb_dir: (string or Path) path to directory of PDB or mmCIF files
         :param threshold: (int) threshold distance for contacting residues
@@ -300,7 +308,12 @@ class ContactMapDataset(Dataset):
         self.data_path = str(data_path)
         self.threshold = threshold
 
-        self.dist_dataset = DistanceMapVQVAEDataset(self.data_path, configs=configs)
+        if inference_params is not None:
+            self.dist_dataset = DistanceMapVQVAEDataset(self.data_path, configs=configs,
+                                                        max_task_samples=inference_params['max_task_samples'],
+                                                        max_length=inference_params['max_length'])
+        else:
+            self.dist_dataset = DistanceMapVQVAEDataset(self.data_path, configs=configs)
 
     def __len__(self):
         return len(self.dist_dataset)
@@ -331,8 +344,11 @@ def prepare_dataloaders(configs, inference=False):
             train_config_file = yaml.full_load(con_file)
         train_configs = load_configs(train_config_file)
 
+        inference_params = {'max_task_samples': configs.max_task_samples,
+                            'max_length': configs.max_length}
+
         inference_data = configs.data_path
-        inference_dataset = ContactMapDataset(inference_data, train_configs, threshold=threshold)
+        inference_dataset = ContactMapDataset(inference_data, train_configs, threshold=threshold, inference_params=inference_params)
         inference_dataloader = DataLoader(dataset=inference_dataset, batch_size=configs.batch_size,
                                       shuffle=False, pin_memory=True)
         return inference_dataloader
