@@ -68,7 +68,7 @@ def main(configs):
     checkpoint_dir = Path(configs.result_dir) / Path("checkpoints")
 
     accelerator = Accelerator(
-        mixed_precision=configs.train_settings.mixed_precision,
+        mixed_precision=train_configs.train_settings.mixed_precision,
         dispatch_batches=False
     )
 
@@ -118,6 +118,7 @@ if __name__ == '__main__':
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
-    main_configs = load_configs(config_file)
+    # Convert the dictionary to a Box object for easier access to the values.
+    main_configs = Box(config_file)
 
     main(main_configs)

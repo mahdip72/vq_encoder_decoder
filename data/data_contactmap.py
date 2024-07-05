@@ -334,15 +334,14 @@ def prepare_dataloaders(configs, inference=False):
     :param configs: configurations for contact map
     :return: train dataloader, validation dataloader, visualization dataloader
     """
-
-    threshold = configs.contact_map_settings.threshold
-
     if inference:
         # Load the train configs from the result directory
         train_config_path = Path(configs.result_dir) / Path("config_vqvae_contact.yaml")
         with open(train_config_path) as con_file:
             train_config_file = yaml.full_load(con_file)
         train_configs = load_configs(train_config_file)
+
+        threshold = train_configs.contact_map_settings.threshold
 
         inference_params = {'max_task_samples': configs.max_task_samples,
                             'max_length': configs.max_length}
@@ -353,6 +352,7 @@ def prepare_dataloaders(configs, inference=False):
                                       shuffle=False, pin_memory=True)
         return inference_dataloader
 
+    threshold = configs.contact_map_settings.threshold
     train_data = configs.train_settings.data_path
     valid_data = configs.valid_settings.data_path
     visualization_data = configs.visualization_settings.data_path
