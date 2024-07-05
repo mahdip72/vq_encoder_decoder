@@ -97,7 +97,8 @@ def main(configs):
 
         with open(file_path, "w") as write_file:
             
-            for cmaps in progress_bar:
+            for data in progress_bar:
+                cmaps = data["input_contact_map"]
                 cmaps = cmaps.to(accelerator.device)
                 vq_output, indices, commit_loss = net(cmaps)
 
