@@ -80,8 +80,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Update the metrics
-            accuracy.update(accelerator.gather(outputs.detach()), accelerator.gather(cmaps.detach()))
-            f1_score.update(accelerator.gather(outputs.detach()), accelerator.gather(cmaps.detach()))
+            accuracy.update(accelerator.gather(outputs.detach()).reshape(-1, 1), accelerator.gather(cmaps.detach()).reshape(-1, 1))
+            f1_score.update(accelerator.gather(outputs.detach()).reshape(-1, 1), accelerator.gather(cmaps.detach()).reshape(-1, 1))
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.detach().repeat(configs.train_settings.batch_size)).mean()
@@ -220,8 +220,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Update the metrics
-            accuracy.update(accelerator.gather(outputs.detach()), accelerator.gather(cmaps.detach()))
-            f1_score.update(accelerator.gather(outputs.detach()), accelerator.gather(cmaps.detach()))
+            accuracy.update(accelerator.gather(outputs.detach()).reshape(-1, 1), accelerator.gather(cmaps.detach()).reshape(-1, 1))
+            f1_score.update(accelerator.gather(outputs.detach()).reshape(-1, 1), accelerator.gather(cmaps.detach()).reshape(-1, 1))
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.valid_settings.batch_size)).mean()
