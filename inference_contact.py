@@ -14,18 +14,6 @@ from torchvision.transforms import transforms
 from tqdm import tqdm
 
 
-def normalize_img(image):
-    """
-    Normalize image from [-1,1] to [0,255]
-    :param image: (tensor) image to transform
-    :return: (tensor) normalized image
-    """
-    transform = transforms.Compose([
-        transforms.Normalize((-1.0, -1.0, -1.0), (2.0, 2.0, 2.0))  # Normalize the images
-    ])
-    return (transform(image) * 255).type(torch.uint8)
-
-
 def get_latest_checkpoint(checkpoint_dir):
     """
     Determine the latest checkpoint in a directory of checkpoints.
