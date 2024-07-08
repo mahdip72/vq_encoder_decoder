@@ -100,13 +100,17 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
     Returns:
         None
     """
+    optimizer_name = kwargs['configs'].optimizer.name
+    optimizer = kwargs['optimizer']
+    if optimizer_name == 'schedulerfree':
+        optimizer.eval()
 
     # Save the models checkpoint.
     torch.save({
         'epoch': epoch,
         'model_state_dict': accelerator.unwrap_model(kwargs['net']).state_dict(),
         'optimizer_state_dict': accelerator.unwrap_model(kwargs['optimizer'].state_dict()),
-        'scheduler_state_dict': accelerator.unwrap_model(kwargs['scheduler'].state_dict()),
+        'scheduler_state_dict': accelerator.unwrap_model(kwargs['scheduler'].state_dict()) if optimizer_name != 'schedulerfree' else "schedulerfree",
     }, model_path)
 
 
@@ -206,7 +210,7 @@ def prepare_tensorboard(result_path):
 
 def prepare_optimizer(net, configs, num_train_samples, logging):
     optimizer, scheduler = load_opt(net, configs, logging)
-    if scheduler is None:
+    if scheduler is None and configs.optimizer.name.lower() != 'schedulerfree':
         whole_steps = np.ceil(
             num_train_samples / configs.train_settings.grad_accumulation
         ) * configs.train_settings.num_epochs / configs.optimizer.decay.num_restarts
@@ -219,6 +223,8 @@ def prepare_optimizer(net, configs, num_train_samples, logging):
             min_lr=configs.optimizer.decay.min_lr,
             warmup_steps=configs.optimizer.decay.warmup,
             gamma=configs.optimizer.decay.gamma)
+    else:
+        logging.info('Using scheduler free optimizer')
 
     return optimizer, scheduler
 
@@ -249,6 +255,13 @@ def load_opt(model, config, logging):
                 eps=float(config.optimizer.eps)
             )
 
+    elif config.optimizer.name.lower() == 'schedulerfree':
+        import schedulefree
+        opt = schedulefree.AdamWScheduleFree(model.parameters(), lr=float(config.optimizer.lr),
+                                             warmup_steps=config.optimizer.decay.warmup,
+                                             betas=(config.optimizer.beta_1, config.optimizer.beta_2),
+                                             weight_decay=float(config.optimizer.weight_decay),
+                                             eps=float(config.optimizer.eps))
     else:
         raise ValueError('wrong optimizer')
     return opt, scheduler

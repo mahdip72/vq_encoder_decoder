@@ -341,14 +341,20 @@ class VQVAEDataset(Dataset):
         return {'pid': pid, 'input_coords': coords}
 
 
-def compute_visualization(net, test_loader, result_path, configs, logging, accelerator, epoch):
+def compute_visualization(net, test_loader, result_path, configs, logging, accelerator, epoch, optimizer):
     plot_save_path = os.path.join(result_path, "tsne_plot")
     npz_path = os.path.join(result_path, "sequence_representations.npz")
 
-    if not os.path.exists(plot_save_path):
-        os.makedirs(plot_save_path)
+    if accelerator.is_main_process:
+        if not os.path.exists(plot_save_path):
+            os.makedirs(plot_save_path)
 
+    accelerator.wait_for_everyone()
     net.eval()
+    optimizer_name = configs.optimizer.name
+    if optimizer_name == 'schedulerfree':
+        optimizer.eval()
+
     representations = {'ids': [], 'rep': []}
     for batch in tqdm(test_loader, total=len(test_loader), desc="Computing representations", leave=False,
                       disable=not configs.tqdm_progress_bar):
@@ -356,10 +362,10 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
         pid = batch['pid']
         with torch.inference_mode():
             x, *_ = net(batch, return_vq_only=True)
-            x = x.cpu()
+            # x = x.cpu()
             if len(x.shape) == 3:
                 output = x.permute(0, 2, 1).squeeze()
-                output = output[batch['masks'].squeeze().cpu()]
+                output = output[batch['masks'].squeeze()]
             else:
                 output = x.squeeze()
                 # output = output[batch['masks'].squeeze().cpu()]
@@ -367,12 +373,16 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
 
             output = output.mean(dim=0)
             representations['ids'].append(pid[0])
-            representations['rep'].append(output.numpy())
+            representations['rep'].append(accelerator.gather(output).cpu().numpy())
 
-    np.savez_compressed(npz_path, **representations)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        np.savez_compressed(npz_path, **representations)
 
-    compute_plot(fasta_file=configs.visualization_settings.fasta_path, npz_file=npz_path,
-                 save_path=plot_save_path, epoch=epoch)
+        compute_plot(fasta_file=configs.visualization_settings.fasta_path, npz_file=npz_path,
+                     save_path=plot_save_path, epoch=epoch)
+
+    accelerator.wait_for_everyone()
 
 
 def main():
