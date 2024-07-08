@@ -231,7 +231,6 @@ def prepare_models(configs, logger, accelerator):
     # from torchsummary import summary
 
     vqvae = VQVAEResNet(
-        dim=configs.model.vector_quantization.dim,
         codebook_size=configs.model.vector_quantization.codebook_size,
         decay=configs.model.vector_quantization.decay,
         commitment_weight=configs.model.vector_quantization.commitment_weight,
