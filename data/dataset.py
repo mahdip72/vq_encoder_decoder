@@ -1120,13 +1120,13 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
                               shuffle=configs.train_settings.shuffle,
                               num_workers=configs.train_settings.num_workers,
                               # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
-                              pin_memory=False)
+                              pin_memory=True)
 
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
                               shuffle=False,
                               num_workers=configs.valid_settings.num_workers,
                               # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
-                              pin_memory=False)
+                              pin_memory=True)
 
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
                                       shuffle=False,
