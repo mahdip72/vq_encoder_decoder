@@ -6,6 +6,7 @@ from torch.nn import BCELoss
 from utils.utils import load_configs, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
+from utils.utils import print_trainable_parameters
 from accelerate import Accelerator
 from data.data_contactmap import prepare_dataloaders
 from models.vqvae_contact import prepare_models
@@ -327,6 +328,10 @@ def main(dict_config, config_file_path):
         net = torch.compile(net)
         if accelerator.is_main_process:
             logging.info('Finished compiling models')
+
+    # Print number of trainable parameters in the model
+    if accelerator.is_main_process:
+        print_trainable_parameters(net, logging, 'VQ-VAE')
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = None, None
