@@ -177,7 +177,7 @@ class VQVAEResNet(nn.Module):
         if not lfq:
             # Regular vector quantization
             self.vq_layer = VectorQuantize(
-                dim=self.d_model,
+                dim=self.vq_dim,
                 codebook_size=codebook_size,
                 decay=decay,
                 commitment_weight=commitment_weight,
