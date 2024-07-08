@@ -430,7 +430,7 @@ def main(dict_config, config_file_path):
 
                     if accelerator.is_main_process:
                         save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer,
-                                        scheduler=scheduler)
+                                        scheduler=scheduler, configs=configs)
                         logging.info(f'\tsaving the best models in {model_path}')
 
                 else:
@@ -443,8 +443,7 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
-            if accelerator.is_main_process:
-                compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
+            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch, optimizer)
 
     train_writer.close()
     valid_writer.close()
