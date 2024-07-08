@@ -16,10 +16,11 @@ contact_map_settings:
 model:
   compile_model: False
   num_layers: 4
-  max_length: 128
+  max_length: 256
 
   encoder:
     dim: 8
+    num_blocks: 5
 
   vector_quantization:
     dim: 16
@@ -31,6 +32,7 @@ model:
 
   decoder:
     dim: 8
+    num_blocks: 5
 
 train_settings:
   data_path: /home/renjz/data/cath_4_3_0/

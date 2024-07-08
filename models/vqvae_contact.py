@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
@@ -134,6 +135,7 @@ class ResidualBlock(nn.Module):
         x = self.relu(x)
         x = self.conv2(x)
         x = x + residual
+        return self.relu(x)
 
         return x
 
@@ -142,26 +144,35 @@ class VQVAEResNet(nn.Module):
     """
     A VQVAE model with residual CNNs for encoder and decoder
     """
-    def __init__(self, dim, codebook_size, decay, commitment_weight, lfq, configs):
+    def __init__(self, codebook_size, decay, commitment_weight, lfq, configs):
         super().__init__()
-        self.d_model = dim
-        self.num_layers = configs.model.num_layers
 
-        # enc_layers = get_layers(True, self.num_layers, configs)
-        # enc_layers.append(ResidualBlock(dim, dim))
+        self.num_encoder_blocks = configs.model.encoder.num_blocks
+        self.num_decoder_blocks = configs.model.decoder.num_blocks
+        self.vq_dim = configs.model.vector_quantization.dim
+        self.encoder_dim = self.vq_dim
+        self.decoder_dim = self.vq_dim
 
-        self.encoder_layers = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(),
+        start_dim = 1
+        dims = list(np.geomspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
+        encoder_blocks = []
+        prev_dim = start_dim
 
-            ResidualBlock(16, 16),
-            ResidualBlock(16, 16),
-            ResidualBlock(16, 16),
-            ResidualBlock(16, 16),
-            ResidualBlock(16, 16),
-            nn.ReLU(),
-        )
+        for i, dim in enumerate(dims):
+            block = nn.Sequential(
+                nn.Conv2d(prev_dim, dim, 3, padding=1),
+                ResidualBlock(dim, dim),
+                ResidualBlock(dim, dim),
+            )
+            encoder_blocks.append(block)
+            if i + 1 % 8 == 0:
+                pooling_block = nn.Sequential(
+                    nn.Conv2d(dim, dim, 3, stride=2, padding=1),
+                    nn.BatchNorm2d(dim),
+                    nn.ReLU())
+                encoder_blocks.append(pooling_block)
+            prev_dim = dim
+        self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
         if not lfq:
             # Regular vector quantization
@@ -179,34 +190,39 @@ class VQVAEResNet(nn.Module):
                 codebook_size=codebook_size
             )
 
-        # dec_layers = get_layers(False, self.num_layers, configs)
-        # dec_layers.append(ResidualBlock(3, 3))
+        dims = list(np.geomspace(start_dim, self.decoder_dim, self.num_decoder_blocks).astype(int))[::-1]
+        # Decoder
+        decoder_blocks = []
+        dims = dims + [dims[-1]]
+        for i, dim in enumerate(dims[:-1]):
+            if i + 1 % 8 == 0:
+                pooling_block = nn.Sequential(
+                    nn.Conv2d(dim, dim, 3, padding=1),
+                    nn.BatchNorm2d(dim),
+                    nn.ReLU())
+                decoder_blocks.append(pooling_block)
+            block = nn.Sequential(
+                ResidualBlock(dim, dim),
+                ResidualBlock(dim, dim),
+                nn.Conv2d(dim, dims[i + 1], 3, padding=1),
+            )
+            decoder_blocks.append(block)
 
-        self.decoder_layers = nn.Sequential(
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(1),
-            nn.ReLU(),
-
-            ResidualBlock(1,1),
-            ResidualBlock(1, 1),
-            ResidualBlock(1, 1),
-            ResidualBlock(1, 1),
-            ResidualBlock(1, 1),
-            nn.Sigmoid()
-        )
+        decoder_blocks.append(nn.Sequential(nn.Sigmoid()))
+        self.decoder_blocks = nn.Sequential(*decoder_blocks)
 
     def forward(self, x, return_vq_only=False):
 
         if type(x) == dict:
             x = x["input_contact_map"]
 
-        x = self.encoder_layers(x)
+        x = self.encoder_blocks(x)
         x, indices, commit_loss = self.vq_layer(x)
 
         if return_vq_only:
             return x, indices, commit_loss
 
-        x = self.decoder_layers(x)
+        x = self.decoder_blocks(x)
 
         return x, indices, commit_loss
 
