@@ -676,16 +676,19 @@ class VQVAEDataset(Dataset):
         return coords.view(original_shape)
 
     @staticmethod
-    def random_rotation_matrix():
+    def random_rotation_matrix(angle_range):
         """
         Creates a random 3D rotation matrix.
+
+        Parameters:
+            angle_range (float): The range of angles for the rotation matrix
 
         Returns:
             torch.Tensor: A 3x3 rotation matrix.
         """
-        theta = np.random.uniform(0, 2 * np.pi)
-        phi = np.random.uniform(0, 2 * np.pi)
-        psi = np.random.uniform(0, 2 * np.pi)
+        theta = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+        phi = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+        psi = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
 
         r_x = torch.Tensor([[1, 0, 0],
                             [0, np.cos(theta), -np.sin(theta)],
@@ -703,17 +706,18 @@ class VQVAEDataset(Dataset):
 
         return r
 
-    def rotate_coords(self, coords):
+    def rotate_coords(self, coords, angle_range: float = 0.8):
         """
         Rotates the coordinates using a random rotation matrix.
 
         Parameters:
             coords (torch.Tensor): The coordinates to rotate.
+            angle_range (float): The range of angles for the rotation matrix.
 
         Returns:
             torch.Tensor: The rotated coordinates.
         """
-        R = self.random_rotation_matrix()
+        R = self.random_rotation_matrix(angle_range)
         rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
 
         # Ensure orthogonality
@@ -770,7 +774,7 @@ class VQVAEDataset(Dataset):
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
         coords_tensor = self.processor.normalize_coords(coords_tensor)
 
-        if self.rotate_randomly and self.train_mode:
+        if self.rotate_randomly > 0 and self.train_mode:
             # Apply random rotation
             input_coords_tensor = self.rotate_coords(coords_tensor)
         else:
@@ -779,11 +783,11 @@ class VQVAEDataset(Dataset):
         # Merge the features and create a mask
         if self.add_features:
             # rbf_feature = self.compute_rdf(coords_tensor.reshape(-1, 3))
-            spherical_coords_feature = self.compute_spherical_coords(coords_tensor.reshape(-1, 3))
+            spherical_coords_feature = self.compute_spherical_coords(input_coords_tensor.reshape(-1, 3))
             # local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
 
             # rbf_feature = rbf_feature.reshape(1, coords_tensor.shape[0], -1)
-            spherical_coords_feature = spherical_coords_feature.reshape(1, coords_tensor.shape[0], -1)
+            spherical_coords_feature = spherical_coords_feature.reshape(1, input_coords_tensor.shape[0], -1)
             # local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
@@ -1105,7 +1109,8 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
         logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
-    train_dataset = VQVAEDataset(configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+    train_dataset = VQVAEDataset(configs.train_settings.data_path, train_mode=True,
+                                 rotate_randomly=configs.train_settings.rotate_randomly,
                                  configs=configs)
     valid_dataset = VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
     visualization_dataset = VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
