@@ -35,7 +35,7 @@ model:
     num_blocks: 4
 
 train_settings:
-  data_path: /home/renjz/data/cath_4_3_0/
+  data_path: /home/renjz/data/swissprot_1024_h5/
   num_epochs: 32
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
