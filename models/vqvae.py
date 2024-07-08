@@ -4,6 +4,104 @@ import numpy as np
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
 import torch.nn.functional as F
+import flash_attn
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.query = nn.Linear(embed_dim, embed_dim)
+        self.key = nn.Linear(embed_dim, embed_dim)
+        self.value = nn.Linear(embed_dim, embed_dim)
+        self.out = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        batch_size, seq_length, _ = x.size()
+        Q = self.query(x)
+        K = self.key(x)
+        V = self.value(x)
+
+        Q = Q.view(batch_size, seq_length, self.num_heads, self.head_dim)
+        K = K.view(batch_size, seq_length, self.num_heads, self.head_dim)
+        V = V.view(batch_size, seq_length, self.num_heads, self.head_dim)
+
+        # Use Flash Attention
+        attn_output = flash_attn.flash_attn_func(Q, K, V, dropout_p=self.dropout.p, causal=False)
+
+        # Merge heads
+        attn_output = attn_output.contiguous().view(batch_size, seq_length, self.embed_dim)
+        out = self.out(attn_output)
+        return out
+
+
+# class MultiHeadAttention(nn.Module):
+#     def __init__(self, embed_dim, num_heads):
+#         super(MultiHeadAttention, self).__init__()
+#         self.embed_dim = embed_dim
+#         self.num_heads = num_heads
+#         self.head_dim = embed_dim // num_heads
+#         assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+#
+#         self.query = nn.Linear(embed_dim, embed_dim)
+#         self.key = nn.Linear(embed_dim, embed_dim)
+#         self.value = nn.Linear(embed_dim, embed_dim)
+#         self.out = nn.Linear(embed_dim, embed_dim)
+#
+#     def forward(self, x):
+#         batch_size = x.size(0)
+#         Q = self.query(x)
+#         K = self.key(x)
+#         V = self.value(x)
+#
+#         Q = Q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+#         K = K.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+#         V = V.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+#
+#         scores = torch.matmul(Q, K.transpose(-2, -1)) / self.head_dim**0.5
+#         attention = torch.softmax(scores, dim=-1)
+#         context = torch.matmul(attention, V)
+#         context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)
+#         out = self.out(context)
+#         return out
+
+
+class FeedForward(nn.Module):
+    def __init__(self, embed_dim, ff_dim):
+        super(FeedForward, self).__init__()
+        self.fc1 = nn.Linear(embed_dim, ff_dim)
+        self.fc2 = nn.Linear(ff_dim, embed_dim)
+
+    def forward(self, x):
+        x = F.gelu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim, ff_dim, num_heads=4, dropout=0.0):
+        super(TransformerBlock, self).__init__()
+        self.attention = MultiHeadAttention(embed_dim, num_heads)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.ff = FeedForward(embed_dim, ff_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        attn_output = self.attention(x)
+        x = x + self.dropout(attn_output)
+        x = self.norm1(x)
+        ff_output = self.ff(x)
+        x = x + self.dropout(ff_output)
+        x = self.norm2(x)
+        x = x.permute(0, 2, 1)
+        return x
 
 
 class ConvNeXtBlock(nn.Module):
@@ -69,7 +167,11 @@ class VQVAE3DResNet(nn.Module):
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, start_dim, kernel_size=1),
-            nn.BatchNorm1d(start_dim),
+            TransformerBlock(start_dim, start_dim * 2),
+            TransformerBlock(start_dim, start_dim * 2),
+            # TransformerBlock(start_dim, start_dim * 2),
+            # TransformerBlock(start_dim, start_dim * 2),
+            # nn.BatchNorm1d(start_dim),
         )
 
         dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
@@ -78,30 +180,29 @@ class VQVAE3DResNet(nn.Module):
         for i, dim in enumerate(dims):
             block = nn.Sequential(
                 nn.Conv1d(prev_dim, dim, 3, padding=1),
-                ResidualBlock(dim, dim),
-                ResidualBlock(dim, dim),
+                ConvNeXtBlock(dim, dim, self.max_length),
+                ConvNeXtBlock(dim, dim, self.max_length),
             )
             encoder_blocks.append(block)
             if i + 1 % pooling_layer_every == 0:
                 print('Use pooling layer')
                 pooling_block = nn.Sequential(
                     nn.Conv1d(dim, dim, 3, stride=2, padding=1),
-                    nn.BatchNorm1d(dim),
+                    # nn.BatchNorm1d(dim),
                     nn.GELU())
                 encoder_blocks.append(pooling_block)
             prev_dim = dim
         self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
+        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+
         self.encoder_head = nn.Sequential(
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.GELU(),
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.GELU(),
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.GELU(),
+            # TransformerBlock(self.encoder_dim, self.encoder_dim*2),
+            # TransformerBlock(self.encoder_dim, self.encoder_dim*2),
+            # TransformerBlock(self.encoder_dim, self.encoder_dim*2),
+            # TransformerBlock(self.encoder_dim, self.encoder_dim*2),
+            TransformerBlock(self.encoder_dim, self.encoder_dim*2),
+            TransformerBlock(self.encoder_dim, self.encoder_dim*2),
             nn.Conv1d(self.encoder_dim, latent_dim, 1),
         )
 
@@ -112,21 +213,20 @@ class VQVAE3DResNet(nn.Module):
             decay=decay,
             commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
             orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
-            orthogonal_reg_max_codes=128,  # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+            orthogonal_reg_max_codes=256,  # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
             orthogonal_reg_active_codes_only=False  # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
         )
 
+        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+
         self.decoder_tail = nn.Sequential(
             nn.Conv1d(latent_dim, self.decoder_dim, 1),
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.GELU(),
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.GELU(),
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.GELU(),
+            TransformerBlock(self.decoder_dim, self.decoder_dim*2),
+            TransformerBlock(self.decoder_dim, self.decoder_dim*2),
+            # TransformerBlock(self.decoder_dim, self.decoder_dim*2),
+            # TransformerBlock(self.decoder_dim, self.decoder_dim*2),
+            # TransformerBlock(self.decoder_dim, self.decoder_dim*2),
+            # TransformerBlock(self.decoder_dim, self.decoder_dim*2),
         )
 
         dims = list(np.linspace(self.decoder_dim, start_dim, self.num_encoder_blocks).astype(int))
@@ -138,18 +238,22 @@ class VQVAE3DResNet(nn.Module):
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv1d(dim, dim, 3, padding=1),
-                    nn.BatchNorm1d(dim),
+                    # nn.BatchNorm1d(dim),
                     nn.GELU())
                 decoder_blocks.append(pooling_block)
             block = nn.Sequential(
-                ResidualBlock(dim, dim),
-                ResidualBlock(dim, dim),
+                ConvNeXtBlock(dim, dim, self.max_length),
+                ConvNeXtBlock(dim, dim, self.max_length),
                 nn.Conv1d(dim, dims[i + 1], 3, padding=1),
             )
             decoder_blocks.append(block)
         self.decoder_blocks = nn.Sequential(*decoder_blocks)
 
         self.decoder_head = nn.Sequential(
+            TransformerBlock(start_dim, start_dim * 2),
+            TransformerBlock(start_dim, start_dim * 2),
+            # TransformerBlock(start_dim, start_dim * 2),
+            # TransformerBlock(start_dim, start_dim * 2),
             nn.Conv1d(start_dim, 12, 1),
         )
 
@@ -158,6 +262,12 @@ class VQVAE3DResNet(nn.Module):
 
         x = self.encoder_tail(x)
         x = self.encoder_blocks(x)
+
+        # Apply positional encoding to encoder
+        x = x.permute(0, 2, 1)
+        x = x + self.pos_embed_encoder
+        x = x.permute(0, 2, 1)
+
         x = self.encoder_head(x)
 
         x = x.permute(0, 2, 1)
@@ -167,6 +277,10 @@ class VQVAE3DResNet(nn.Module):
         if return_vq_only:
             return x, indices, commit_loss
 
+        # Apply positional encoding to decoder
+        x = x.permute(0, 2, 1)
+        x = x + self.pos_embed_decoder
+        x = x.permute(0, 2, 1)
         x = self.decoder_tail(x)
         x = self.decoder_blocks(x)
         x = self.decoder_head(x)
