@@ -43,7 +43,7 @@ train_settings:
   num_workers: 8
   grad_accumulation: 1
 
-  max_task_samples: 100000
+  max_task_samples: 10000
   cutout:
     enable: False
     min_mask_size: 1
@@ -65,7 +65,7 @@ visualization_settings:
   num_workers: 2
 
 optimizer:
-  name: adam
+  name: schedulerfree
   lr: 0.0001
   weight_decouple: True
   weight_decay: 1e-2
