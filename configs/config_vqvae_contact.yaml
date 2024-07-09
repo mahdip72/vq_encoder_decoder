@@ -16,10 +16,11 @@ contact_map_settings:
 model:
   compile_model: False
   num_layers: 4
-  max_length: 128
+  max_length: 256
 
   encoder:
     dim: 8
+    num_blocks: 4
 
   vector_quantization:
     dim: 16
@@ -31,9 +32,10 @@ model:
 
   decoder:
     dim: 8
+    num_blocks: 4
 
 train_settings:
-  data_path: /home/renjz/data/cath_4_3_0/
+  data_path: /home/renjz/data/swissprot_1024_h5/
   num_epochs: 32
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
