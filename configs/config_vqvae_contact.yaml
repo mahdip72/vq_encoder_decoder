@@ -19,11 +19,11 @@ model:
   max_length: 256
 
   encoder:
-    dim: 8
+    dim: 64
     num_blocks: 4
 
   vector_quantization:
-    dim: 16
+    dim: 64
     codebook_size: 512
     decay: 0.9
     commitment_weight : 0.9
@@ -31,7 +31,7 @@ model:
     lfq: False
 
   decoder:
-    dim: 8
+    dim: 64
     num_blocks: 4
 
 train_settings:
@@ -66,7 +66,7 @@ visualization_settings:
 
 optimizer:
   name: adam
-  lr: 0.001
+  lr: 0.0001
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
