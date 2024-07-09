@@ -150,10 +150,19 @@ class VQVAEResNet(nn.Module):
         self.num_encoder_blocks = configs.model.encoder.num_blocks
         self.num_decoder_blocks = configs.model.decoder.num_blocks
         self.vq_dim = configs.model.vector_quantization.dim
-        self.encoder_dim = self.vq_dim
-        self.decoder_dim = self.vq_dim
+        self.encoder_dim = configs.model.encoder.dim
+        self.decoder_dim = configs.model.encoder.dim
 
-        start_dim = 1
+        start_dim = 4
+
+        # Encoder
+        self.encoder_tail = nn.Sequential(
+            nn.Conv2d(1, start_dim, kernel_size=1),
+            nn.Conv2d(start_dim, start_dim, kernel_size=3, padding=1),
+            nn.BatchNorm2d(start_dim),
+            nn.ReLU()
+        )
+
         dims = list(np.geomspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
         encoder_blocks = []
         prev_dim = start_dim
@@ -174,6 +183,18 @@ class VQVAEResNet(nn.Module):
             prev_dim = dim
         self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
+        self.encoder_head = nn.Sequential(
+            nn.Conv2d(self.encoder_dim, self.encoder_dim, 1),
+            nn.BatchNorm2d(self.encoder_dim),
+            nn.ReLU(),
+
+            nn.Conv2d(self.encoder_dim, self.encoder_dim, 1),
+            nn.BatchNorm2d(self.encoder_dim),
+            nn.ReLU(),
+
+            nn.Conv2d(self.encoder_dim, self.vq_dim, 1),
+        )
+
         if not lfq:
             # Regular vector quantization
             self.vq_layer = VectorQuantize(
@@ -189,6 +210,18 @@ class VQVAEResNet(nn.Module):
                 dim=self.d_model,
                 codebook_size=codebook_size
             )
+
+        self.decoder_tail = nn.Sequential(
+            nn.Conv2d(self.vq_dim, self.decoder_dim, 1),
+
+            nn.Conv2d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm2d(self.decoder_dim),
+            nn.ReLU(),
+
+            nn.Conv2d(self.decoder_dim, self.decoder_dim, 1),
+            nn.BatchNorm2d(self.decoder_dim),
+            nn.ReLU(),
+        )
 
         dims = list(np.geomspace(start_dim, self.decoder_dim, self.num_decoder_blocks).astype(int))[::-1]
         # Decoder
@@ -208,21 +241,30 @@ class VQVAEResNet(nn.Module):
             )
             decoder_blocks.append(block)
 
-        decoder_blocks.append(nn.Sequential(nn.Sigmoid()))
         self.decoder_blocks = nn.Sequential(*decoder_blocks)
+
+        self.decoder_head = nn.Sequential(
+            nn.Conv2d(start_dim, 1, 1),
+            nn.Sigmoid()
+        )
 
     def forward(self, x, return_vq_only=False):
 
         if type(x) == dict:
             x = x["input_contact_map"]
 
+        x = self.encoder_tail(x)
         x = self.encoder_blocks(x)
+        x = self.encoder_head(x)
+
         x, indices, commit_loss = self.vq_layer(x)
 
         if return_vq_only:
             return x, indices, commit_loss
 
+        x = self.decoder_tail(x)
         x = self.decoder_blocks(x)
+        x = self.decoder_head(x)
 
         return x, indices, commit_loss
 
