@@ -1,15 +1,12 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
 from vector_quantize_pytorch import VectorQuantize
 from vector_quantize_pytorch import LFQ
 from tqdm import tqdm
 
 import yaml
 from utils.utils import get_dummy_logger
-from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from box import Box
 
@@ -48,6 +45,7 @@ def add_encoder_layer(module_list, first_layer, last_layer, configs):
     module_list.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
     module_list.append(nn.BatchNorm2d(out_channels))
     module_list.append(nn.ReLU())
+
 
 def add_decoder_layer(module_list, first_layer, last_layer, configs):
     """
@@ -89,7 +87,6 @@ def add_decoder_layer(module_list, first_layer, last_layer, configs):
         module_list.append(nn.ReLU())
 
 
-
 def get_layers(encoder, num_layers, configs):
     """
     Get a list of layers for either the encoder or the decoder of a VQVAE model.
@@ -103,8 +100,8 @@ def get_layers(encoder, num_layers, configs):
 
     # Add layers to ModuleList
     for i in range(num_layers):
-        first_layer = False # Whether current layer is the first layer
-        last_layer = False # Whether current layer is the last layer
+        first_layer = False  # Whether current layer is the first layer
+        last_layer = False  # Whether current layer is the last layer
 
         if i == 0:
             first_layer = True
@@ -127,7 +124,6 @@ class ResidualBlock(nn.Module):
         self.relu = nn.ReLU()
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
-
     def forward(self, x):
         residual = x
         x = self.conv1(x)
@@ -136,8 +132,6 @@ class ResidualBlock(nn.Module):
         x = self.conv2(x)
         x = x + residual
         return self.relu(x)
-
-        return x
 
 
 class VQVAEResNet(nn.Module):
@@ -250,7 +244,7 @@ class VQVAEResNet(nn.Module):
 
     def forward(self, x, return_vq_only=False):
 
-        if type(x) == dict:
+        if isinstance(x, dict):
             x = x["input_contact_map"]
 
         x = self.encoder_tail(x)
@@ -308,6 +302,6 @@ if __name__ == "__main__":
         print(cmaps.size())
         x_test, indices_test, commit_loss_test = model(cmaps)
         print(cmaps[0].size(), x_test[0].size())
-        #assert cmaps[0].size() == torch.Size([3,32,32])
-        #assert x_test[0].size() == torch.Size([3,32,32])
+        # assert cmaps[0].size() == torch.Size([3,32,32])
+        # assert x_test[0].size() == torch.Size([3,32,32])
 
