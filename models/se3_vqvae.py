@@ -4,7 +4,75 @@ import numpy as np
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
 from se3_transformer_pytorch import SE3Transformer
+from equiformer_pytorch import Equiformer
 import torch.nn.functional as F
+import flash_attn
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.query = nn.Linear(embed_dim, embed_dim)
+        self.key = nn.Linear(embed_dim, embed_dim)
+        self.value = nn.Linear(embed_dim, embed_dim)
+        self.out = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        batch_size, seq_length, _ = x.size()
+        Q = self.query(x)
+        K = self.key(x)
+        V = self.value(x)
+
+        Q = Q.view(batch_size, seq_length, self.num_heads, self.head_dim)
+        K = K.view(batch_size, seq_length, self.num_heads, self.head_dim)
+        V = V.view(batch_size, seq_length, self.num_heads, self.head_dim)
+
+        # Use Flash Attention
+        attn_output = flash_attn.flash_attn_func(Q, K, V, dropout_p=self.dropout.p, causal=False)
+
+        # Merge heads
+        attn_output = attn_output.contiguous().view(batch_size, seq_length, self.embed_dim)
+        out = self.out(attn_output)
+        return out
+
+
+class FeedForward(nn.Module):
+    def __init__(self, embed_dim, ff_dim):
+        super(FeedForward, self).__init__()
+        self.fc1 = nn.Linear(embed_dim, ff_dim)
+        self.fc2 = nn.Linear(ff_dim, embed_dim)
+
+    def forward(self, x):
+        x = F.gelu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim, ff_dim, num_heads=4, dropout=0.0):
+        super(TransformerBlock, self).__init__()
+        self.attention = MultiHeadAttention(embed_dim, num_heads)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.ff = FeedForward(embed_dim, ff_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        attn_output = self.attention(x)
+        x = x + self.dropout(attn_output)
+        x = self.norm1(x)
+        ff_output = self.ff(x)
+        x = x + self.dropout(ff_output)
+        x = self.norm2(x)
+        x = x.permute(0, 2, 1)
+        return x
 
 
 class ResidualBlock(nn.Module):
@@ -23,21 +91,11 @@ class ResidualBlock(nn.Module):
         return F.relu(out)
 
 
-class SE3VQVAE3DResNet(nn.Module):
+class SE3VQVAE3DTransformer(nn.Module):
     def __init__(self, latent_dim, codebook_size, decay, configs):
-        super(SE3VQVAE3DResNet, self).__init__()
+        super(SE3VQVAE3DTransformer, self).__init__()
 
         self.max_length = configs.model.max_length
-
-        self.embedding = nn.Embedding(num_embeddings=5, embedding_dim=8, padding_idx=0)
-        self.se3_model = SE3Transformer(
-            dim=8,
-            heads=1,
-            depth=2,
-            dim_head=8,
-            num_degrees=1,
-            valid_radius=1
-        )
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.residual_encoder.num_blocks
@@ -45,134 +103,100 @@ class SE3VQVAE3DResNet(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        start_dim = 32
-        # Encoder
-        self.encoder_tail = nn.Sequential(
-            nn.Conv1d(32, start_dim, 1),
-            nn.BatchNorm1d(start_dim),
-            nn.ReLU()
+        # self.se3_model = SE3Transformer(
+        #     num_tokens=257,
+        #     dim=8,
+        #     heads=2,
+        #     depth=4,
+        #     dim_head=8,
+        #     num_degrees=1,
+        #     valid_radius=0.5
+        # )
+
+        self.se3_model = Equiformer(
+            num_tokens=257,
+            dim=(16, 16),  # dimensions per type, ascending, length must match number of degrees (num_degrees)
+            dim_head=(4, 4),  # dimension per attention head
+            heads=(4, 4),
+            num_linear_attn_heads=0,  # number of global linear attention heads, can see all the neighbors
+            num_degrees=2,  # number of degrees
+            depth=6,  # depth of equivariant transformer
+            attend_self=True,  # attending to self or not
+            reduce_dim_out=False,
+            reversible=True,
+            # whether to reduce out to dimension of 1, say for predicting new coordinates for type 1 features
+            l2_dist_attention=False  # set to False to try out MLP attention
         )
 
-        dims = list(np.linspace(start_dim, self.encoder_dim, self.num_encoder_blocks).astype(int))
+        input_shape = 8
+
+        # Encoder
+        self.encoder_tail = nn.Sequential(
+            nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
+            # TransformerBlock(start_dim, start_dim * 2),
+        )
+
         encoder_blocks = []
-        prev_dim = start_dim
-        for i, dim in enumerate(dims):
-            block = nn.Sequential(
-                nn.Conv1d(prev_dim, dim, 3, padding=1),
-                ResidualBlock(dim, dim),
-                ResidualBlock(dim, dim),
-            )
-            encoder_blocks.append(block)
-            if i + 1 % 16 == 0:
-                pooling_block = nn.Sequential(
-                    nn.Conv1d(dim, dim, 3, stride=2, padding=1),
-                    nn.BatchNorm1d(dim),
-                    nn.ReLU())
-                encoder_blocks.append(pooling_block)
-            prev_dim = dim
+        for i in range(self.num_encoder_blocks):
+            encoder_blocks.append(TransformerBlock(self.encoder_dim, self.encoder_dim * 2))
         self.encoder_blocks = nn.Sequential(*encoder_blocks)
 
+        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+
         self.encoder_head = nn.Sequential(
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU(),
-
             nn.Conv1d(self.encoder_dim, latent_dim, 1),
         )
 
+        # Vector Quantizer layer
         self.vector_quantizer = VectorQuantize(
             dim=latent_dim,
             codebook_size=codebook_size,
             decay=decay,
-            commitment_weight=1.0,
+            commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+            orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
+            orthogonal_reg_max_codes=512,
+            # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+            orthogonal_reg_active_codes_only=False
+            # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
         )
+
+        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
 
         self.decoder_tail = nn.Sequential(
             nn.Conv1d(latent_dim, self.decoder_dim, 1),
-
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
         )
 
-        dims = list(np.linspace(self.decoder_dim, start_dim, self.num_encoder_blocks).astype(int))
         # Decoder
         decoder_blocks = []
-        dims = dims + [dims[-1]]
-        for i, dim in enumerate(dims[:-1]):
-            if i + 1 % 16 == 0:
-                pooling_block = nn.Sequential(
-                    nn.Upsample(scale_factor=2),
-                    nn.Conv1d(dim, dim, 3, padding=1),
-                    nn.BatchNorm1d(dim),
-                    nn.ReLU())
-                decoder_blocks.append(pooling_block)
-            block = nn.Sequential(
-                ResidualBlock(dim, dim),
-                ResidualBlock(dim, dim),
-                nn.Conv1d(dim, dims[i + 1], 3, padding=1),
-            )
-            decoder_blocks.append(block)
+        for i in range(self.num_decoder_blocks):
+            decoder_blocks.append(TransformerBlock(self.decoder_dim, self.decoder_dim * 2))
         self.decoder_blocks = nn.Sequential(*decoder_blocks)
 
         self.decoder_head = nn.Sequential(
-            nn.Conv1d(start_dim, 12, 1),
-            nn.BatchNorm1d(12),
-            nn.ReLU(),
+            ResidualBlock(self.decoder_dim, self.decoder_dim),
+            ResidualBlock(self.decoder_dim, self.decoder_dim),
+            nn.Conv1d(self.decoder_dim, 12, 1),
         )
 
-    @staticmethod
-    def create_atoms_tensor_with_mask(x, mask):
-        """
-        Create an atom tensor and apply the mask to replace masked regions with 0.
-
-        Parameters:
-        - x (torch.Tensor): The input tensor with shape (batch_size, num_amino_acids, 12)
-        - mask (torch.Tensor): The input mask tensor with shape (batch_size, num_amino_acids)
-
-        Returns:
-        - torch.Tensor: The resulting atom tensor with shape (batch_size, num_amino_acids * 4)
-        """
-        batch_size, num_amino_acids, _ = x.shape
-
-        # Create a tensor of numbers 1, 2, 3, 4 repeated for each amino acid
-        atoms_sequence = torch.tensor([1, 2, 3, 4])
-
-        # Repeat this sequence for each amino acid and then expand it for the entire batch
-        atoms_per_amino_tensor = atoms_sequence.repeat(num_amino_acids)
-
-        # Expand this sequence for the entire batch
-        atoms_tensor = atoms_per_amino_tensor.repeat(batch_size, 1)
-
-        # Repeat each element in the mask tensor 4 times along the row
-        expanded_mask = mask.repeat_interleave(4, dim=1)
-
-        # Replace masked regions with 0 in the atoms tensor
-        atoms_tensor[expanded_mask == False] = 0
-
-        return atoms_tensor
-
     def forward(self, batch, return_vq_only=False):
-        initial_x = batch['input_coords']
+        initial_x = batch['input_coords'][..., 3:6]
         mask = batch['masks']
-        reshape_x = initial_x.reshape(-1, self.max_length * 4, 3)
-        reshape_mask = mask.repeat_interleave(4, dim=1)
-        feats = self.create_atoms_tensor_with_mask(initial_x, mask)
-        feats = self.embedding(feats)
-        x = self.se3_model(feats, reshape_x, reshape_mask)
-        x = x.reshape(initial_x.shape[0], self.max_length, -1)
+        feats = torch.tensor(range(1, self.max_length+1)).reshape(1, self.max_length).to(initial_x.device)
+        feats = feats.repeat_interleave(mask.shape[0], dim=0)
+        x = self.se3_model(feats, initial_x, mask)
+
+        x = x.type0
+
         x = x.permute(0, 2, 1)
 
         x = self.encoder_tail(x)
         x = self.encoder_blocks(x)
+
+        # Apply positional encoding to encoder
+        x = x.permute(0, 2, 1)
+        x = x + self.pos_embed_encoder
+        x = x.permute(0, 2, 1)
+
         x = self.encoder_head(x)
 
         x = x.permute(0, 2, 1)
@@ -182,6 +206,10 @@ class SE3VQVAE3DResNet(nn.Module):
         if return_vq_only:
             return x, indices, commit_loss
 
+        # Apply positional encoding to decoder
+        x = x.permute(0, 2, 1)
+        x = x + self.pos_embed_decoder
+        x = x.permute(0, 2, 1)
         x = self.decoder_tail(x)
         x = self.decoder_blocks(x)
         x = self.decoder_head(x)
@@ -191,13 +219,12 @@ class SE3VQVAE3DResNet(nn.Module):
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
-    vqvae = SE3VQVAE3DResNet(
+    vqvae = SE3VQVAE3DTransformer(
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
     )
-
     if accelerator.is_main_process:
         print_trainable_parameters(vqvae, logger, 'VQ-VAE')
 
