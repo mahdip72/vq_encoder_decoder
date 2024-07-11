@@ -14,7 +14,7 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
-from utils.custom_losses import orientation_loss, bond_angles_loss, bond_lengths_loss, distance_map_loss
+from utils.custom_losses import distance_map_loss
 from utils.custom_losses import MultiTaskLossWrapper
 import gc
 
