@@ -159,20 +159,20 @@ class SE3VQVAE3DTransformer(nn.Module):
             num_tokens=self.max_length+1,
             num_positions=self.max_length,
             # unless what you are passing in is an unordered set, set this to the maximum sequence length
-            dim=32,
+            dim=128,
             # m_dim=64,
-            depth=3,
+            depth=1,
             global_linear_attn_every=1,
             global_linear_attn_heads=8,
             global_linear_attn_dim_head=32,
             # norm_feats=True,  # whether to layernorm the features
-            norm_coors=True,
+            # norm_coors=True,
             # whether to normalize the coordinates, using a strategy from the SE(3) Transformers paper
             # num_nearest_neighbors=4,
             # coor_weights_clamp_value=0.2
             # absolute clamped value for the coordinate weights, needed if you increase the num neareest neighbors
         )
-        input_shape = 32
+        input_shape = 128
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
@@ -197,10 +197,10 @@ class SE3VQVAE3DTransformer(nn.Module):
             codebook_size=codebook_size,
             decay=decay,
             commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
-            orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
-            orthogonal_reg_max_codes=512,
+            # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
+            # orthogonal_reg_max_codes=512,
             # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
-            orthogonal_reg_active_codes_only=False
+            # orthogonal_reg_active_codes_only=False
             # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
         )
 
