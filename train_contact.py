@@ -29,6 +29,7 @@ def train_loop(model, train_loader, epoch, **kwargs):
     scheduler = kwargs.pop('scheduler')
     train_writer = kwargs.pop('train_writer')
     configs = kwargs.pop('configs')
+    optimizer_name = configs.optimizer.name
     alpha = configs.model.vector_quantization.alpha
     codebook_size = configs.model.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
@@ -64,6 +65,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
     # Training loop
     model.train()
+    if optimizer_name == 'schedulerfree':
+        optimizer.train()
     for data in train_loader:
         cmaps = data["input_contact_map"]
 
@@ -95,10 +98,13 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
-
-            optimizer.step()
-            scheduler.step()
+                if optimizer_name != 'schedulerfree':
+                    accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
+            if optimizer_name != 'schedulerfree':
+                optimizer.step()
+                scheduler.step()
+            else:
+                optimizer.step()
 
         if accelerator.sync_gradients:
             if configs.tqdm_progress_bar:
@@ -173,6 +179,7 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
     configs = kwargs.pop('configs')
+    optimizer_name = configs.optimizer.name
     alpha = configs.model.vector_quantization.alpha
     accum_iter = configs.train_settings.grad_accumulation
 
@@ -203,6 +210,8 @@ def valid_loop(model, valid_loader, epoch, **kwargs):
 
     # Validation loop
     model.eval()
+    if optimizer_name != 'schedulerfree':
+        optimizer.eval()
     for data in valid_loader:
         cmaps = data["input_contact_map"]
 
