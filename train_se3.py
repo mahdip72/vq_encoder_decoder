@@ -17,7 +17,6 @@ import torchmetrics
 from utils.custom_losses import distance_map_loss
 from utils.custom_losses import MultiTaskLossWrapper
 import gc
-
 import torch
 
 
@@ -38,6 +37,14 @@ def create_batch_distance_map(coords):
     distance_map = torch.sqrt((diff ** 2).sum(-1))
 
     return distance_map
+
+
+def apply_pca(processor, coords):
+    s = []
+    for coord in coords:
+        s.append(processor.apply_pca(coord))
+
+    return torch.stack(s)
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -252,6 +259,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
             outputs = batch_distance_map_to_coordinates(outputs).to(accelerator.device)
             # outputs = outputs.reshape(outputs.shape[0], -1, 3)
+
+            # Apply PCA to the coordinates
+            outputs = apply_pca(processor, outputs.detach())
+            target_coordinates_labels = apply_pca(processor, target_coordinates_labels.detach())
 
             # Compute the loss
             masked_outputs = outputs[masks]
