@@ -88,20 +88,20 @@ def compute_distance_map(coordinates):
     return distance_map
 
 
-def distance_map_loss(predicted_coords, real_coords):
+def distance_map_loss(predicted_coords, real_distance_map):
     """
     Compute the distance map loss between the predicted and real coordinates.
 
     Args:
         predicted_coords (torch.Tensor): A tensor of shape (N, 3) representing the predicted coordinates.
-        real_coords (torch.Tensor): A tensor of shape (N, 3) representing the true coordinates.
+        real_distance_map (torch.Tensor): A tensor of shape (N, N) representing the real distance map.
 
     Returns:
         torch.Tensor: The computed distance map loss.
     """
     # Compute the distance maps
     predicted_distance_map = compute_distance_map(predicted_coords)
-    real_distance_map = compute_distance_map(real_coords)
+    # real_distance_map = compute_distance_map(real_coords)
 
     # Define the loss as the L2 difference between the distance maps
     loss = torch.nn.functional.mse_loss(predicted_distance_map, real_distance_map)
