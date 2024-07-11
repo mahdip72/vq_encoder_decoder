@@ -1,5 +1,6 @@
 from pathlib import Path
 from scipy.spatial import procrustes
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import MeanAbsoluteError
@@ -159,6 +160,45 @@ def prepare_dataloaders(configs):
     return dataloader
 
 
+def custom_procrustes(x, y):
+    """
+    Procrustes analysis to transform y to best fit x without modifying x.
+    :param x: target coordinates (NxD)
+    :param y: reconstructed coordinates (NxD)
+    """
+    # Center the matrices
+    x_mean = x.mean(axis=0)
+    y_mean = y.mean(axis=0)
+    x_centered = (x - x_mean).numpy()
+    y_centered = (y - y_mean).numpy()
+
+    # Compute the covariance matrix
+    covariance_matrix = np.dot(x_centered.T, y_centered)
+
+    # Singular Value Decomposition (SVD)
+    U, S, Vt = np.linalg.svd(covariance_matrix)
+
+    # Compute the rotation matrix
+    R = np.dot(U, Vt)
+
+    # Compute the scaling factor
+    scale = np.sum(S) / np.sum(y_centered ** 2)
+
+    # Transform y
+    y_transformed = scale * np.dot(y_centered, R)
+    y_transformed = torch.from_numpy(y_transformed)
+
+    # Translate y to match the mean of x
+    y_transformed += x_mean
+    y_transformed = y_transformed.numpy()
+
+    # Compute the disparity
+    squared_error = ((x - y_transformed) ** 2).numpy()
+    disparity = np.sum(squared_error)
+
+    return y_transformed, disparity
+
+
 if __name__ == "__main__":
 
     config_path = "configs/config_distance_map_vqvae.yaml"
@@ -203,9 +243,14 @@ if __name__ == "__main__":
 
         # Perform Procrustes analysis on coordinates
         for i in range(len(target_coords)):
-            new_target, new_rec, disparity = procrustes(target_coords[i], rec_coords[i])
-            target_coords[i] = torch.tensor(new_target)
+            # new_target, new_rec, disparity = procrustes(target_coords[i], rec_coords[i])
+            # target_coords[i] = torch.tensor(new_target)
+
+            new_rec, disparity = custom_procrustes(target_coords[i], rec_coords[i])
             rec_coords[i] = torch.tensor(new_rec)
+            print(target_coords[i])
+            print(new_rec)
+            exit()
 
         # Calculate mean absolute error between reconstructed and target coordinates
         mae.update(rec_coords, target_coords)
