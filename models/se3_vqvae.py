@@ -3,8 +3,9 @@ import torch
 import numpy as np
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
-from se3_transformer_pytorch import SE3Transformer
-from equiformer_pytorch import Equiformer
+# from se3_transformer_pytorch import SE3Transformer
+# from equiformer_pytorch import Equiformer
+from egnn_pytorch import EGNN_Network
 import torch.nn.functional as F
 import flash_attn
 
@@ -91,6 +92,29 @@ class ResidualBlock(nn.Module):
         return F.relu(out)
 
 
+class ConvNeXtBlock(nn.Module):
+    def __init__(self, input_dim, hidden_dim, sequence_length):
+        super(ConvNeXtBlock, self).__init__()
+        self.dw_conv = nn.Conv1d(input_dim, input_dim, kernel_size=7, padding=3,
+                                 groups=input_dim)  # Depthwise convolution
+        self.norm = nn.LayerNorm([sequence_length, input_dim])
+        self.pw_conv1 = nn.Conv1d(input_dim, hidden_dim, kernel_size=1)  # Pointwise convolution
+        self.gelu = nn.GELU()
+        self.pw_conv2 = nn.Conv1d(hidden_dim, input_dim, kernel_size=1)  # Pointwise convolution
+
+    def forward(self, x):
+        residual = x
+        out = self.dw_conv(x)
+        out = out.permute(0, 2, 1)  # Change to (batch, sequence, channels) for LayerNorm
+        out = self.norm(out)
+        out = out.permute(0, 2, 1)  # Change back to (batch, channels, sequence)
+        out = self.pw_conv1(out)
+        out = self.gelu(out)
+        out = self.pw_conv2(out)
+        out += residual
+        return out
+
+
 class SE3VQVAE3DTransformer(nn.Module):
     def __init__(self, latent_dim, codebook_size, decay, configs):
         super(SE3VQVAE3DTransformer, self).__init__()
@@ -113,26 +137,46 @@ class SE3VQVAE3DTransformer(nn.Module):
         #     valid_radius=0.5
         # )
 
-        self.se3_model = Equiformer(
-            num_tokens=257,
-            dim=(16, 16),  # dimensions per type, ascending, length must match number of degrees (num_degrees)
-            dim_head=(4, 4),  # dimension per attention head
-            heads=(4, 4),
-            num_linear_attn_heads=0,  # number of global linear attention heads, can see all the neighbors
-            num_degrees=2,  # number of degrees
-            depth=6,  # depth of equivariant transformer
-            attend_self=True,  # attending to self or not
-            reduce_dim_out=False,
-            reversible=True,
-            # whether to reduce out to dimension of 1, say for predicting new coordinates for type 1 features
-            l2_dist_attention=False  # set to False to try out MLP attention
+        # self.se3_model = Equiformer(
+        #     num_tokens=self.max_length+1,
+        #     dim=(8, 8),  # dimensions per type, ascending, length must match number of degrees (num_degrees)
+        #     dim_head=(8, 8),  # dimension per attention head
+        #     heads=(4, 4),
+        #     num_linear_attn_heads=0,  # number of global linear attention heads, can see all the neighbors
+        #     num_degrees=2,  # number of degrees
+        #     depth=3,  # depth of equivariant transformer
+        #     attend_self=True,  # attending to self or not
+        #     reduce_dim_out=False,
+        #     single_headed_kv=True,
+        #     reversible=False,
+        #     # whether to reduce out to dimension of 1, say for predicting new coordinates for type 1 features
+        #     l2_dist_attention=False  # set to False to try out MLP attention
+        # )
+
+        # self.embedding_encoder = nn.Embedding(num_embeddings=self.max_length+1, embedding_dim=128, padding_idx=0)
+
+        self.se3_model = EGNN_Network(
+            num_tokens=self.max_length+1,
+            num_positions=self.max_length,
+            # unless what you are passing in is an unordered set, set this to the maximum sequence length
+            dim=32,
+            # m_dim=64,
+            depth=3,
+            global_linear_attn_every=1,
+            global_linear_attn_heads=8,
+            global_linear_attn_dim_head=32,
+            # norm_feats=True,  # whether to layernorm the features
+            norm_coors=True,
+            # whether to normalize the coordinates, using a strategy from the SE(3) Transformers paper
+            # num_nearest_neighbors=4,
+            # coor_weights_clamp_value=0.2
+            # absolute clamped value for the coordinate weights, needed if you increase the num neareest neighbors
         )
-
-        input_shape = 8
-
+        input_shape = 32
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
+            ResidualBlock(self.encoder_dim, self.encoder_dim),
             # TransformerBlock(start_dim, start_dim * 2),
         )
 
@@ -175,7 +219,7 @@ class SE3VQVAE3DTransformer(nn.Module):
         self.decoder_head = nn.Sequential(
             ResidualBlock(self.decoder_dim, self.decoder_dim),
             ResidualBlock(self.decoder_dim, self.decoder_dim),
-            nn.Conv1d(self.decoder_dim, 12, 1),
+            nn.Conv1d(self.decoder_dim, 3, 1),
         )
 
     def forward(self, batch, return_vq_only=False):
@@ -185,7 +229,7 @@ class SE3VQVAE3DTransformer(nn.Module):
         feats = feats.repeat_interleave(mask.shape[0], dim=0)
         x = self.se3_model(feats, initial_x, mask)
 
-        x = x.type0
+        x = x[0]
 
         x = x.permute(0, 2, 1)
 
