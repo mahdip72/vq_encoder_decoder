@@ -7,7 +7,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
-from utils.metrics import GDTTS, LDDT
+from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
@@ -47,11 +47,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
     configs = kwargs.pop('configs')
     optimizer_name = configs.optimizer.name
     writer = kwargs.pop('writer')
-    loss_wrapper = kwargs.pop('loss_wrapper')
     alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
-    auxilary_coeff = configs.auxiliary_loss.coefficient
 
     # Prepare metrics for evaluation
     rmse = torchmetrics.MeanSquaredError(squared=False)
@@ -75,11 +73,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    total_auxilary_loss = 0.0
-    total_orientation_loss = 0.0
-    total_bond_angles_loss = 0.0
-    total_bond_lengths_loss = 0.0
-    total_distance_map_loss = 0.0
     total_activation = 0.0
     counter = 0
     global_step = kwargs.get('global_step', 0)
@@ -94,63 +87,16 @@ def train_loop(net, train_loader, epoch, **kwargs):
         optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
-            labels = data['target_coords']
-            masks = data['masks']
+            labels = data['target_distance_map']
+            # masks = data['masks']
+
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
             # Compute the loss
-            masked_outputs = outputs[masks]
-            masked_labels = labels[masks]
-            # rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
             rec_loss = distance_map_loss(outputs, labels)
 
             loss = rec_loss + alpha * commit_loss
-
-            # Compute the auxiliary losses
-            auxilary_loss_list = []
-
-            orientation_loss_value = orientation_loss(masked_outputs, masked_labels)
-            if configs.auxiliary_loss.orientation:
-                auxilary_loss_list.append(orientation_loss_value)
-            else:
-                orientation_loss_value = orientation_loss_value.detach()
-
-            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
-                                                      labels.reshape(-1, labels.shape[1], 4, 3), masks)
-            if configs.auxiliary_loss.bond_angles:
-                auxilary_loss_list.append(bond_angles_loss_value)
-            else:
-                bond_angles_loss_value = bond_angles_loss_value.detach()
-
-            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
-                                                        labels.reshape(-1, labels.shape[1], 4, 3), masks)
-            if configs.auxiliary_loss.bond_lengths:
-                auxilary_loss_list.append(bond_lengths_loss_value)
-            else:
-                bond_lengths_loss_value = bond_lengths_loss_value.detach()
-
-            distance_map_loss_value = distance_map_loss(outputs, labels)
-            if configs.auxiliary_loss.distance_map:
-                auxilary_loss_list.append(distance_map_loss_value)
-            else:
-                distance_map_loss_value = distance_map_loss_value.detach()
-
-            if len(auxilary_loss_list) > 0:
-                # Combine auxiliary losses using the loss wrapper
-                auxilary_loss = loss_wrapper(auxilary_loss_list) * auxilary_coeff
-                loss += auxilary_loss
-            else:
-                auxilary_loss = 0
-
-            # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
-
-            # Update the metrics
-            mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
-            rmse.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
-            gdtts.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.detach().repeat(configs.train_settings.batch_size)).mean()
@@ -183,11 +129,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
-            total_auxilary_loss += auxilary_loss
-            total_orientation_loss += orientation_loss_value
-            total_bond_angles_loss += bond_angles_loss_value
-            total_bond_lengths_loss += bond_lengths_loss_value
-            total_distance_map_loss += distance_map_loss_value
             total_activation += indices.unique().numel() / codebook_size
 
             train_total_loss = 0.0
@@ -209,27 +150,16 @@ def train_loop(net, train_loader, epoch, **kwargs):
                     "step_loss": loss.detach().item(),
                     "rec_loss": rec_loss.detach().item(),
                     "cmt_loss": commit_loss.detach().item(),
-                    "auxilary_loss": auxilary_loss.detach().item() if auxilary_loss > 0 else 0,
                     "activation": indices.unique().numel() / codebook_size * 100,
                     "global_step": global_step
                 }
             )
         # Clear unused variables to avoid memory leakages
         del data, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss
-        del auxilary_loss, auxilary_loss_list, masked_outputs, masked_labels, orientation_loss_value
-        del bond_angles_loss_value, bond_lengths_loss_value, distance_map_loss_value
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    avg_auxilary_loss = total_auxilary_loss / counter
-    avg_orientation_loss = total_orientation_loss / counter
-    avg_bond_angles_loss = total_bond_angles_loss / counter
-    avg_bond_lengths_loss = total_bond_lengths_loss / counter
-    avg_distance_map_loss = total_distance_map_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmse = rmse.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
@@ -237,9 +167,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
         writer.flush()
@@ -252,14 +179,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
-        "auxilary_loss": avg_auxilary_loss,
-        "orientation_loss": avg_orientation_loss,
-        "bond_angles_loss": avg_bond_angles_loss,
-        "bond_lengths_loss": avg_bond_lengths_loss,
-        "distance_map_loss": avg_distance_map_loss,
-        "denormalized_rec_mae": denormalized_rec_mae,
-        "denormalized_rec_rmse": denormalized_rec_rmse,
-        "gdtts": gdtts_score,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
@@ -298,13 +217,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     optimizer.zero_grad()
 
-    total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    total_orientation_loss = 0.0
-    total_bond_angles_loss = 0.0
-    total_bond_lengths_loss = 0.0
-    total_distance_map_loss = 0.0
     counter = 0
 
     # Initialize the progress bar using tqdm
@@ -317,26 +231,35 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
-            labels = data['target_coords']
+            target_coordinates_labels = data['target_coords']
+            labels = data['target_distance_map']
+
             masks = data['masks']
+
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
+            rec_loss = distance_map_loss(outputs, labels)
+
+            # Create the distance map for the outputs
+            outputs = create_batch_distance_map(outputs)
+
+            # Denormalize the distance maps of outputs and labels
+            outputs = processor.denormalize_distance_map(outputs)
+            # labels = processor.denormalize_distance_map(labels)
+
+            # Convert the distance maps to 3D coordinates using MDS algorithm
+            # labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
+            outputs = batch_distance_map_to_coordinates(outputs).to(accelerator.device)
+            # outputs = outputs.reshape(outputs.shape[0], -1, 3)
+
             # Compute the loss
             masked_outputs = outputs[masks]
-            masked_labels = labels[masks]
-            rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
-            orientation_loss_value = orientation_loss(masked_outputs, masked_labels).detach()
-            bond_angles_loss_value = bond_angles_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
-                                                      labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
-            bond_lengths_loss_value = bond_lengths_loss(outputs.reshape(-1, labels.shape[1], 4, 3),
-                                                        labels.reshape(-1, labels.shape[1], 4, 3), masks).detach()
-            distance_map_loss_value = distance_map_loss(outputs, labels).detach()
-            loss = rec_loss + alpha * commit_loss
+            masked_labels = target_coordinates_labels[masks]
 
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
@@ -349,27 +272,16 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         counter += 1
 
         # Keep track of total combined loss, total reconstruction loss, and total commit loss
-        total_loss += loss.item()
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
-        total_orientation_loss += orientation_loss_value
-        total_bond_angles_loss += bond_angles_loss_value
-        total_bond_lengths_loss += bond_lengths_loss_value
-        total_distance_map_loss += distance_map_loss_value
 
         if configs.tqdm_progress_bar:
             progress_bar.set_description(f"validation epoch {epoch} "
-                                         + f"[loss: {total_loss / counter:.3f}, "
                                          + f"rec loss: {total_rec_loss / counter:.3f}, "
                                          + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
     # Compute average losses and metrics
-    avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    avg_orientation_loss = total_orientation_loss / counter
-    avg_bond_angles_loss = total_bond_angles_loss / counter
-    avg_bond_lengths_loss = total_bond_lengths_loss / counter
-    avg_distance_map_loss = total_distance_map_loss / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
@@ -377,7 +289,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     # Log the metrics to TensorBoard
     if configs.tensorboard_log:
-        writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
@@ -392,12 +303,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     # lddt.reset()
 
     return_dict = {
-        "loss": avg_loss,
         "rec_loss": avg_rec_loss,
-        "orientation_loss": avg_orientation_loss,
-        "bond_angles_loss": avg_bond_angles_loss,
-        "bond_lengths_loss": avg_bond_lengths_loss,
-        "distance_map_loss": avg_distance_map_loss,
         "denormalized_rec_mae": denormalized_rec_mae,
         "denormalized_rec_rmse": denormalized_rec_rmse,
         "gdtts": gdtts_score,
@@ -433,39 +339,14 @@ def main(dict_config, config_file_path):
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
 
-    if configs.model.architecture == 'gvp_vqvae':
-        from data.dataset import prepare_gvp_vqvae_dataloaders
-        train_dataloader, valid_dataloader, visualization_loader = prepare_gvp_vqvae_dataloaders(logging, accelerator,
-                                                                                                 configs)
-    elif configs.model.architecture == 'distance_map_vqvae':
-        from data.dataset import prepare_distance_map_vqvae_dataloaders
-        train_dataloader, valid_dataloader, visualization_loader = prepare_distance_map_vqvae_dataloaders(logging,
-                                                                                                          accelerator,
-                                                                                                          configs)
-    else:
-        from data.dataset import prepare_vqvae_dataloaders
-        train_dataloader, valid_dataloader, visualization_loader = prepare_vqvae_dataloaders(logging, accelerator,
-                                                                                             configs)
+    from data.dataset import prepare_se3_vqvae_dataloaders
+    train_dataloader, valid_dataloader, visualization_loader = prepare_se3_vqvae_dataloaders(logging, accelerator,
+                                                                                         configs)
 
     logging.info('preparing dataloaders are done')
 
-    if configs.model.architecture == 'gvp_vqvae':
-        from models.gvp_vqvae import prepare_models_gvp_vqvae
-        net = prepare_models_gvp_vqvae(configs, logging, accelerator)
-    elif configs.model.architecture == 'se3_vqvae':
-        from models.se3_vqvae import prepare_models_vqvae
-        net = prepare_models_vqvae(configs, logging, accelerator)
-    elif configs.model.architecture == 'equiformer_vqvae':
-        from models.equiformer_vqvae import prepare_models_vqvae
-        net = prepare_models_vqvae(configs, logging, accelerator)
-    elif configs.model.architecture == 'egnn_vqvae':
-        from models.egnn_vqvae import prepare_models_vqvae
-        net = prepare_models_vqvae(configs, logging, accelerator)
-    elif configs.model.architecture == 'vqvae':
-        from models.vqvae import prepare_models_vqvae
-        net = prepare_models_vqvae(configs, logging, accelerator)
-    else:
-        raise ValueError(f'Invalid model architecture: {configs.model.architecture}')
+    from models.se3_vqvae import prepare_models_vqvae
+    net = prepare_models_vqvae(configs, logging, accelerator)
     logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
@@ -527,14 +408,6 @@ def main(dict_config, config_file_path):
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
-                f'auxilary loss {training_loop_reports["auxilary_loss"]:.4f}, '
-                f'orientation loss {training_loop_reports["orientation_loss"]:.4f}, '
-                f'bond angles loss {training_loop_reports["bond_angles_loss"]:.4f}, '
-                f'bond lengths loss {training_loop_reports["bond_lengths_loss"]:.4f}, '
-                f'distance map loss {training_loop_reports["distance_map_loss"]:.4f}, '
-                f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
-                f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                f'gdtts {training_loop_reports["gdtts"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
@@ -567,12 +440,7 @@ def main(dict_config, config_file_path):
             if accelerator.is_main_process:
                 logging.info(
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
-                    f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
-                    f'orientation loss {valid_loop_reports["orientation_loss"]:.4f}, '
-                    f'bond angles loss {valid_loop_reports["bond_angles_loss"]:.4f}, '
-                    f'bond lengths loss {valid_loop_reports["bond_lengths_loss"]:.4f}, '
-                    f'distance map loss {valid_loop_reports["distance_map_loss"]:.4f}, '
                     f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
                     f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
                     f'gdtts {valid_loop_reports["gdtts"]:.4f}'
@@ -584,7 +452,6 @@ def main(dict_config, config_file_path):
                 best_valid_metrics['gdtts'] = valid_loop_reports["gdtts"]
                 best_valid_metrics['mae'] = valid_loop_reports["denormalized_rec_mae"]
                 best_valid_metrics['rmse'] = valid_loop_reports["denormalized_rec_rmse"]
-                best_valid_metrics['loss'] = valid_loop_reports["loss"]
 
                 tools = dict()
                 tools['net'] = net
@@ -616,7 +483,6 @@ def main(dict_config, config_file_path):
         logging.info(f"best valid gdtts: {best_valid_metrics['gdtts']:.4f}")
         logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
         logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
-        logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
     train_writer.close()
     valid_writer.close()
