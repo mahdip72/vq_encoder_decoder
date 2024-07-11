@@ -11,7 +11,7 @@ import glob
 from utils.utils import load_configs
 from utils.utils import load_h5_file
 
-from data.dataset import DistanceMapVQVAEDataset
+from data.data_contactmap import DistanceMapVQVAEDataset
 from data.normalizer import Protein3DProcessing
 from utils.metrics import batch_distance_map_to_coordinates
 
@@ -148,8 +148,8 @@ def prepare_dataloaders(configs):
     """
     data_path = configs.train_settings.data_path
 
-    # dataset = DistanceMapVQVAEDataset(data_path, train_mode=True, rotate_randomly=False, configs=configs)
-    dataset = SimpleDistanceMapDataset(data_path, configs)
+    dataset = DistanceMapVQVAEDataset(data_path, train_mode=True, rotate_randomly=False, configs=configs)
+    # dataset = SimpleDistanceMapDataset(data_path, configs)
 
     dataloader = DataLoader(dataset, batch_size=configs.train_settings.batch_size,
                               shuffle=configs.train_settings.shuffle,
@@ -184,12 +184,8 @@ if __name__ == "__main__":
     progress_bar = tqdm(dmap_dataloader)
     for data in progress_bar:
 
-        distance_maps = data["distance_map"][:, 0, :, :]
-        target_coords = data["coords"]
-
-        print(target_coords)
-        print(target_coords.size())
-        print(distance_maps.size())
+        distance_maps = data["input_distance_map"][:, 0, :, :]
+        target_coords = data["target_coords"]
 
         mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
                     'n_init': 4, 'max_iter': 300, 'eps': 1e-7, 'n_jobs': -1}
