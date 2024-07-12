@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 1
 tensorboard_log: True
 tqdm_progress_bar: True
-result_path: ./results
+result_path: ./results/contactmap_vqvae
 
 resume:
   resume: False
@@ -39,7 +39,7 @@ train_settings:
   num_epochs: 32
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 32
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
 
@@ -51,16 +51,16 @@ train_settings:
     max_cuts: 4
 
 valid_settings:
-  data_path: /home/renjz/data/cath_4_3_0/
+  data_path: /home/renjz/data/validation/validation_set_1024_h5
   do_every: 1
   shuffle: True
-  batch_size: 32
+  batch_size: 16
   num_workers: 8
 
 visualization_settings:
   data_path: /home/renjz/data/cath_4_3_0/
   fasta_path: visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 1
+  do_every: 10000
   batch_size: 1
   num_workers: 2
 
