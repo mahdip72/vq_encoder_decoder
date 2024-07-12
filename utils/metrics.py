@@ -115,6 +115,58 @@ def tm_from_h5(h5_file1, h5_file2):
     return tm_score
 
 
+def batch_tm_score(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, masks2=None):
+    """
+    Calculate the average TM-score between two batches of coordinates.
+    :param coords_batch1: (torch.Tensor) first batch of 3D coordinates
+    :param coords_batch2: (torch.Tensor) second batch of 3D coordinates
+    :param seqs1: (list[str]) list of sequences for first batch
+    :param seqs2: (list[str]) list of sequences for second batch
+    :param masks1: (torch.Tensor) masks for first batch, optional
+    :param masks2: (torch.Tensor) masks for second batch, optional
+    :return: (float) average TM-score
+    """
+
+    # Divide masks and batches into individual structures
+    # Apply mask to each structure
+    # Shorten sequence to match length of structure, if necessary
+    # Calculate TM
+
+    assert coords_batch1.size() == coords_batch2.size()
+
+    total_tm_score = 0.0
+    num_samples = 0
+
+    # Iterate through each sample in batch
+    for i in range(len(coords_batch1)):
+        coords1 = coords_batch1[i]
+        coords2 = coords_batch2[i]
+        seq1 = seqs1[i]
+        seq2 = seqs2[i]
+
+        # Remove padding
+        if (masks1 is not None) and (masks2 is not None):
+            coords1 = coords1[masks1[i]]
+            coords2 = coords2[masks2[i]]
+
+        len_coords1 = len(coords1)
+        len_coords2 = len(coords2)
+
+        # Remove any excess residues from the sequences
+        seq1 = seq1[0:len_coords1]
+        seq2 = seq2[0:len_coords2]
+        assert len(seq1) == len_coords1
+        assert len(seq2) == len_coords2
+
+        # Calculate TM-score
+        tm_score = calc_tm_score(coords1, coords2, seq1, seq2)
+        total_tm_score += tm_score
+        num_samples += 1
+
+    avg_tm_score = total_tm_score / num_samples
+    return avg_tm_score
+
+
 class GDTTS(Metric):
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
