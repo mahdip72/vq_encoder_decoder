@@ -7,7 +7,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
-from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates
+from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates, calc_tm_score
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
@@ -269,7 +269,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
 
-            # masked_outputs = processor.apply_pca(masked_outputs)
+            masked_outputs = processor.apply_pca(masked_outputs)
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
