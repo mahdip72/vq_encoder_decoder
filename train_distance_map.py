@@ -148,6 +148,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             if configs.tensorboard_log:
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
+                writer.flush()
 
             progress_bar.set_description(f"epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "
@@ -184,6 +185,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('real_rmse', rec_rmse, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
+        writer.flush()
 
     # Reset the metrics for the next epoch
     mae.reset()
@@ -309,6 +311,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
+        writer.flush()
 
     # Reset the metrics for the next epoch
     mae.reset()
