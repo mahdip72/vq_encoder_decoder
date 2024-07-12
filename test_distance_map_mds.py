@@ -225,7 +225,7 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
     main_configs = load_configs(config_file)
 
-    main_configs.train_settings.data_path = "/home/renjz/data/cath_4_3_0"
+    main_configs.train_settings.data_path = "/home/renjz/data/validation/validation_set_1024_h5"
 
     # # Prepare the normalizer for denormalization
     # processor = Protein3DProcessing()
@@ -247,7 +247,7 @@ if __name__ == "__main__":
         target_coords = data["target_coords"]
 
         mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
-                    'n_init': 4, 'max_iter': 300, 'eps': 1e-7, 'n_jobs': -1}
+                    'n_init': 2, 'max_iter': 96, 'eps': 1e-3, 'n_jobs': -1}
 
         # # Denormalize distance maps
         # for i in range(len(distance_maps)):
