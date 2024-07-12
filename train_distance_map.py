@@ -41,6 +41,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
     configs = kwargs.pop('configs')
+    optimizer_name = configs.optimizer.name
     writer = kwargs.pop('writer')
     alpha = configs.model.vqvae.vector_quantization.alpha
     beta = configs.model.vqvae.beta
@@ -78,6 +79,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
     progress_bar.set_description(f"Epoch {epoch}")
 
     net.train()
+    if optimizer_name == 'schedulerfree':
+        optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             labels = data['target_distance_map']
@@ -117,10 +120,14 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
+                if optimizer_name != 'schedulerfree':
+                    accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
 
-            optimizer.step()
-            scheduler.step()
+            if optimizer_name != 'schedulerfree':
+                optimizer.step()
+                scheduler.step()
+            else:
+                optimizer.step()
 
         if accelerator.sync_gradients:
             progress_bar.update(1)
@@ -198,6 +205,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 def valid_loop(net, valid_loader, epoch, **kwargs):
     optimizer = kwargs.pop('optimizer')
     configs = kwargs.pop('configs')
+    optimizer_name = configs.optimizer.name
     accelerator = kwargs.pop('accelerator')
     writer = kwargs.pop('writer')
     alpha = configs.model.vqvae.vector_quantization.alpha
@@ -230,6 +238,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     net.eval()
+    if optimizer_name != 'schedulerfree':
+        optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_distance_map']
@@ -437,7 +447,8 @@ def main(dict_config, config_file_path):
 
             # Set the path to save the models checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
-            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
+                            configs=configs)
             if accelerator.is_main_process:
                 logging.info(f'\tcheckpoint models in {model_path}')
 
@@ -479,7 +490,8 @@ def main(dict_config, config_file_path):
 
                 # Set the path to save the model checkpoint.
                 model_path = os.path.join(checkpoint_path, f'best_valid.pth')
-                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
+                                configs=configs)
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
 
@@ -489,7 +501,8 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
-            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
+            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch,
+                                  optimizer)
 
     logging.info("Training is completed!\n")
 
