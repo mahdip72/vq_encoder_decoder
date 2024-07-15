@@ -72,7 +72,7 @@ visualization_settings:
   num_workers: 2
 
 optimizer:
-  name: adam
+  name: schedulerfree
   lr: 1e-3
   weight_decouple: True
   weight_decay: 1e-2

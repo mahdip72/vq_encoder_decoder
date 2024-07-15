@@ -1201,6 +1201,7 @@ class DistanceMapVQVAEDataset(Dataset):
         sample = load_h5_file(sample_path)
         basename = os.path.basename(sample_path)
         pid = basename.split('.h5')[0].split('_')[0]
+        sequence = sample[0]
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
@@ -1241,9 +1242,9 @@ class DistanceMapVQVAEDataset(Dataset):
         # expand the first dimension of distance maps
         input_distance_map = input_distance_map.unsqueeze(0)
         target_distance_map = target_distance_map.unsqueeze(0)
-        return {'pid': pid, 'input_coords': input_coords_tensor.squeeze(0), 'input_distance_map': input_distance_map,
-                'target_coords': coords_tensor.squeeze(0), 'target_distance_map': target_distance_map,
-                'masks': masks.squeeze(0)}
+        return {'pid': pid, 'seq': sequence, 'input_coords': input_coords_tensor.squeeze(0),
+                'input_distance_map': input_distance_map, 'target_coords': coords_tensor.squeeze(0),
+                'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
 
 
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):

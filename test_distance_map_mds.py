@@ -1,5 +1,6 @@
 from pathlib import Path
 from scipy.spatial import procrustes
+from scipy.linalg import orthogonal_procrustes
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -160,43 +161,61 @@ def prepare_dataloaders(configs):
     return dataloader
 
 
-def custom_procrustes(x, y):
+def custom_procrustes(data1, data2):
     """
-    Procrustes analysis to transform y to best fit x without modifying x.
-    :param x: target coordinates (NxD)
-    :param y: reconstructed coordinates (NxD)
+    Perform Procrustes analysis on two datasets. Regular Procrustes analysis returns
+    a centered and standardized version of the first matrix, but this function
+    recovers the original first matrix with the second matrix adjusted accordingly.
+    :param data1: (array_like) first matrix
+    :param data2: (array_like) second matrix
+    :return:
+        mtx1 (array_like) original first matrix
+        mtx2 (array_like) the orientation of `data2` that best fits `data1`
+        disparity (float) total squared error between the final matrices
     """
-    # Center the matrices
-    x_mean = x.mean(axis=0)
-    y_mean = y.mean(axis=0)
-    x_centered = (x - x_mean).numpy()
-    y_centered = (y - y_mean).numpy()
 
-    # Compute the covariance matrix
-    covariance_matrix = np.dot(x_centered.T, y_centered)
+    mtx1 = np.array(data1, dtype=np.float64, copy=True)
+    mtx2 = np.array(data2, dtype=np.float64, copy=True)
 
-    # Singular Value Decomposition (SVD)
-    U, S, Vt = np.linalg.svd(covariance_matrix)
+    if mtx1.ndim != 2 or mtx2.ndim != 2:
+        raise ValueError("Input matrices must be two-dimensional")
+    if mtx1.shape != mtx2.shape:
+        raise ValueError("Input matrices must be of same shape")
+    if mtx1.size == 0:
+        raise ValueError("Input matrices must be >0 rows and >0 cols")
 
-    # Compute the rotation matrix
-    R = np.dot(U, Vt)
+    # translate all the data to the origin
+    mean1 = np.mean(mtx1, 0)
+    mean2 = np.mean(mtx2, 0)
+    mtx1 -= mean1
+    mtx2 -= mean2
 
-    # Compute the scaling factor
-    scale = np.sum(S) / np.sum(y_centered ** 2)
+    norm1 = np.linalg.norm(mtx1)
+    norm2 = np.linalg.norm(mtx2)
 
-    # Transform y
-    y_transformed = scale * np.dot(y_centered, R)
-    y_transformed = torch.from_numpy(y_transformed)
+    if norm1 == 0 or norm2 == 0:
+        raise ValueError("Input matrices must contain >1 unique points")
 
-    # Translate y to match the mean of x
-    y_transformed += x_mean
-    y_transformed = y_transformed.numpy()
+    # change scaling of data (in rows) such that trace(mtx*mtx') = 1
+    mtx1 /= norm1
+    mtx2 /= norm2
 
-    # Compute the disparity
-    squared_error = ((x - y_transformed) ** 2).numpy()
-    disparity = np.sum(squared_error)
+    # transform mtx2 to minimize disparity
+    R, s = orthogonal_procrustes(mtx1, mtx2)
+    mtx2 = np.dot(mtx2, R.T) * s
 
-    return y_transformed, disparity
+    # measure the dissimilarity between the two datasets
+    disparity = np.sum(np.square(mtx1 - mtx2))
+
+    # Rescale both matrices to their original size
+    mtx1 *= norm1
+    mtx2 *= norm2
+
+    # Translate both matrices to match the original first matrix
+    mtx1 += mean1
+    mtx2 += mean1
+
+    return mtx1, mtx2, disparity
 
 
 if __name__ == "__main__":
@@ -206,7 +225,7 @@ if __name__ == "__main__":
         config_file = yaml.full_load(file)
     main_configs = load_configs(config_file)
 
-    main_configs.train_settings.data_path = "/home/renjz/data/cath_4_3_0"
+    main_configs.train_settings.data_path = "/home/renjz/data/validation/validation_set_1024_h5"
 
     # # Prepare the normalizer for denormalization
     # processor = Protein3DProcessing()
@@ -228,7 +247,7 @@ if __name__ == "__main__":
         target_coords = data["target_coords"]
 
         mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
-                    'n_init': 4, 'max_iter': 300, 'eps': 1e-7, 'n_jobs': -1}
+                    'n_init': 2, 'max_iter': 96, 'eps': 1e-3, 'n_jobs': -1}
 
         # # Denormalize distance maps
         # for i in range(len(distance_maps)):
@@ -244,13 +263,9 @@ if __name__ == "__main__":
         # Perform Procrustes analysis on coordinates
         for i in range(len(target_coords)):
             # new_target, new_rec, disparity = procrustes(target_coords[i], rec_coords[i])
+            new_target, new_rec, disparity = custom_procrustes(target_coords[i], rec_coords[i])
             # target_coords[i] = torch.tensor(new_target)
-
-            new_rec, disparity = custom_procrustes(target_coords[i], rec_coords[i])
             rec_coords[i] = torch.tensor(new_rec)
-            print(target_coords[i])
-            print(new_rec)
-            exit()
 
         # Calculate mean absolute error between reconstructed and target coordinates
         mae.update(rec_coords, target_coords)

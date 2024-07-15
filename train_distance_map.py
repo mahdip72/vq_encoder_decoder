@@ -7,7 +7,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
-from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates
+from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates, batch_tm_score
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
@@ -41,6 +41,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
     configs = kwargs.pop('configs')
+    optimizer_name = configs.optimizer.name
     writer = kwargs.pop('writer')
     alpha = configs.model.vqvae.vector_quantization.alpha
     beta = configs.model.vqvae.beta
@@ -78,6 +79,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
     progress_bar.set_description(f"Epoch {epoch}")
 
     net.train()
+    if optimizer_name == 'schedulerfree':
+        optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             labels = data['target_distance_map']
@@ -117,10 +120,14 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
+                if optimizer_name != 'schedulerfree':
+                    accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
 
-            optimizer.step()
-            scheduler.step()
+            if optimizer_name != 'schedulerfree':
+                optimizer.step()
+                scheduler.step()
+            else:
+                optimizer.step()
 
         if accelerator.sync_gradients:
             progress_bar.update(1)
@@ -141,6 +148,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             if configs.tensorboard_log:
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
+                writer.flush()
 
             progress_bar.set_description(f"epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "
@@ -177,6 +185,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('real_rmse', rec_rmse, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
+        writer.flush()
 
     # Reset the metrics for the next epoch
     mae.reset()
@@ -198,6 +207,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 def valid_loop(net, valid_loader, epoch, **kwargs):
     optimizer = kwargs.pop('optimizer')
     configs = kwargs.pop('configs')
+    optimizer_name = configs.optimizer.name
     accelerator = kwargs.pop('accelerator')
     writer = kwargs.pop('writer')
     alpha = configs.model.vqvae.vector_quantization.alpha
@@ -222,6 +232,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
     total_sym_loss = 0.0
+    total_tm_score = 0.0
     counter = 0
 
     # Initialize the progress bar using tqdm
@@ -230,6 +241,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     net.eval()
+    if optimizer_name != 'schedulerfree':
+        optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_distance_map']
@@ -253,11 +266,22 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             outputs = batch_distance_map_to_coordinates(outputs.squeeze(1)).to(accelerator.device)
             outputs = outputs.reshape(outputs.shape[0], -1, 3)
 
+            # Get list of sequences and convert from byte string to string
+            sequences = data['seq']
+            for idx in range(len(sequences)):
+                sequences[idx] = str(sequences[idx], encoding='utf-8')
+
+            # Calculate TM-score
+            detached_masks = accelerator.gather(masks).detach().cpu()
+            tm_score = batch_tm_score(accelerator.gather(labels).detach().cpu(),
+                                     accelerator.gather(outputs).detach().cpu(),
+                                     sequences, sequences, detached_masks, detached_masks)
+
             # Compute the loss
             masked_outputs = outputs[masks]
             masked_labels = labels[masks]
 
-            # masked_outputs = processor.apply_pca(masked_outputs)
+            masked_outputs = processor.apply_pca(masked_outputs)
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
@@ -277,6 +301,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
         total_sym_loss += sym_loss.item()
+        total_tm_score += tm_score
 
         progress_bar.set_description(f"validation epoch {epoch} "
                                      + f"[loss: {total_loss / counter:.3f}, "
@@ -287,6 +312,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_sym_loss = total_sym_loss / counter
+    avg_tm_score = total_tm_score / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
@@ -299,6 +325,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
+        writer.add_scalar('avg_tm_score', avg_tm_score, epoch)
+        writer.flush()
 
     # Reset the metrics for the next epoch
     mae.reset()
@@ -314,6 +342,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "denormalized_rec_rmse": denormalized_rec_rmse,
         "gdtts": gdtts_score,
         # "lddt": lddt_score,
+        "avg_tm_score": avg_tm_score,
         "counter": counter,
     }
     return return_dict
@@ -404,7 +433,7 @@ def main(dict_config, config_file_path):
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
-    best_valid_metrics = {'gdtts': 0.0, 'mae': 0.0, 'rmse': 0.0, 'lddt': 0.0, 'loss': 1000.0}
+    best_valid_metrics = {'gdtts': 0.0, 'mae': 0.0, 'rmse': 0.0, 'lddt': 0.0, 'avg_tm_score': 0.0, 'loss': 1000.0}
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
@@ -437,7 +466,8 @@ def main(dict_config, config_file_path):
 
             # Set the path to save the models checkpoint.
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
-            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
+                            configs=configs)
             if accelerator.is_main_process:
                 logging.info(f'\tcheckpoint models in {model_path}')
 
@@ -459,8 +489,9 @@ def main(dict_config, config_file_path):
                     f'sym loss {valid_loop_reports["sym_loss"]:.4f}, '
                     f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
                     f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
-                    # f'lddt {valid_loop_reports["lddt"]:.4f}'
+                    f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
+                    # f'lddt {valid_loop_reports["lddt"]:.4f}, '
+                    f'avg tm score {valid_loop_reports["avg_tm_score"]:.4f}'
                 )
 
             # Check valid metric to save the best model
@@ -468,6 +499,7 @@ def main(dict_config, config_file_path):
                 best_valid_metrics['gdtts'] = valid_loop_reports["gdtts"]
                 best_valid_metrics['mae'] = valid_loop_reports["denormalized_rec_mae"]
                 best_valid_metrics['rmse'] = valid_loop_reports["denormalized_rec_rmse"]
+                best_valid_metrics['avg_tm_score'] = valid_loop_reports["avg_tm_score"]
                 best_valid_metrics['loss'] = valid_loop_reports["loss"]
 
                 tools = dict()
@@ -479,7 +511,8 @@ def main(dict_config, config_file_path):
 
                 # Set the path to save the model checkpoint.
                 model_path = os.path.join(checkpoint_path, f'best_valid.pth')
-                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler)
+                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
+                                configs=configs)
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
 
@@ -489,7 +522,8 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
-            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
+            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch,
+                                  optimizer)
 
     logging.info("Training is completed!\n")
 
@@ -498,6 +532,7 @@ def main(dict_config, config_file_path):
         logging.info(f"best valid gdtts: {best_valid_metrics['gdtts']:.4f}")
         logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
         logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
+        logging.info(f"best valid tm score: {best_valid_metrics['avg_tm_score']:.4f}")
         logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
     train_writer.close()
