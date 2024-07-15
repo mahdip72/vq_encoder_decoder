@@ -47,7 +47,7 @@ def batch_distance_map_to_coordinates(batch_distance_map, **kwargs):
     # Default MDS arguments if kwargs were not provided
     if len(kwargs) == 0:
         mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
-                  'n_init': 4, 'max_iter': 200, 'eps': 1e-9, 'n_jobs': -1}
+                  'n_init': 2, 'max_iter': 96, 'eps': 1e-3, 'n_jobs': -1}
 
     else:
         mds_args = kwargs
