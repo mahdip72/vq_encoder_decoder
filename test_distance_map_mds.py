@@ -245,6 +245,16 @@ if __name__ == "__main__":
 
         distance_maps = data["input_distance_map"][:, 0, :, :]
         target_coords = data["target_coords"]
+        masks = data["masks"]
+
+        # Remove padding (only works with batch size = 1)
+        distance_maps = distance_maps[masks].reshape(1, -1, 256)
+        distance_maps = torch.movedim(distance_maps, 2, 1)
+        distance_maps = distance_maps[masks]
+        distance_maps = torch.movedim(distance_maps, 1, 0)
+        distance_maps = distance_maps.reshape(1, len(distance_maps), -1)
+
+        target_coords = target_coords[masks].reshape(1, -1, 3)
 
         mds_args = {'n_components': 3, 'dissimilarity': 'precomputed', 'random_state': 42,
                     'n_init': 2, 'max_iter': 96, 'eps': 1e-3, 'n_jobs': -1}
