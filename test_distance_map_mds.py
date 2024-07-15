@@ -226,6 +226,7 @@ if __name__ == "__main__":
     main_configs = load_configs(config_file)
 
     main_configs.train_settings.data_path = "/home/renjz/data/validation/validation_set_1024_h5"
+    max_length = main_configs.model.max_length
 
     # # Prepare the normalizer for denormalization
     # processor = Protein3DProcessing()
@@ -248,7 +249,7 @@ if __name__ == "__main__":
         masks = data["masks"]
 
         # Remove padding (only works with batch size = 1)
-        distance_maps = distance_maps[masks].reshape(1, -1, 256)
+        distance_maps = distance_maps[masks].reshape(1, -1, max_length)
         distance_maps = torch.movedim(distance_maps, 2, 1)
         distance_maps = distance_maps[masks]
         distance_maps = torch.movedim(distance_maps, 1, 0)
