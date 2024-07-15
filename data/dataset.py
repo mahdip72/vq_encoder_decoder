@@ -13,6 +13,23 @@ from data.normalizer import Protein3DProcessing
 from scipy.spatial import KDTree
 
 
+def create_distance_map(coords):
+    """
+    Computes the pairwise distance map for CA coordinates using PyTorch.
+
+    Parameters:
+    coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
+
+    Returns:
+    torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
+    """
+    # coords = coords.half()
+    diff = coords[:, None, :] - coords[None, :, :]
+    distance_map = torch.norm(diff, dim=-1)
+
+    return distance_map
+
+
 def merge_features_and_create_mask(features_list, max_length=512):
     # Pad tensors and create mask
     padded_tensors = []
@@ -851,71 +868,6 @@ class SE3VQVAEDataset(Dataset):
         return len(self.h5_samples)
 
     @staticmethod
-    def compute_spherical_coords(coords):
-        """
-        Converts Cartesian coordinates to spherical coordinates.
-
-        Args:
-            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
-
-        Returns:
-            torch.Tensor: Tensor of shape (n_points, 3) containing spherical coordinates (r, theta, phi).
-        """
-        x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
-        r = torch.sqrt(x ** 2 + y ** 2 + z ** 2)
-        theta = torch.acos(z / r)
-        phi = torch.atan2(y, x)
-        spherical_coords = torch.stack((r, theta, phi), dim=-1)
-        return spherical_coords
-
-    def compute_rdf(self, coords):
-        """
-        Computes the Radial Distribution Function (RDF) for the given coordinates.
-
-        Args:
-            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
-
-        Returns:
-            torch.Tensor: Tensor of shape (n_points, rdf_bins) containing RDF histograms.
-        """
-        dist_matrix = torch.cdist(coords, coords)
-        histograms = torch.zeros(coords.size(0), self.rdf_bins, dtype=torch.float32)
-        bin_edges = torch.linspace(0, self.rdf_cutoff, self.rdf_bins + 1)
-        for i in range(coords.size(0)):
-            distances = dist_matrix[i]
-            hist = torch.histc(distances, bins=self.rdf_bins, min=0, max=self.rdf_cutoff)
-            histograms[i] = hist
-        return histograms
-
-    def compute_local_angles(self, coords):
-        """
-        Computes local angles with the k nearest neighbors for the given coordinates using KD-Tree.
-
-        Args:
-            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
-            k_neighbors (int): Number of nearest neighbors to consider for angle calculation.
-
-        Returns:
-            torch.Tensor: Tensor of shape (n_points, k_neighbors) containing local angles.
-        """
-        coords_np = coords.numpy()
-        kdtree = KDTree(coords_np)
-        distances, knn_indices = kdtree.query(coords_np, k=self.k_neighbors + 1)  # +1 to include the point itself
-
-        ref_vec = torch.tensor([1, 0, 0], dtype=torch.float32)
-        ref_norm = torch.norm(ref_vec)
-
-        num_points = coords.size(0)
-        angles = torch.zeros(num_points, self.k_neighbors, dtype=torch.float32)
-
-        for i in range(num_points):
-            neighbor_vecs = coords[knn_indices[i, 1:]] - coords[i]  # Exclude the point itself
-            cos_angles = torch.einsum('ij,j->i', neighbor_vecs, ref_vec) / (torch.norm(neighbor_vecs, dim=1) * ref_norm)
-            angles[i, :self.k_neighbors] = torch.acos(cos_angles)
-
-        return angles
-
-    @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
         Replaces NaN values in the coordinates with the previous or next valid coordinate values.
@@ -1039,21 +991,6 @@ class SE3VQVAEDataset(Dataset):
 
         return input_tensor
 
-    @staticmethod
-    def create_distance_map(coords):
-        """
-        Computes the pairwise distance map for CA coordinates using PyTorch.
-
-        Parameters:
-        ca_coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
-
-        Returns:
-        torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
-        """
-        diff = coords.unsqueeze(1) - coords.unsqueeze(0)
-        distance_map = torch.sqrt(torch.sum(diff ** 2, dim=-1))
-        return distance_map
-
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
@@ -1085,8 +1022,8 @@ class SE3VQVAEDataset(Dataset):
         input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
         coords_tensor = coords_tensor[..., 3:6].reshape(1, -1, 3)
 
-        input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
-        target_distance_map = self.create_distance_map(coords_tensor.squeeze(0))
+        input_distance_map = create_distance_map(input_coords_tensor.squeeze(0))
+        target_distance_map = create_distance_map(coords_tensor.squeeze(0))
 
         input_distance_map = self.processor.normalize_distance_map(input_distance_map)
         target_distance_map = self.processor.normalize_distance_map(target_distance_map)
@@ -1421,7 +1358,7 @@ def prepare_se3_vqvae_dataloaders(logging, accelerator, configs):
                                     max_samples=configs.train_settings.max_task_samples,
                                     configs=configs)
     valid_dataset = SE3VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False,
-                                    max_samples=256,
+                                    max_samples=configs.train_settings.max_task_samples,
                                     configs=configs)
     visualization_dataset = SE3VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
                                             max_samples=configs.train_settings.max_task_samples,
@@ -1432,7 +1369,7 @@ def prepare_se3_vqvae_dataloaders(logging, accelerator, configs):
                               num_workers=configs.train_settings.num_workers,
                               # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
                               pin_memory=True,
-                              prefetch_factor=2,)
+                              prefetch_factor=2, )
 
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
                               shuffle=False,
@@ -1603,7 +1540,7 @@ if __name__ == '__main__':
     from accelerate import Accelerator
     from utils.metrics import batch_distance_map_to_coordinates
 
-    config_path = "../configs/config_distance_map_vqvae.yaml"
+    config_path = "../configs/config_se3_vqvae.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -1623,25 +1560,28 @@ if __name__ == '__main__':
     #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
     #                      configs=test_configs)
 
-    dataset = DistanceMapVQVAEDataset(test_configs.valid_settings.data_path, train_mode=True, rotate_randomly=False,
-                                      configs=test_configs)
+    dataset = SE3VQVAEDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+                              max_samples=test_configs.train_settings.max_task_samples,
+                              configs=test_configs)
 
-    test_loader = DataLoader(dataset, batch_size=test_configs.valid_settings.batch_size, num_workers=0, pin_memory=True,
+    test_loader = DataLoader(dataset, batch_size=32, num_workers=4,
+                             pin_memory=False,
+                             persistent_workers=False,
                              collate_fn=None)
 
     # test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
     struct_embeddings = []
     for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
         # graph = batch["graph"]
-        labels = batch['target_distance_map']
-        labels = batch_distance_map_to_coordinates(labels.squeeze(1))
+        # labels = batch['target_distance_map']
+        # labels = batch_distance_map_to_coordinates(labels.squeeze(1))
         # batch['coords'] = dataset.processor.denormalize_coords(batch['input_coords'][7, ...].squeeze(0).cpu().reshape(-1, 4, 3))
         # plot_3d_coords_lines_plotly(batch["coords"][batch["masks"][7, ...]].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords(batch["coords"][batch["masks"].squeeze(0)].cpu().numpy().reshape(-1, 3))
         # plot_3d_coords_plotly(batch["coords"][batch["masks"]].cpu().numpy().reshape(-1, 3))
-        s = DistanceMapVQVAEDataset.create_distance_map(batch["target_coords"][5, ...]).unsqueeze(0)
-        plot_3d_coords_lines_plotly(labels[5, ...].cpu().numpy().reshape(-1, 3))
-        plot_3d_coords_lines_plotly(batch["target_coords"][5, ...].cpu().numpy().reshape(-1, 3))
-        plot_3d_coords_lines_plotly(batch_distance_map_to_coordinates(s).squeeze(0).numpy())
-        break
-        # pass
+        # s = DistanceMapVQVAEDataset.create_distance_map(batch["target_coords"][5, ...]).unsqueeze(0)
+        # plot_3d_coords_lines_plotly(labels[5, ...].cpu().numpy().reshape(-1, 3))
+        # plot_3d_coords_lines_plotly(batch["target_coords"][5, ...].cpu().numpy().reshape(-1, 3))
+        # plot_3d_coords_lines_plotly(batch_distance_map_to_coordinates(s).squeeze(0).numpy())
+        # break
+        pass
