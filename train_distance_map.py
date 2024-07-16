@@ -439,7 +439,13 @@ def main(dict_config, config_file_path):
 
     # compile models to train faster and efficiently
     if configs.model.compile_model:
-        net = torch.compile(net)
+        # net = torch.compile(net)
+        net.encoder_tail = torch.compile(net.encoder_tail)
+        net.encoder_blocks = torch.compile(net.encoder_blocks)
+        net.encoder_head = torch.compile(net.encoder_head)
+        net.decoder_tail = torch.compile(net.decoder_tail)
+        net.decoder_blocks = torch.compile(net.decoder_blocks)
+        net.decoder_head = torch.compile(net.decoder_head)
         if accelerator.is_main_process:
             logging.info('compile models is done')
 
