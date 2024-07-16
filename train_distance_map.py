@@ -15,6 +15,7 @@ from tqdm import tqdm
 import time
 import torchmetrics
 import torch.nn.functional as F
+import gc
 
 
 def symmetry_loss(predicted_distance_map):
@@ -150,22 +151,26 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
                 writer.flush()
 
-            progress_bar.set_description(f"epoch {epoch} "
-                                         + f"[loss: {total_loss / counter:.3f}, "
-                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+            if configs.tqdm_progress_bar:
+                progress_bar.set_description(f"epoch {epoch} "
+                                             + f"[loss: {total_loss / counter:.3f}, "
+                                             + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                             + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
-        progress_bar.set_postfix(
-            {
-                "lr": optimizer.param_groups[0]['lr'],
-                "step_loss": loss.detach().item(),
-                "rec_loss": rec_loss.detach().item(),
-                "cmt_loss": commit_loss.detach().item(),
-                "sym_loss": sym_loss.detach().item(),
-                "activation": indices.unique().numel() / codebook_size * 100,
-                "global_step": global_step
-            }
-        )
+        if configs.tqdm_progress_bar:
+            progress_bar.set_postfix(
+                {
+                    "lr": optimizer.param_groups[0]['lr'],
+                    "step_loss": loss.detach().item(),
+                    "rec_loss": rec_loss.detach().item(),
+                    "cmt_loss": commit_loss.detach().item(),
+                    "sym_loss": sym_loss.detach().item(),
+                    "activation": indices.unique().numel() / codebook_size * 100,
+                    "global_step": global_step
+                }
+            )
+        # Clear unused variables to avoid memory leakages
+        del data, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss, avg_sym_loss, sym_loss
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
@@ -201,6 +206,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "counter": counter,
         "global_step": global_step
     }
+    accelerator.wait_for_everyone()
+    del progress_bar
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return return_dict
 
 
@@ -246,6 +256,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_distance_map']
+            labels_coords = data['target_coords']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
@@ -274,14 +285,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # Calculate TM-score
             detached_masks = accelerator.gather(masks).detach().cpu()
             tm_score = batch_tm_score(accelerator.gather(labels).detach().cpu(),
-                                     accelerator.gather(outputs).detach().cpu(),
-                                     sequences, sequences, detached_masks, detached_masks)
+                                      accelerator.gather(outputs).detach().cpu(),
+                                      data['seq'], data['seq'],
+                                      detached_masks, detached_masks)
 
             # Compute the loss
-            masked_outputs = outputs[masks]
-            masked_labels = labels[masks]
+            outputs = processor.apply_pca_batch(outputs)
+            labels_coords = processor.apply_pca_batch(labels_coords.detach().cpu())
 
-            masked_outputs = processor.apply_pca(masked_outputs)
+            masked_outputs = outputs[masks]
+            # masked_labels = labels[masks]
+            masked_labels = labels_coords[masks]
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
@@ -302,11 +316,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         total_cmt_loss += commit_loss.item()
         total_sym_loss += sym_loss.item()
         total_tm_score += tm_score
-
-        progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"[loss: {total_loss / counter:.3f}, "
-                                     + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                     + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+        if configs.tqdm_progress_bar:
+            progress_bar.set_description(f"validation epoch {epoch} "
+                                         + f"[loss: {total_loss / counter:.3f}, "
+                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
@@ -345,6 +359,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "avg_tm_score": avg_tm_score,
         "counter": counter,
     }
+
+    accelerator.wait_for_everyone()
+    del progress_bar
+    torch.cuda.empty_cache()
+    gc.collect()
+
     return return_dict
 
 
@@ -444,6 +464,9 @@ def main(dict_config, config_file_path):
                                            writer=train_writer)
         end_time = time.time()
         training_time = end_time - start_time
+        torch.cuda.empty_cache()
+        gc.collect()
+
         if accelerator.is_main_process:
             logging.info(
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
