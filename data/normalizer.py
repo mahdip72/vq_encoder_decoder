@@ -187,6 +187,50 @@ class Protein3DProcessing:
 
         return transformed_coords
 
+    def apply_pca_batch(self, batch_coords: torch.Tensor) -> torch.Tensor:
+        """
+        Apply PCA transformation to a batch of protein structures to standardize their rotation.
+
+        Parameters:
+        -----------
+        batch_coords : torch.Tensor
+            A tensor of shape (B, N, 4, 3) representing the coordinates of a batch of protein structures.
+
+        Returns:
+        --------
+        torch.Tensor
+            The PCA-transformed coordinates for the batch with the same shape as the input.
+        """
+        transformed_batch = []
+        for coords in batch_coords:
+            # Center the coordinates
+            centered_coords = self.recenter_coords(coords)
+
+            # Apply PCA
+            pca = PCA(n_components=3)
+            pca.fit(centered_coords.view(-1, 3).cpu().numpy())
+
+            # Ensure the PCA components form a proper rotation matrix (Determinant = 1)
+            rotation_matrix = pca.components_.T
+            # Convert it to fp32 for numerical stability
+            rotation_matrix = rotation_matrix.astype(np.float32)
+            if np.linalg.det(rotation_matrix) < 0:
+                rotation_matrix[:, -1] = -rotation_matrix[:, -1]
+
+            # Correct orthonormality using SVD
+            u, _, vh = np.linalg.svd(rotation_matrix)
+            corrected_rotation_matrix = np.dot(u, vh)
+
+            # Apply the rotation matrix to the centered coordinates
+            transformed_coords_np = centered_coords.cpu().numpy().dot(corrected_rotation_matrix)
+
+            # Convert back to tensor and reshape to original shape
+            transformed_coords = torch.tensor(transformed_coords_np, dtype=coords.dtype, device=coords.device)
+            transformed_batch.append(transformed_coords)
+
+        # Stack the transformed coordinates to match the input batch shape
+        return torch.stack(transformed_batch)
+
     @staticmethod
     def recenter_coords(coords: torch.Tensor) -> torch.Tensor:
         """
