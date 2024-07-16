@@ -290,8 +290,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                                       detached_masks, detached_masks)
 
             # Compute the loss
-            outputs = processor.apply_pca_batch(outputs)
-            labels_coords = processor.apply_pca_batch(labels_coords.detach().cpu())
+            outputs = processor.apply_pca_batch(outputs).to(accelerator.device)
+            labels_coords = processor.apply_pca_batch(labels_coords).to(accelerator.device)
 
             masked_outputs = outputs[masks]
             # masked_labels = labels[masks]
