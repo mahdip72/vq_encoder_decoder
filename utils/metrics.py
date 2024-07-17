@@ -72,7 +72,7 @@ def batch_distance_map_to_coordinates(batch_distance_map, **kwargs):
     return batch_coordinates
 
 
-def calc_tm_score(coords1, coords2, seq1, seq2):
+def perform_tm_align(coords1, coords2, seq1, seq2):
     """
     Perform TM alignment on two protein structures and calculate the TM-score.
     The score is normalized based on the first structure. 
@@ -111,7 +111,7 @@ def tm_from_h5(h5_file1, h5_file2):
     seq2 = str(seq2, encoding="utf-8")
 
     # Calculate TM-score
-    tm_score = calc_tm_score(ca_coords1, ca_coords2, seq1, seq2)
+    tm_score = perform_tm_align(ca_coords1, ca_coords2, seq1, seq2)
     return tm_score
 
 
@@ -159,7 +159,7 @@ def batch_tm_score(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, mask
         assert len(seq2) == len_coords2
 
         # Calculate TM-score
-        tm_score = calc_tm_score(coords1, coords2, seq1, seq2)
+        tm_score = perform_tm_align(coords1, coords2, seq1, seq2)
         total_tm_score += tm_score
         num_samples += 1
 
