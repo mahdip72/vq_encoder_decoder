@@ -162,6 +162,16 @@ def batch_tm_align(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, mask
     return avg_tm_score
 
 
+def cube_root(x):
+    """
+    Calculate the cube root of a number. This function avoids computation
+    errors when calculating the cube root of a negative number.
+    :param x: (float) number
+    :return: (float) cube root
+    """
+    return x**(1/3) if x >= 0 else -(-x)**(1/3)
+
+
 def calc_tm_score(coords1, coords2):
     """
     Calculate TM-score for two protein structures given their coordinates. The
@@ -175,12 +185,14 @@ def calc_tm_score(coords1, coords2):
     if L != len(coords2):
         raise ValueError("The coordinate arrays must have the same length.")
 
-    d0 = 1.24 * (L - 15) ** (1 / 3) - 1.8
+    d0 = 1.24 * cube_root(L - 15) - 1.8
+    d0 = max(d0, 0.5)  # Minimum d0 is 0.5 (to avoid negative values)
     d0_squared = d0 ** 2
 
     sum_scores = 0.0
     for i in range(len(coords1)):
         dist_squared = torch.sum((coords1[i] - coords2[i]) ** 2)
+        dist_squared = dist_squared.item()
         score = 1 / (1 + dist_squared / d0_squared)
         sum_scores += score
 
@@ -225,15 +237,15 @@ def batch_tm_score(coords_batch1, coords_batch2, masks=None):
 
 
 class TMScore(Metric):
-    def __init__(self, masks, dist_sync_on_step=False):
+    def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
         self.add_state("sum_tm", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.masks = masks
 
-    def update(self, preds: torch.Tensor, target: torch.Tensor):
+    def update(self, preds: torch.Tensor, target: torch.Tensor, masks=None):
         assert preds.shape == target.shape, "Predictions and target must have the same shape"
-        self.sum_tm += torch.tensor(batch_tm_score(preds, target, self.masks))
+        tm_score = batch_tm_score(preds, target, masks)
+        self.sum_tm += torch.tensor(tm_score)
 
     def compute(self):
         return self.sum_tm / self.total
