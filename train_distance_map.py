@@ -7,7 +7,7 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
     prepare_tensorboard, \
     save_checkpoint
 from utils.utils import load_checkpoints
-from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates, batch_tm_score
+from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates, TMScore
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
@@ -227,10 +227,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     rmse = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
     gdtts = GDTTS()
+    tm_score = TMScore()
 
     rmse.to(accelerator.device)
     mae.to(accelerator.device)
     gdtts.to(accelerator.device)
+    tm_score.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
     processor = Protein3DProcessing()
@@ -242,7 +244,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
     total_sym_loss = 0.0
-    total_tm_score = 0.0
     counter = 0
 
     # Initialize the progress bar using tqdm
@@ -284,10 +285,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             # Calculate TM-score
             detached_masks = accelerator.gather(masks).detach().cpu()
-            tm_score = batch_tm_score(accelerator.gather(labels).detach().cpu(),
-                                      accelerator.gather(outputs).detach().cpu(),
-                                      data['seq'], data['seq'],
-                                      detached_masks, detached_masks)
+            tm_score.update(accelerator.gather(outputs).detach().cpu(), accelerator.gather(labels).detach().cpu(), detached_masks)
 
             # Compute the loss
             outputs = processor.apply_pca_batch(outputs).to(accelerator.device)
@@ -315,7 +313,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
         total_sym_loss += sym_loss.item()
-        total_tm_score += tm_score
         if configs.tqdm_progress_bar:
             progress_bar.set_description(f"validation epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "
@@ -326,10 +323,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_sym_loss = total_sym_loss / counter
-    avg_tm_score = total_tm_score / counter
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmse = rmse.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
+    avg_tm_score = tm_score.compute().cpu().item()
 
     # Log the metrics to TensorBoard
     if configs.tensorboard_log:
@@ -346,6 +343,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     mae.reset()
     rmse.reset()
     gdtts.reset()
+    tm_score.reset()
     # lddt.reset()
 
     return_dict = {
