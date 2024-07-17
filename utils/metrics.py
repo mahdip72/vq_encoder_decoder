@@ -115,7 +115,7 @@ def tm_from_h5(h5_file1, h5_file2):
     return tm_score
 
 
-def batch_tm_score(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, masks2=None):
+def batch_tm_align(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, masks2=None):
     """
     Calculate the average TM-score between two batches of coordinates.
     :param coords_batch1: (torch.Tensor) first batch of 3D coordinates
@@ -126,11 +126,6 @@ def batch_tm_score(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, mask
     :param masks2: (torch.Tensor) masks for second batch, optional
     :return: (float) average TM-score
     """
-
-    # Divide masks and batches into individual structures
-    # Apply mask to each structure
-    # Shorten sequence to match length of structure, if necessary
-    # Calculate TM
 
     assert coords_batch1.size() == coords_batch2.size()
 
@@ -165,6 +160,83 @@ def batch_tm_score(coords_batch1, coords_batch2, seqs1, seqs2, masks1=None, mask
 
     avg_tm_score = total_tm_score / num_samples
     return avg_tm_score
+
+
+def calc_tm_score(coords1, coords2):
+    """
+    Calculate TM-score for two protein structures given their coordinates. The
+    two structure are assumed to have the same residue sequence.
+    :param coords1: (torch.Tensor) Nx3 tensor of 3D coordinates of the first structure
+    :param coords2: (torch.Tensor) Nx3 tensor of 3D coordinates of the second structure
+    :return: (float) TM-score
+    """
+    L = len(coords1) # Length of protein
+
+    if L != len(coords2):
+        raise ValueError("The coordinate arrays must have the same length.")
+
+    d0 = 1.24 * (L - 15) ** (1 / 3) - 1.8
+    d0_squared = d0 ** 2
+
+    sum_scores = 0.0
+    for i in range(len(coords1)):
+        dist_squared = torch.sum((coords1[i] - coords2[i]) ** 2)
+        score = 1 / (1 + dist_squared / d0_squared)
+        sum_scores += score
+
+    tm_score = sum_scores / L
+    return tm_score
+
+
+def batch_tm_score(coords_batch1, coords_batch2, masks=None):
+    """
+    Calculate the average TM-score between two batches of protein structure coordinates.
+    :param coords_batch1: (torch.Tensor) first batch of 3D coordinates
+    :param coords_batch2: (torch.Tensor) second batch of 3D coordinates
+    :param masks: (torch.Tensor) masks for both batches, optional
+    :return: (float) average TM-score
+    """
+
+    assert coords_batch1.size() == coords_batch2.size()
+
+    total_tm_score = 0.0
+    num_samples = 0
+
+    # Iterate through each sample in batch
+    for i in range(len(coords_batch1)):
+        coords1 = coords_batch1[i]
+        coords2 = coords_batch2[i]
+
+        # Remove padding
+        if (masks is not None):
+            coords1 = coords1[masks[i]]
+            coords2 = coords2[masks[i]]
+
+        len_coords1 = len(coords1)
+        len_coords2 = len(coords2)
+
+        # Calculate TM-score
+        tm_score = calc_tm_score(coords1, coords2)
+        total_tm_score += tm_score
+        num_samples += 1
+
+    avg_tm_score = total_tm_score / num_samples
+    return avg_tm_score
+
+
+class TMScore(Metric):
+    def __init__(self, masks, dist_sync_on_step=False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+        self.add_state("sum_tm", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.masks = masks
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        assert preds.shape == target.shape, "Predictions and target must have the same shape"
+        self.sum_tm += torch.tensor(batch_tm_score(preds, target, self.masks))
+
+    def compute(self):
+        return self.sum_tm / self.total
 
 
 class GDTTS(Metric):
