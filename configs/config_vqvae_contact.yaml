@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 1
 tensorboard_log: True
 tqdm_progress_bar: True
-result_path: ./results
+result_path: ./results/contactmap_vqvae
 
 resume:
   resume: False
@@ -19,11 +19,11 @@ model:
   max_length: 256
 
   encoder:
-    dim: 8
+    dim: 64
     num_blocks: 4
 
   vector_quantization:
-    dim: 16
+    dim: 64
     codebook_size: 512
     decay: 0.9
     commitment_weight : 0.9
@@ -31,7 +31,7 @@ model:
     lfq: False
 
   decoder:
-    dim: 8
+    dim: 64
     num_blocks: 4
 
 train_settings:
@@ -39,11 +39,11 @@ train_settings:
   num_epochs: 32
   shuffle: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 32
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
 
-  max_task_samples: 100000
+  max_task_samples: 10000
   cutout:
     enable: False
     min_mask_size: 1
@@ -51,22 +51,22 @@ train_settings:
     max_cuts: 4
 
 valid_settings:
-  data_path: /home/renjz/data/cath_4_3_0/
+  data_path: /home/renjz/data/validation/validation_set_1024_h5
   do_every: 1
   shuffle: True
-  batch_size: 32
+  batch_size: 16
   num_workers: 8
 
 visualization_settings:
   data_path: /home/renjz/data/cath_4_3_0/
   fasta_path: visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 1
+  do_every: 10000
   batch_size: 1
   num_workers: 2
 
 optimizer:
-  name: adam
-  lr: 0.001
+  name: schedulerfree
+  lr: 0.0001
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16

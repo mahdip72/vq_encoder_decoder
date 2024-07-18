@@ -98,8 +98,8 @@ def train_loop(model, train_loader, epoch, **kwargs):
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
-
+                if optimizer_name != 'schedulerfree':
+                    accelerator.clip_grad_norm_(model.parameters(), configs.optimizer.grad_clip_norm)
             if optimizer_name != 'schedulerfree':
                 optimizer.step()
                 scheduler.step()
