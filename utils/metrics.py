@@ -210,6 +210,8 @@ def batch_tm_score(coords_batch1, coords_batch2, masks=None):
     """
 
     assert coords_batch1.size() == coords_batch2.size()
+    coords_batch1 = torch.clone(coords_batch1)
+    coords_batch2 = torch.clone(coords_batch2)
 
     total_tm_score = 0.0
     num_samples = 0
@@ -246,6 +248,7 @@ class TMScore(Metric):
         assert preds.shape == target.shape, "Predictions and target must have the same shape"
         tm_score = batch_tm_score(preds, target, masks)
         self.sum_tm += torch.tensor(tm_score)
+        self.total += 1
 
     def compute(self):
         return self.sum_tm / self.total
@@ -259,12 +262,11 @@ class GDTTS(Metric):
 
     def update(self, preds: torch.Tensor, target: torch.Tensor):
         assert preds.shape == target.shape, "Predictions and target must have the same shape"
-
+        
         thresholds = [1.0, 2.0, 4.0, 8.0]
         gdt_scores = torch.zeros(len(thresholds))
 
         distances = torch.sqrt(torch.sum((preds - target) ** 2, dim=-1))
-
         for i, threshold in enumerate(thresholds):
             gdt_scores[i] = (distances < threshold).float().mean()
 
