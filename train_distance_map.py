@@ -210,7 +210,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     del progress_bar
     torch.cuda.empty_cache()
     gc.collect()
-    
+
     return return_dict
 
 
@@ -257,7 +257,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_distance_map']
-            labels_coords = data['target_coords']
+            # labels_coords = data['target_coords']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
@@ -273,36 +273,39 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             outputs[labels == 0] = 0.0
 
             labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
-            masks = data['masks']
+            masks = data['masks'].to(accelerator.device)
 
-            outputs = batch_distance_map_to_coordinates(outputs.squeeze(1)).to(accelerator.device)
-            outputs = outputs.reshape(outputs.shape[0], -1, 3)
+            outputs = batch_distance_map_to_coordinates(outputs.squeeze(1))
+            outputs = outputs.reshape(outputs.shape[0], -1, 3).to(accelerator.device)
 
             # Get list of sequences and convert from byte string to string
-            sequences = data['seq']
-            for idx in range(len(sequences)):
-                sequences[idx] = str(sequences[idx], encoding='utf-8')
+            # sequences = data['seq']
+            # for idx in range(len(sequences)):
+            #     sequences[idx] = str(sequences[idx], encoding='utf-8')
 
             # Calculate TM-score
-            detached_masks = accelerator.gather(masks).detach().cpu()
-            tm_score.update(accelerator.gather(outputs).detach().cpu(), accelerator.gather(labels).detach().cpu(), detached_masks)
+            detached_masks = accelerator.gather(masks).to(accelerator.device)
+            tm_score.update(accelerator.gather(outputs), accelerator.gather(labels), detached_masks)
 
-            # Compute the loss
-            outputs = processor.apply_pca_batch(outputs).to(accelerator.device)
-            labels_coords = processor.apply_pca_batch(labels_coords).to(accelerator.device)
+            # # Compute the loss
+            # outputs = processor.apply_pca_batch(outputs).to(accelerator.device)
+            # labels_coords = processor.apply_pca_batch(labels_coords).to(accelerator.device)
 
+            outputs = accelerator.gather(outputs).cpu()
+            labels = accelerator.gather(labels).cpu()
+            masks = accelerator.gather(masks).cpu()
             masked_outputs = outputs[masks]
-            # masked_labels = labels[masks]
-            masked_labels = labels_coords[masks]
+            # masked_labels = labels_coords[masks]
+            masked_labels = labels[masks]
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
             # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 3))
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            mae.update(masked_outputs, masked_labels)
+            rmse.update(masked_outputs, masked_labels)
+            gdtts.update(masked_outputs, masked_labels)
             # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
         progress_bar.update(1)
