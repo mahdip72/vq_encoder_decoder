@@ -246,6 +246,7 @@ class TMScore(Metric):
         assert preds.shape == target.shape, "Predictions and target must have the same shape"
         tm_score = batch_tm_score(preds, target, masks)
         self.sum_tm += torch.tensor(tm_score)
+        self.total += 1
 
     def compute(self):
         return self.sum_tm / self.total
