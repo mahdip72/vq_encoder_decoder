@@ -6,8 +6,19 @@ from Bio.PDB.Polypeptide import PPBuilder
 from Bio import pairwise2
 import math
 import h5py
+import glob
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from multiprocessing import Manager
+
+
+def find_pdb_files(directory_path):
+    # Pattern to match PDB files in the directory and all subdirectories
+    pdb_files_pattern = directory_path + '/**/*.pdb'
+
+    # Find all PDB files matching the pattern
+    pdb_files = glob.glob(pdb_files_pattern, recursive=True)
+
+    return pdb_files
 
 
 def write_h5_file(file_path, pad_seq, n_ca_c_o_coord, plddt_scores):
@@ -184,11 +195,11 @@ def main():
     parser.add_argument('--data', default='./test_data', help='Path to PDB files.')
     parser.add_argument('--max_len', default=1024, type=int, help='Max sequence length to consider.')
     parser.add_argument('--save_path', default='./save_test/', help='Path to output.')
-    parser.add_argument('--max_workers', default=16,type=int,
+    parser.add_argument('--max_workers', default=16, type=int,
                         help='Set the number of workers for parallel processing.')
     args = parser.parse_args()
 
-    data_path = [os.path.join(args.data, path) for path in os.listdir(args.data) if os.path.isfile(os.path.join(args.data, path)) and path.endswith('pdb')]
+    data_path = find_pdb_files(args.data)
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
 

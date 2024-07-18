@@ -37,10 +37,10 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 32
-  num_workers: 0
+  batch_size: 16
+  num_workers: 2
   grad_accumulation: 4
-  max_task_samples: 100000
+  max_task_samples: 1000
   rotate_randomly: 0.0
   cutout:
     enable: False
@@ -52,14 +52,14 @@ valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5/
   do_every: 1
   batch_size: 64
-  num_workers: 0
+  num_workers: 2
 
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 4
   batch_size: 1
-  num_workers: 0
+  num_workers: 2
 
 optimizer:
   name: schedulerfree

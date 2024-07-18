@@ -13,8 +13,10 @@ resume:
 model:
   architecture: egnn_vqvae
   compile_model: False
-  max_length: 64
+  max_length: 128
   vqvae:
+    add_features:
+      enable: False
     vector_quantization:
       dim: 128
       decay: 0.8
@@ -47,9 +49,9 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 32
+  batch_size: 16
   num_workers: 8
-  grad_accumulation: 8
+  grad_accumulation: 1
   max_task_samples: 10000
   cutout:
     enable: False

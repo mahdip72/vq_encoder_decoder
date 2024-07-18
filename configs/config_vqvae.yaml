@@ -1,7 +1,7 @@
 fix_seed: 0
 checkpoints_every: 128
 tensorboard_log: True
-tqdm_progress_bar: True
+tqdm_progress_bar: False
 result_path: ./results/vqvae_transformer
 normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
@@ -42,13 +42,13 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 256
-  num_workers: 12
+  batch_size: 128
+  num_workers: 2
   grad_accumulation: 1
   max_task_samples: 600000
-  rotate_randomly: 0.3
+  rotate_randomly: 0.0
   cutout:
-    enable: True
+    enable: False
     min_mask_size: 1
     max_mask_size: 4
     max_cuts: 7
@@ -57,14 +57,14 @@ valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   do_every: 1
   batch_size: 128
-  num_workers: 2
+  num_workers: 0
 
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 1
   batch_size: 1
-  num_workers: 4
+  num_workers: 0
 
 optimizer:
   name: schedulerfree
