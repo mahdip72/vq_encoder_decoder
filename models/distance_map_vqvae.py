@@ -268,6 +268,7 @@ class VQVAE3DTransformer(nn.Module):
         self.encoder_tail = nn.Sequential(
             nn.Conv2d(1, start_dim, kernel_size=1),
             nn.Conv2d(start_dim, start_dim, kernel_size=3, padding=1),
+            nn.BatchNorm2d(start_dim),
         )
 
         from transformers import ViTConfig, ViTModel
@@ -305,6 +306,7 @@ class VQVAE3DTransformer(nn.Module):
 
         self.decoder_head = nn.Sequential(
             nn.Conv2d(start_dim, start_dim, kernel_size=3, padding=1),
+            nn.BatchNorm2d(start_dim),
             nn.Conv2d(start_dim, 1, 1)
         )
 
@@ -344,9 +346,9 @@ class VQVAE3DTransformer(nn.Module):
 
         if return_vq_only:
             return x, indices, commit_loss
-        x = self.reshape_to_image_shape(x)
+        # x = self.reshape_to_image_shape(x)
         # x = self.decoder_tail(x)
-        x = self.decoder(x).last_hidden_state[:, 1:, :]
+        x = self.decoder(inputs_embeds=x).last_hidden_state[:, 1:, :]
 
         x = self.reshape_to_image_shape(x)
         x = self.decoder_head(x)
