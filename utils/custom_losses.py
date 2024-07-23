@@ -4,6 +4,132 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
+def rigidFrom3Points(x1, x2, x3):
+    """
+    Compute the rigid transformation from 3 points using the Gram-Schmidt process.
+
+    Parameters:
+    - x1, x2, x3: Tensors of shape (B, 3) representing the 3D coordinates of the points for a batch size B.
+
+    Returns:
+    - R: Rotation matrix of shape (B, 3, 3).
+    - t: Translation vector of shape (B, 3).
+    """
+    v1 = x3 - x2
+    v2 = x1 - x2
+    e1 = v1 / torch.norm(v1, dim=-1, keepdim=True)
+    u2 = v2 - e1 * torch.sum(e1 * v2, dim=-1, keepdim=True)
+    e2 = u2 / torch.norm(u2, dim=-1, keepdim=True)
+    e3 = torch.cross(e1, e2)
+    R = torch.stack([e1, e2, e3], dim=-1)
+    t = x2
+    return R, t
+
+
+def compute_fape(T_pred, x_pred, T_true, x_true, Z=10.0, d_clamp=10.0, epsilon=1e-4):
+    """
+    Compute the Frame Aligned Point Error (FAPE) loss for a batch of data.
+
+    The FAPE loss measures the alignment error between a set of predicted points and true points
+    after applying the respective predicted and true transformations. It is used for tasks such as
+    evaluating the accuracy of protein structure predictions and aligning molecular structures.
+
+    The algorithm involves the following steps:
+    1. Transform the predicted points into the true frame using the predicted transformations.
+    2. Transform the true points into the predicted frame using the inverse of the true transformations.
+    3. Calculate the Euclidean distances between the transformed predicted and true points.
+    4. Clamp the distances to avoid large errors dominating the loss.
+    5. Compute the mean of the clamped distances and normalize by a factor Z.
+
+    Parameters:
+    - T_pred: Tensor of shape (B, N_frames, 3, 4) representing predicted transformations.
+              Each transformation consists of a 3x3 rotation matrix and a 3D translation vector.
+    - x_pred: Tensor of shape (B, N_frames, N_atoms, 3) representing predicted points.
+    - T_true: Tensor of shape (B, N_frames, 3, 4) representing true transformations.
+              Each transformation consists of a 3x3 rotation matrix and a 3D translation vector.
+    - x_true: Tensor of shape (B, N_frames, N_atoms, 3) representing true points.
+    - Z: Normalization factor to scale the loss.
+    - d_clamp: Clamping distance to avoid large errors dominating the loss.
+    - epsilon: Small value to prevent numerical instability during distance calculation.
+
+    Returns:
+    - FAPE loss: A scalar value representing the frame aligned point error for the batch.
+    """
+
+    # Number of frames and atoms
+    B = T_pred.shape[0]
+    N_frames = T_pred.shape[1]
+    N_atoms = x_pred.shape[2]
+
+    # Transform predicted points to the true frame
+    x_pred_trans = torch.einsum('bfij,bfkj->bfki', T_pred[:, :, :3], x_pred) + T_pred[:, :, 3].unsqueeze(-2)
+
+    # Transform true points to the predicted frame
+    T_true_inv = torch.linalg.inv(torch.cat([T_true[:, :, :3], T_true[:, :, 3:]], dim=-1))
+    x_true_trans = torch.einsum('bfij,bfkj->bfki', T_true_inv[:, :, :3], x_true) + T_true_inv[:, :, 3].unsqueeze(-2)
+
+    # Calculate squared distances with epsilon
+    d_ij = torch.sqrt(torch.sum((x_pred_trans - x_true_trans) ** 2, dim=-1) + epsilon)
+
+    # Clamp distances
+    d_ij_clamped = torch.minimum(d_ij, torch.tensor(d_clamp, device=d_ij.device))
+
+    # Calculate FAPE loss
+    L_FAPE = (1 / Z) * torch.mean(d_ij_clamped)
+
+    return L_FAPE
+
+
+def test_fape_loss_batch():
+    # I am not sure about the correctness of this test, but it is a good starting point
+    # Define multiple sets of coordinates for a batch
+    coords_pred = [
+        [torch.tensor([1.0, 0.0, 0.0]), torch.tensor([0.0, 1.0, 0.0]), torch.tensor([0.0, 0.0, 1.0])],
+        [torch.tensor([2.0, 0.0, 0.0]), torch.tensor([0.0, 2.0, 0.0]), torch.tensor([0.0, 0.0, 2.0])],
+        [torch.tensor([1.5, 0.5, 0.5]), torch.tensor([0.5, 1.5, 0.5]), torch.tensor([0.5, 0.5, 1.5])]
+    ]
+    coords_true = [
+        [torch.tensor([1.1, 0.1, 0.1]), torch.tensor([0.1, 1.1, 0.1]), torch.tensor([0.1, 0.1, 1.1])],
+        [torch.tensor([2.1, 0.1, 0.1]), torch.tensor([0.1, 2.1, 0.1]), torch.tensor([0.1, 0.1, 2.1])],
+        [torch.tensor([1.6, 0.6, 0.6]), torch.tensor([0.6, 1.6, 0.6]), torch.tensor([0.6, 0.6, 1.6])]
+    ]
+
+    B = len(coords_pred)  # Batch size
+    N_frames = 1
+    N_atoms = 3
+
+    # Prepare tensors
+    x_pred = torch.stack([torch.stack(batch) for batch in coords_pred]).unsqueeze(1)  # Shape: (B, N_frames, N_atoms, 3)
+    x_true = torch.stack([torch.stack(batch) for batch in coords_true]).unsqueeze(1)  # Shape: (B, N_frames, N_atoms, 3)
+
+    T_pred = []
+    T_true = []
+
+    for batch_pred, batch_true in zip(coords_pred, coords_true):
+        R_pred, t_pred = rigidFrom3Points(*batch_pred)
+        R_true, t_true = rigidFrom3Points(*batch_true)
+
+        T_pred_batch = torch.eye(4).repeat(N_frames, 1, 1)
+        T_true_batch = torch.eye(4).repeat(N_frames, 1, 1)
+
+        T_pred_batch[:, :3, :3] = R_pred
+        T_pred_batch[:, :3, 3] = t_pred
+
+        T_true_batch[:, :3, :3] = R_true
+        T_true_batch[:, :3, 3] = t_true
+
+        T_pred.append(T_pred_batch)
+        T_true.append(T_true_batch)
+
+    T_pred = torch.stack(T_pred)  # Shape: (B, N_frames, 4, 4)
+    T_true = torch.stack(T_true)  # Shape: (B, N_frames, 4, 4)
+
+    # Compute FAPE loss
+    loss = compute_fape(T_pred, x_pred, T_true, x_true)
+
+    return loss
+
+
 class MultiTaskLossWrapper(nn.Module):
     def __init__(self, num_losses):
         super(MultiTaskLossWrapper, self).__init__()
@@ -232,6 +358,7 @@ def bond_angles_loss(true_coords, pred_coords, masked_atoms):
     Returns:
         torch.Tensor: The computed bond angles loss.
     """
+
     def compute_angle(a, b, c):
         # Vectors
         ba = a - b
