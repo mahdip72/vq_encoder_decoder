@@ -19,4 +19,7 @@ uv pip install vector-quantize-pytorch
 uv pip install plotly
 uv pip install joblib
 uv pip install tmtools
+uv pip install schedulefree
+uv pip install packaging
+uv pip install flash-attn --no-build-isolation
 

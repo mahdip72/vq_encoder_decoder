@@ -3,7 +3,7 @@ checkpoints_every: 16
 tensorboard_log: False
 tqdm_progress_bar: True
 result_path: ./results/distance_map/
-normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer_distance_map.pkl
+normalizer_path: ./data/normalizer_distance_map.pkl
 
 resume:
   resume: False
@@ -42,7 +42,7 @@ model:
       num_blocks: 10
 
 train_settings:
-  data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
+  data_path: ../../datasets/vqvae/swissprot_1024_h5/
   num_epochs: 128
   shuffle: True
   loss: crossentropy
@@ -59,14 +59,14 @@ train_settings:
     max_cuts: 4
 
 valid_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5/
+  data_path: ../../datasets/vqvae/validation_set_1024_h5/
   do_every: 1
   batch_size: 32
   num_workers: 0
 
 visualization_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
-  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
+  data_path: ../../datasets/vqvae/cath_4_3_0/
+  fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 1
   batch_size: 1
   num_workers: 0
