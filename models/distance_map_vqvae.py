@@ -346,9 +346,9 @@ class VQVAE3DTransformer(nn.Module):
 
         if return_vq_only:
             return x, indices, commit_loss
-        # x = self.reshape_to_image_shape(x)
+        x = self.reshape_to_image_shape(x)
         # x = self.decoder_tail(x)
-        x = self.decoder(inputs_embeds=x).last_hidden_state[:, 1:, :]
+        x = self.decoder(x).last_hidden_state[:, 1:, :]
 
         x = self.reshape_to_image_shape(x)
         x = self.decoder_head(x)
