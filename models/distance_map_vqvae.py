@@ -9,7 +9,8 @@ import torch.nn.functional as F
 class ConvNeXtBlock(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super(ConvNeXtBlock, self).__init__()
-        self.dw_conv = nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, groups=input_dim)  # Depthwise convolution
+        self.dw_conv = nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3,
+                                 groups=input_dim)  # Depthwise convolution
         self.norm = nn.LayerNorm([input_dim, 1, 1])
         self.pw_conv1 = nn.Conv2d(input_dim, hidden_dim, kernel_size=1)  # Pointwise convolution
         self.gelu = nn.GELU()
@@ -75,7 +76,7 @@ class VQVAE3DResNet(nn.Module):
                 ResidualBlock(dim, dim),
             )
             encoder_blocks.append(block)
-            if (i+1) % 4 == 0:
+            if (i + 1) % 4 == 0:
                 pooling_block = nn.Sequential(
                     nn.Conv2d(dim, dim, 3, stride=2, padding=1),
                     nn.BatchNorm2d(dim),
@@ -121,7 +122,7 @@ class VQVAE3DResNet(nn.Module):
         decoder_blocks = []
         dims = dims + [dims[-1]]
         for i, dim in enumerate(dims[:-1]):
-            if (i+1) % 4 == 0:
+            if (i + 1) % 4 == 0:
                 pooling_block = nn.Sequential(
                     nn.Upsample(scale_factor=2),
                     nn.Conv2d(dim, dim, 3, padding=1),
@@ -251,141 +252,122 @@ class VQVAE3D(nn.Module):
 
 
 class VQVAE3DTransformer(nn.Module):
-    def __init__(self, codebook_size, decay, configs):
+    def __init__(self, latent_dim, codebook_size, decay, configs):
         super(VQVAE3DTransformer, self).__init__()
 
         self.max_length = configs.model.max_length
-        self.encoder_dim = configs.model.vqvae.encoder.dimension
-        self.decoder_dim = configs.model.vqvae.decoder.dimension
 
-        # Projecting the input to the dimension expected by the Transformer
-        # self.input_projection = nn.Linear(12, self.encoder_dim)
+        # Define the number of residual blocks for encoder and decoder
+        self.num_encoder_blocks = configs.model.vqvae.residual_encoder.num_blocks
+        self.num_decoder_blocks = configs.model.vqvae.residual_decoder.num_blocks
+        self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
+        self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        self.input_projection = nn.Sequential(
-            nn.Conv1d(3, int(self.encoder_dim / 2), 1),
-            nn.Conv1d(int(self.encoder_dim / 2), int(self.encoder_dim / 2), 3, padding=1),
-            nn.BatchNorm1d(int(self.encoder_dim / 2)),
-            nn.ReLU(),
-            nn.Conv1d(int(self.encoder_dim / 2), self.encoder_dim, 3, padding=1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU()
+        start_dim = 3
+        # Encoder
+        self.encoder_tail = nn.Sequential(
+            nn.Conv2d(1, start_dim, kernel_size=1),
+            nn.Conv2d(start_dim, start_dim, kernel_size=3, padding=1),
         )
 
-        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
+        from transformers import ViTConfig, ViTModel
 
-        # Transformer Encoder
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.encoder_dim,
-            nhead=configs.model.vqvae.encoder.num_heads,
-            dim_feedforward=configs.model.vqvae.encoder.dim_feedforward,
-            activation=configs.model.vqvae.encoder.activation_function
+        self.patch_size = 16
+        # Define the configuration for the ViT model
+        config = ViTConfig(
+            image_size=self.max_length,  # Example image size (224x224)
+            patch_size=self.patch_size,  # Example patch size (16x16)
+            num_channels=3,  # Number of input channels (3 for RGB images)
+            hidden_size=latent_dim,  # Hidden size of the transformer
+            num_hidden_layers=8,  # Number of transformer layers
+            num_attention_heads=8,  # Number of attention heads
+            intermediate_size=latent_dim*4,  # Intermediate size of the feedforward layers
+            hidden_dropout_prob=0.1,  # Dropout probability for hidden layers
+            attention_probs_dropout_prob=0.1,  # Dropout probability for attention layers
+            layer_norm_eps=1e-12,  # Layer normalization epsilon
+            initializer_range=0.02,  # Initializer range for weights
+            classifier_dropout=None,  # No classifier dropout,
+            hidden_act='gelu'
         )
-        self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=configs.model.vqvae.encoder.num_layers)
 
-        # Projecting the output of the Transformer to the dimension expected by the VQ layer
-        self.vq_in_projection = nn.Linear(self.encoder_dim, configs.model.vqvae.vector_quantization.dim)
+        # Instantiate the ViT model
+        self.encoder = ViTModel(config)
 
-        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
-
-        # Vector Quantizer
         self.vector_quantizer = VectorQuantize(
-            dim=configs.model.vqvae.vector_quantization.dim,
+            dim=latent_dim,
             codebook_size=codebook_size,
             decay=decay,
             commitment_weight=1.0,
+            accept_image_fmap=False,
         )
 
-        # Projecting the output of the VQ layer back to the decoder dimension
-        self.vq_out_projection = nn.Linear(configs.model.vqvae.vector_quantization.dim, self.decoder_dim)
+        self.decoder = ViTModel(config)
 
-        # Transformer Decoder
-        self.decoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.decoder_dim,
-            nhead=configs.model.vqvae.decoder.num_heads,
-            dim_feedforward=configs.model.vqvae.decoder.dim_feedforward,
-            activation=configs.model.vqvae.encoder.activation_function
-        )
-        self.decoder = nn.TransformerEncoder(self.decoder_layer, num_layers=configs.model.vqvae.decoder.num_layers)
-
-        # Projecting the output back to the original dimension
-        # self.output_projection = nn.Linear(self.decoder_dim, 12)
-
-        self.output_projection = nn.Sequential(
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 3, padding=1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
-            nn.Conv1d(self.decoder_dim, int(self.decoder_dim / 2), 3, padding=1),
-            nn.BatchNorm1d(int(self.decoder_dim / 2)),
-            nn.ReLU(),
-            nn.Conv1d(int(self.decoder_dim / 2), 3, 1),
+        self.decoder_head = nn.Sequential(
+            nn.Conv2d(start_dim, start_dim, kernel_size=3, padding=1),
+            nn.Conv2d(start_dim, 1, 1)
         )
 
-    @staticmethod
-    def drop_positional_encoding(embedding, pos_embed):
-        embedding = embedding + pos_embed
-        return embedding
+    def reshape_to_image_shape(self, x):
+        batch_size, num_patches, hidden_size = x.shape
+        num_patches_height = self.max_length // self.patch_size
+        num_patches_width = self.max_length // self.patch_size
+
+        assert hidden_size == self.patch_size * self.patch_size * 3, "Hidden size must be the square of the patch size times the number of channels (3 for RGB)."
+        assert num_patches == num_patches_height * num_patches_width, "Number of patches must match the product of patches along height and width."
+
+        # Reshape to (batch_size, num_patches_height, num_patches_width, patch_size, patch_size, 3)
+        x = x.view(batch_size, num_patches_height, num_patches_width, self.patch_size, self.patch_size, 3)
+
+        # Permute dimensions to move the patches into their correct positions
+        x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
+
+        # Reshape to (batch_size, height, width, channels)
+        x = x.view(batch_size, self.max_length, self.max_length, 3)
+
+        # Move the channels to the second dimension to get (batch_size, channels, height, width)
+        x = x.permute(0, 3, 1, 2).contiguous()
+
+        return x
 
     def forward(self, batch, return_vq_only=False):
-        x = batch['input_coords']
+        x = batch['input_distance_map']
+        # keep the shape of intial_x
+        # initial_x_shape = x.shape
+        # x = x.reshape(initial_x_shape[0], 4, int(initial_x_shape[2]/2), int(initial_x_shape[3]/2))
 
-        # Apply input projection
-        # x = self.input_projection(x)
-        x = x.permute(0, 2, 1)
-        for layer in self.input_projection:
-            x = layer(x)
-
-        # Permute for Transformer [batch, sequence, feature]
-        x = x.permute(0, 2, 1)
-
-        # Apply positional encoding to encoder
-        x = self.drop_positional_encoding(x, self.pos_embed_encoder)
-
-        # Encoder
-        x = self.encoder(x)
-
-        # Apply qv_in_projection
-        x = self.vq_in_projection(x)
+        x = self.encoder_tail(x)
+        x = self.encoder(x).last_hidden_state[:, 1:, :]
+        # x = self.encoder_head(x)
 
         x, indices, commit_loss = self.vector_quantizer(x)
 
         if return_vq_only:
-            x = x.permute(0, 2, 1)
             return x, indices, commit_loss
+        x = self.reshape_to_image_shape(x)
+        # x = self.decoder_tail(x)
+        x = self.decoder(x).last_hidden_state[:, 1:, :]
 
-        # Apply vq_out_projection
-        x = self.vq_out_projection(x)
-
-        # Apply positional encoding to decoder
-        x = self.drop_positional_encoding(x, self.pos_embed_decoder)
-
-        # Decoder
-        x = self.decoder(x)
-
-        # Permute back to [batch, feature, sequence]
-        x = x.permute(0, 2, 1)
-
-        # Apply output projection
-        # x = self.output_projection(x)
-        for layer in self.output_projection:
-            x = layer(x)
-        x = x.permute(0, 2, 1)
+        x = self.reshape_to_image_shape(x)
+        x = self.decoder_head(x)
 
         return x, indices, commit_loss
 
 
 def prepare_models_distance_map_vqvae(configs, logger, accelerator):
-    vqvae = VQVAE3DResNet(
+    # vqvae = VQVAE3DResNet(
+    #     latent_dim=configs.model.vqvae.vector_quantization.dim,
+    #     codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+    #     decay=configs.model.vqvae.vector_quantization.decay,
+    #     configs=configs
+    # )
+
+    vqvae = VQVAE3DTransformer(
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
     )
-
-    # vqvae = VQVAE3DTransformer(
-    #     codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
-    #     decay=configs.model.vqvae.vector_quantization.decay,
-    #     configs=configs
-    # )
 
     if accelerator.is_main_process:
         print_trainable_parameters(vqvae, logger, 'VQ-VAE')
