@@ -321,14 +321,8 @@ class VQVAE3DTransformer(nn.Module):
         # Reshape to (batch_size, num_patches_height, num_patches_width, patch_size, patch_size, 3)
         x = x.view(batch_size, num_patches_height, num_patches_width, self.patch_size, self.patch_size, 3)
 
-        # Permute dimensions to move the patches into their correct positions
-        x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
-
-        # Reshape to (batch_size, height, width, channels)
-        x = x.view(batch_size, self.max_length, self.max_length, 3)
-
-        # Move the channels to the second dimension to get (batch_size, channels, height, width)
-        x = x.permute(0, 3, 1, 2).contiguous()
+        # Permute and reshape in one step to (batch_size, channels, height, width)
+        x = x.permute(0, 5, 1, 3, 2, 4).reshape(batch_size, 3, self.max_length, self.max_length)
 
         return x
 
