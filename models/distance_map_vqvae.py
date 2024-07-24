@@ -283,8 +283,8 @@ class VQVAE3DTransformer(nn.Module):
             intermediate_size=latent_dim * 4,  # Intermediate size of the feedforward layers
             hidden_dropout_prob=0.1,  # Dropout probability for hidden layers
             attention_probs_dropout_prob=0.1,  # Dropout probability for attention layers
-            # layer_norm_eps=1e-12,  # Layer normalization epsilon
-            # initializer_range=0.02,  # Initializer range for weights
+            layer_norm_eps=1e-12,  # Layer normalization epsilon
+            initializer_range=0.02,  # Initializer range for weights
             classifier_dropout=None,  # No classifier dropout,
             hidden_act='gelu'
         )
