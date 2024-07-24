@@ -1240,8 +1240,8 @@ class DistanceMapVQVAEDataset(Dataset):
         # coords = coords.reshape(-1, 12)
 
         # expand the first dimension of distance maps
-        input_distance_map = input_distance_map.unsqueeze(0)
-        target_distance_map = target_distance_map.unsqueeze(0)
+        input_distance_map = input_distance_map.unsqueeze(0)/100
+        target_distance_map = target_distance_map.unsqueeze(0)/100
         return {'pid': pid, 'seq': sequence, 'input_coords': input_coords_tensor.squeeze(0),
                 'input_distance_map': input_distance_map, 'target_coords': coords_tensor.squeeze(0),
                 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}

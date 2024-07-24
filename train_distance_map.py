@@ -11,6 +11,7 @@ from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates, TMScor
 from accelerate import Accelerator
 from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
+from utils.custom_losses import distance_map_loss
 from tqdm import tqdm
 import time
 import torchmetrics
@@ -84,28 +85,36 @@ def train_loop(net, train_loader, epoch, **kwargs):
         optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
+            target_coordinates_labels = data['target_coords']
             labels = data['target_distance_map']
-            # masks = data['masks']
+            masks = data['masks']
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
             # Compute the loss
             # masked_outputs = outputs[masks]
             # masked_labels = labels[masks]
-            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
-            sym_loss = symmetry_loss(outputs) * beta
-            loss = rec_loss + alpha * commit_loss + sym_loss
+            # rec_loss = torch.nn.functional.l1_loss(outputs, labels)
+            # sym_loss = symmetry_loss(outputs) * beta
+            # loss = rec_loss + alpha * commit_loss + sym_loss
 
-            labels = processor.denormalize_distance_map(labels.squeeze(1))
-            outputs = processor.denormalize_distance_map(outputs.squeeze(1).detach())
+            rec_loss = distance_map_loss(outputs, labels)
+
+            loss = rec_loss + alpha * commit_loss
+
+            # labels = processor.denormalize_distance_map(labels.squeeze(1))
+            # outputs = processor.denormalize_distance_map(outputs.squeeze(1).detach())
 
             # make the diagonal of the distance map to be zero (batch_size x m x m)
-            labels[torch.abs(labels) < 1.0e-5] = 0
-            outputs[labels == 0] = 0
+            # labels[torch.abs(labels) < 1.0e-5] = 0
+            # outputs[labels == 0] = 0
+
+            masked_outputs = outputs[masks]*100
+            masked_labels = target_coordinates_labels[masks]*100
 
             # Update the metrics
-            mae.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
-            rmse.update(accelerator.gather(outputs).detach(), accelerator.gather(labels).detach())
+            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
@@ -114,10 +123,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
             train_cmt_loss += avg_cmt_loss.item() / accum_iter
 
-            avg_sym_loss = accelerator.gather(sym_loss.repeat(configs.train_settings.batch_size)).mean()
-            train_sym_loss = avg_sym_loss.item() / accum_iter
+            # avg_sym_loss = accelerator.gather(sym_loss.repeat(configs.train_settings.batch_size)).mean()
+            # train_sym_loss = avg_sym_loss.item() / accum_iter
 
-            train_total_loss = train_rec_loss + alpha * train_cmt_loss + beta * train_sym_loss
+            train_total_loss = train_rec_loss + alpha * train_cmt_loss  # + beta * train_sym_loss
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -139,13 +148,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
-            total_sym_loss += train_sym_loss
+            # total_sym_loss += train_sym_loss
             total_activation += indices.unique().numel() / codebook_size
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
             train_cmt_loss = 0.0
-            train_sym_loss = 0.0
+            # train_sym_loss = 0.0
 
             if configs.tensorboard_log:
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
@@ -164,13 +173,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
                     "step_loss": loss.detach().item(),
                     "rec_loss": rec_loss.detach().item(),
                     "cmt_loss": commit_loss.detach().item(),
-                    "sym_loss": sym_loss.detach().item(),
+                    # "sym_loss": sym_loss.detach().item(),
                     "activation": indices.unique().numel() / codebook_size * 100,
                     "global_step": global_step
                 }
             )
         # Clear unused variables to avoid memory leakages
-        del data, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss, avg_sym_loss, sym_loss
+        del data, outputs, indices, commit_loss, rec_loss, loss, avg_rec_loss, avg_cmt_loss  #, avg_sym_loss, sym_loss
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
@@ -257,46 +266,54 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_distance_map']
-            # labels_coords = data['target_coords']
+            target_coordinates_labels = data['target_coords']
+            masks = data['masks']
+
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
-            sym_loss = symmetry_loss(outputs) * beta
-            loss = rec_loss + alpha * commit_loss + sym_loss
+            # Compute the loss
+            rec_loss = distance_map_loss(outputs, labels)
+            # rec_loss = torch.nn.functional.l1_loss(outputs, labels)
+            # sym_loss = symmetry_loss(outputs) * beta
+            loss = rec_loss + alpha * commit_loss  # + sym_loss
 
-            labels = processor.denormalize_distance_map(labels.squeeze(1))
-            outputs = processor.denormalize_distance_map(outputs.squeeze(1).detach())
+            # labels = processor.denormalize_distance_map(labels.squeeze(1))
+            # outputs = processor.denormalize_distance_map(outputs.squeeze(1).detach())
 
             # make the diagonal of the distance map to be zero (batch_size x m x m)
-            labels[torch.abs(labels) < 1.0e-5] = 0.0
-            outputs[labels == 0] = 0.0
+            # labels[torch.abs(labels) < 1.0e-5] = 0.0
+            # outputs[labels == 0] = 0.0
 
-            labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
-            masks = data['masks'].to(accelerator.device)
+            # labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
+            # masks = data['masks'].to(accelerator.device)
 
-            outputs = batch_distance_map_to_coordinates(outputs.squeeze(1))
-            outputs = outputs.reshape(outputs.shape[0], -1, 3).to(accelerator.device)
+            # outputs = batch_distance_map_to_coordinates(outputs.squeeze(1))
+            # outputs = outputs.reshape(outputs.shape[0], -1, 3).to(accelerator.device)
+
 
             # Get list of sequences and convert from byte string to string
             # sequences = data['seq']
             # for idx in range(len(sequences)):
             #     sequences[idx] = str(sequences[idx], encoding='utf-8')
 
+            outputs = outputs*100
+            target_coordinates_labels = target_coordinates_labels*100
             # Calculate TM-score
             detached_masks = accelerator.gather(masks).to(accelerator.device)
-            tm_score.update(accelerator.gather(outputs), accelerator.gather(labels), detached_masks)
+            tm_score.update(accelerator.gather(outputs), accelerator.gather(target_coordinates_labels), detached_masks)
 
             # # Compute the loss
             # outputs = processor.apply_pca_batch(outputs).to(accelerator.device)
             # labels_coords = processor.apply_pca_batch(labels_coords).to(accelerator.device)
 
-            outputs = accelerator.gather(outputs).cpu()
-            labels = accelerator.gather(labels).cpu()
-            masks = accelerator.gather(masks).cpu()
+            # outputs = accelerator.gather(outputs).cpu()
+            # labels = accelerator.gather(labels).cpu()
+            # masks = accelerator.gather(masks).cpu()
             masked_outputs = outputs[masks]
             # masked_labels = labels_coords[masks]
-            masked_labels = labels[masks]
+            # masked_labels = labels[masks]
+            masked_labels = target_coordinates_labels[masks]
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 3))
@@ -315,7 +332,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         total_loss += loss.item()
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
-        total_sym_loss += sym_loss.item()
+        # total_sym_loss += sym_loss.item()
         if configs.tqdm_progress_bar:
             progress_bar.set_description(f"validation epoch {epoch} "
                                          + f"[loss: {total_loss / counter:.3f}, "

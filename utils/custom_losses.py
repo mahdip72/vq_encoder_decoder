@@ -222,7 +222,7 @@ def distance_map_loss(predicted_coords, real_distance_map):
     # real_distance_map = compute_distance_map(real_coords)
 
     # Define the loss as the L2 difference between the distance maps
-    loss = torch.nn.functional.mse_loss(predicted_distance_map, real_distance_map)
+    loss = torch.nn.functional.mse_loss(predicted_distance_map, real_distance_map.squeeze(1))
     return loss
 
 

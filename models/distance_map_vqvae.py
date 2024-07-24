@@ -278,9 +278,9 @@ class VQVAE3DTransformer(nn.Module):
             patch_size=self.patch_size,  # Example patch size (16x16)
             num_channels=3,  # Number of input channels (3 for RGB images)
             hidden_size=latent_dim,  # Hidden size of the transformer
-            num_hidden_layers=8,  # Number of transformer layers
-            num_attention_heads=8,  # Number of attention heads
-            intermediate_size=latent_dim * 4,  # Intermediate size of the feedforward layers
+            num_hidden_layers=4,  # Number of transformer layers
+            num_attention_heads=4,  # Number of attention heads
+            intermediate_size=latent_dim * 2,  # Intermediate size of the feedforward layers
             hidden_dropout_prob=0.1,  # Dropout probability for hidden layers
             attention_probs_dropout_prob=0.1,  # Dropout probability for attention layers
             layer_norm_eps=1e-12,  # Layer normalization epsilon
@@ -307,10 +307,11 @@ class VQVAE3DTransformer(nn.Module):
         decoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim, nhead=8, dim_feedforward=latent_dim * 4,
                                                    activation='gelu')
         self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=6)
-        self.decoder = ViTModel(config)
+        # self.decoder = ViTModel(config)
 
         self.decoder_head = nn.Sequential(
-            nn.Conv2d(start_dim, 1, 1)
+            nn.Conv1d(latent_dim, 3, 3, padding=1),
+            nn.Conv1d(3, 3, 1)
         )
 
     def reshape_to_image_shape(self, x):
@@ -346,11 +347,14 @@ class VQVAE3DTransformer(nn.Module):
 
         x = x + self.pos_embed_decoder
         x = self.decoder_tail(x)
-        x = self.reshape_to_image_shape(x)
-        x = self.decoder(x).last_hidden_state[:, 1:, :]
+        # x = self.reshape_to_image_shape(x)
+        # x = self.decoder(x).last_hidden_state[:, 1:, :]
 
-        x = self.reshape_to_image_shape(x)
+        # x = self.reshape_to_image_shape(x)
+
+        x = x.permute(0, 2, 1)
         x = self.decoder_head(x)
+        x = x.permute(0, 2, 1)
 
         return x, indices, commit_loss
 
