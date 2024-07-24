@@ -122,6 +122,103 @@ def test_fape_loss():
     return losses
 
 
+def get_axis_matrix(a, b, c, norm=True):
+    """
+    [This function is from the MP-NeRF project.]
+    Gets an orthonormal basis as a matrix of [e1, e2, e3].
+    Useful for constructing rotation matrices between planes
+    according to the first answer here:
+    https://math.stackexchange.com/questions/1876615/rotation-matrix-from-plane-a-to-b
+    Inputs:
+    * a: (batch, 3) or (3, ). point(s) of the plane
+    * b: (batch, 3) or (3, ). point(s) of the plane
+    * c: (batch, 3) or (3, ). point(s) of the plane
+    Outputs: orthonormal basis as a matrix of [e1, e2, e3]. calculated as:
+        * e1_ = (c-b)
+        * e2_proto = (b-a)
+        * e3_ = e1_ ^ e2_proto
+        * e2_ = e3_ ^ e1_
+        * basis = normalize_by_vectors( [e1_, e2_, e3_] )
+    Note: Could be done more by Graham-Schmidt and extend to N-dimensions
+          but this is faster and more intuitive for 3D.
+    """
+    v1_ = c - b
+    v2_ = b - a
+    v3_ = torch.cross(v1_, v2_, dim=-1)
+    v2_ready = torch.cross(v3_, v1_, dim=-1)
+    basis    = torch.stack([v1_, v2_ready, v3_], dim=-2)
+    # normalize if needed
+    if norm:
+        return basis / torch.norm(basis, dim=-1, keepdim=True)
+    return basis
+
+
+def fape_torch(pred_coords, true_coords, max_val=10., l_func=None,
+               c_alpha=False, seq_list=None, rot_mats_g=None):
+    """
+    [This function is from the MP-NeRF project with some minor changes]
+    Computes the Frame-Aligned Point Error. Scaled 0 <= FAPE <= 1
+    Inputs:
+    * pred_coords: (B, L, C, 3) predicted coordinates.
+    * true_coords: (B, L, C, 3) ground truth coordinates.
+    * max_val: maximum value (it's also the radius due to L1 usage)
+    * l_func: function. allow for options other than l1 (consider dRMSD)
+    * c_alpha: bool. whether to only calculate frames and loss from c_alphas
+    * seq_list: list of strs (FASTA sequences). to calculate rigid bodies' indexs.
+                Defaults to C-alpha if not passed.
+    * rot_mats_g: optional. List of n_seqs x (N_frames, 3, 3) rotation matrices.
+
+    Outputs: (B)
+    """
+    fape_store = []   # List of loss values for each sample
+
+    if l_func is None:
+        l_func = lambda x,y,eps=1e-7,sup=max_val: (((x-y)**2).sum(dim=-1) + eps).sqrt()
+
+    # for chain
+    for s in range(pred_coords.shape[0]):
+        fape_store.append(0)
+        cloud_mask = (torch.abs(true_coords[s]).sum(dim=-1) != 0)
+
+        # center both structures
+        pred_center = pred_coords[s] - pred_coords[s, cloud_mask].mean(dim=0, keepdim=True)
+        true_center = true_coords[s] - true_coords[s, cloud_mask].mean(dim=0, keepdim=True)
+
+        # Iterate through each residue
+        num_residues = len(pred_center)
+        for res_idx in range(num_residues):
+
+            pred_center_res = pred_center[res_idx]
+            true_center_res = true_center[res_idx]
+
+            # get frames and conversions - same scheme as in mp_nerf proteins' concat of monomers
+            if rot_mats_g is None:
+                rigid_idxs = torch.tensor([0, 1, 2])  # Assume the backbone atoms are the first 3 atoms
+                true_frames = get_axis_matrix(*true_center_res[rigid_idxs].detach(), norm=True)
+                pred_frames = get_axis_matrix(*pred_center_res[rigid_idxs].detach(), norm=True)
+                rot_mats = torch.matmul(torch.transpose(pred_frames, -1, -2), true_frames)
+            else:
+                rot_mats = rot_mats_g[s]
+
+            # calculate loss only on c_alphas
+            if c_alpha:
+                mask_center = cloud_mask[res_idx]
+                mask_center[:] = False
+                mask_center[rigid_idxs[1]] = True
+
+            fape = l_func(pred_center_res @ rot_mats, true_center_res).clamp(0, max_val)
+            fape_store[s] += fape
+
+        # Average the loss for current sample across all residues
+        fape_store[s] /= num_residues
+
+    # stack and average
+    fape_store_tensor = torch.stack(fape_store, dim=0)
+
+    # Final result is normalized to be between 0 and 1
+    return (1/max_val) * fape_store_tensor
+
+
 class MultiTaskLossWrapper(nn.Module):
     def __init__(self, num_losses):
         super(MultiTaskLossWrapper, self).__init__()
