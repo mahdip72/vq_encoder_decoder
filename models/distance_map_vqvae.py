@@ -301,8 +301,8 @@ class VQVAE3DTransformer(nn.Module):
         )
 
         # transformer block
-        decoder_layer = nn.TransformerEncoderLayer(d_model=768, nhead=4, dim_feedforward=1024, activation='gelu')
-        self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=4)
+        decoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim, nhead=8, dim_feedforward=latent_dim*4, activation='gelu')
+        self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=6)
         self.decoder = ViTModel(config)
 
         self.decoder_head = nn.Sequential(
