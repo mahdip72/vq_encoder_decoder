@@ -306,7 +306,7 @@ class VQVAE3DTransformer(nn.Module):
         # transformer block
         decoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim, nhead=8, dim_feedforward=latent_dim * 4,
                                                    activation='gelu')
-        self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=8)
+        self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=6)
         self.decoder = ViTModel(config)
 
         self.decoder_head = nn.Sequential(
@@ -346,8 +346,8 @@ class VQVAE3DTransformer(nn.Module):
 
         x = x + self.pos_embed_decoder
         x = self.decoder_tail(x)
-        # x = self.reshape_to_image_shape(x)
-        # x = self.decoder(x).last_hidden_state[:, 1:, :]
+        x = self.reshape_to_image_shape(x)
+        x = self.decoder(x).last_hidden_state[:, 1:, :]
 
         x = self.reshape_to_image_shape(x)
         x = self.decoder_head(x)
