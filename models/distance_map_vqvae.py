@@ -280,11 +280,11 @@ class VQVAE3DTransformer(nn.Module):
             hidden_size=latent_dim,  # Hidden size of the transformer
             num_hidden_layers=8,  # Number of transformer layers
             num_attention_heads=8,  # Number of attention heads
-            intermediate_size=latent_dim*4,  # Intermediate size of the feedforward layers
+            intermediate_size=latent_dim * 4,  # Intermediate size of the feedforward layers
             hidden_dropout_prob=0.1,  # Dropout probability for hidden layers
             attention_probs_dropout_prob=0.1,  # Dropout probability for attention layers
-            layer_norm_eps=1e-12,  # Layer normalization epsilon
-            initializer_range=0.02,  # Initializer range for weights
+            # layer_norm_eps=1e-12,  # Layer normalization epsilon
+            # initializer_range=0.02,  # Initializer range for weights
             classifier_dropout=None,  # No classifier dropout,
             hidden_act='gelu'
         )
@@ -300,9 +300,13 @@ class VQVAE3DTransformer(nn.Module):
             accept_image_fmap=False,
         )
 
+        self.pos_embed_decoder = nn.Parameter(
+            torch.randn(1, np.square(self.max_length // self.patch_size), latent_dim) * .02)
+
         # transformer block
-        decoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim, nhead=8, dim_feedforward=latent_dim*4, activation='gelu')
-        self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=6)
+        decoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim, nhead=8, dim_feedforward=latent_dim * 4,
+                                                   activation='gelu')
+        self.decoder_tail = nn.TransformerEncoder(decoder_layer, num_layers=8)
         self.decoder = ViTModel(config)
 
         self.decoder_head = nn.Sequential(
@@ -339,9 +343,11 @@ class VQVAE3DTransformer(nn.Module):
 
         if return_vq_only:
             return x, indices, commit_loss
+
+        x = x + self.pos_embed_decoder
         x = self.decoder_tail(x)
-        x = self.reshape_to_image_shape(x)
-        x = self.decoder(x).last_hidden_state[:, 1:, :]
+        # x = self.reshape_to_image_shape(x)
+        # x = self.decoder(x).last_hidden_state[:, 1:, :]
 
         x = self.reshape_to_image_shape(x)
         x = self.decoder_head(x)
