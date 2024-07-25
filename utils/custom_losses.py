@@ -43,7 +43,7 @@ def transform_predicted_points(T, x):
     return x_transformed
 
 
-def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0, epsilon=1e-4):
+def fape_loss(x_predicted, x_true, Z=10.0, d_clamp=10.0, epsilon=1e-4):
     """
     Computes the Frame Aligned Point Error (FAPE) loss for a batch of predicted protein structures.
 
