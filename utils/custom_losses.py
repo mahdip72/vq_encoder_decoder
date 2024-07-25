@@ -80,60 +80,6 @@ def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0):
     return fape
 
 
-def compute_fape(T_pred, x_pred, T_true, x_true, Z=10.0, d_clamp=10.0, epsilon=1e-4):
-    """
-    Compute the Frame Aligned Point Error (FAPE) loss.
-
-    The FAPE loss measures the alignment error between a set of predicted points and true points
-    after applying the respective predicted and true transformations. It is used for tasks such as
-    evaluating the accuracy of protein structure predictions and aligning molecular structures.
-
-    The algorithm involves the following steps:
-    1. Transform the predicted points into the true frame using the predicted transformations.
-    2. Transform the true points into the predicted frame using the inverse of the true transformations.
-    3. Calculate the Euclidean distances between the transformed predicted and true points.
-    4. Clamp the distances to avoid large errors dominating the loss.
-    5. Compute the mean of the clamped distances and normalize by a factor Z.
-
-    Parameters:
-    - T_pred: Tensor of shape (N_frames, 3, 4) representing predicted transformations.
-              Each transformation consists of a 3x3 rotation matrix and a 3D translation vector.
-    - x_pred: Tensor of shape (N_frames, N_atoms, 3) representing predicted points.
-    - T_true: Tensor of shape (N_frames, 3, 4) representing true transformations.
-              Each transformation consists of a 3x3 rotation matrix and a 3D translation vector.
-    - x_true: Tensor of shape (N_frames, N_atoms, 3) representing true points.
-    - Z: Normalization factor to scale the loss.
-    - d_clamp: Clamping distance to avoid large errors dominating the loss.
-    - epsilon: Small value to prevent numerical instability during distance calculation.
-
-    Returns:
-    - FAPE loss: A scalar value representing the frame aligned point error.
-    """
-
-    # Number of frames and atoms
-    N_frames = T_pred.shape[0]
-    N_atoms = x_pred.shape[1]
-
-    # Transform predicted points to the true frame
-    x_pred_trans = torch.bmm(T_pred[:, :, :3], x_pred.transpose(1, 2)).transpose(1, 2) + T_pred[:, :, 3].unsqueeze(1)
-
-    # Transform true points to the predicted frame
-    T_true_inv = torch.linalg.inv(torch.cat([T_true[:, :, :3], T_true[:, :, 3:]], dim=-1))
-    x_true_trans = torch.bmm(T_true_inv[:, :, :3], x_true.transpose(1, 2)).transpose(1, 2) + T_true_inv[:, :,
-                                                                                             3].unsqueeze(1)
-
-    # Calculate squared distances with epsilon
-    d_ij = torch.sqrt(torch.sum((x_pred_trans - x_true_trans) ** 2, dim=-1) + epsilon)
-
-    # Clamp distances
-    d_ij_clamped = torch.minimum(d_ij, torch.tensor(d_clamp, device=d_ij.device))
-
-    # Calculate FAPE loss
-    L_FAPE = (1 / Z) * torch.mean(d_ij_clamped)
-
-    return L_FAPE
-
-
 def get_axis_matrix(a, b, c, norm=True):
     """
     [This function is from the MP-NeRF project.]
