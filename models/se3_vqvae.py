@@ -162,21 +162,21 @@ class SE3VQVAE3DTransformer(nn.Module):
             dim=128,
             # m_dim=64,
             depth=1,
-            global_linear_attn_every=1,
-            global_linear_attn_heads=8,
-            global_linear_attn_dim_head=32,
+            # global_linear_attn_every=1,
+            # global_linear_attn_heads=8,
+            # global_linear_attn_dim_head=32,
             # norm_feats=True,  # whether to layernorm the features
-            # norm_coors=True,
+            norm_coors=True,
             # whether to normalize the coordinates, using a strategy from the SE(3) Transformers paper
             # num_nearest_neighbors=4,
             # coor_weights_clamp_value=0.2
             # absolute clamped value for the coordinate weights, needed if you increase the num neareest neighbors
         )
-        input_shape = 128
+        input_shape = self.max_length
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
-            ResidualBlock(self.encoder_dim, self.encoder_dim),
+            # ResidualBlock(self.encoder_dim, self.encoder_dim),
             # TransformerBlock(start_dim, start_dim * 2),
         )
 
@@ -217,13 +217,12 @@ class SE3VQVAE3DTransformer(nn.Module):
         self.decoder_blocks = nn.Sequential(*decoder_blocks)
 
         self.decoder_head = nn.Sequential(
-            ResidualBlock(self.decoder_dim, self.decoder_dim),
-            ResidualBlock(self.decoder_dim, self.decoder_dim),
-            nn.Conv1d(self.decoder_dim, 3, 1),
+            # ResidualBlock(self.decoder_dim, self.decoder_dim),
+            nn.Conv1d(self.decoder_dim, 9, 1),
         )
 
     def forward(self, batch, return_vq_only=False):
-        initial_x = batch['input_coords'][..., 3:6]
+        initial_x = batch['input_coords']
         mask = batch['masks']
         feats = torch.tensor(range(1, self.max_length+1)).reshape(1, self.max_length).to(initial_x.device)
         feats = feats.repeat_interleave(mask.shape[0], dim=0)
