@@ -43,7 +43,7 @@ def transform_predicted_points(T, x):
     return x_transformed
 
 
-def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0):
+def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0, epsilon=1e-4):
     """
     Computes the Frame Aligned Point Error (FAPE) loss for a batch of predicted protein structures.
 
@@ -59,17 +59,20 @@ def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0):
     batch_size, num_amino_acids, _, _ = x_true.shape
 
     # Compute the rigid transformation using the first three amino acids
-    R, t = rigid_from_3_points_batch(x_true[:, :, 0, :], x_true[:, :, 1, :], x_true[:, :, 2, :])
+    r_true, t_true = rigid_from_3_points_batch(x_true[:, :, 0, :], x_true[:, :, 1, :], x_true[:, :, 2, :])
+    r_predicted, t_predicted = rigid_from_3_points_batch(x_predicted[:, :, 0, :], x_predicted[:, :, 1, :], x_predicted[:, :, 2, :])
 
     x_true_alpha_carbon = x_true[:, :, 1, :].squeeze()
     x_predicted_alpha_carbon = x_predicted[:, :, 1, :3].squeeze()
 
     # Transform all true and predicted points
-    x_true_transformed = transform_predicted_points(R, x_true_alpha_carbon)
-    x_predicted_transformed = transform_predicted_points(R, x_predicted_alpha_carbon)
+    x_true_transformed = transform_predicted_points(r_true, x_true_alpha_carbon)
+    x_predicted_transformed = transform_predicted_points(r_predicted, x_predicted_alpha_carbon)
 
     # Compute distances using L2 loss
-    distances = torch.nn.functional.mse_loss(x_true_transformed, x_predicted_transformed, reduction='none')
+    # distances = torch.nn.functional.mse_loss(x_true_transformed, x_predicted_transformed, reduction='none')
+    # Compute distances using L2 norm manually
+    distances = torch.sqrt(torch.sum((x_true_transformed - x_predicted_transformed) ** 2, dim=-1) + epsilon)
 
     # Clamp the distances by d_clamp
     clamped_distances = torch.minimum(distances, torch.tensor(d_clamp, dtype=distances.dtype))
