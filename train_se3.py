@@ -14,7 +14,7 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
-from utils.custom_losses import distance_map_loss
+from utils.custom_losses import distance_map_loss, fape_loss
 from utils.custom_losses import MultiTaskLossWrapper
 import gc
 import torch
@@ -94,14 +94,26 @@ def train_loop(net, train_loader, epoch, **kwargs):
         optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
-            labels = data['target_distance_map']
-            # masks = data['masks']
+            labels = data['target_coords']
+            masks = data['masks']
 
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
             # Compute the loss
-            rec_loss = distance_map_loss(outputs, labels)
+            # rec_loss = distance_map_loss(outputs, labels)
+
+            rec_loss = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                                      labels.reshape(labels.shape[0], labels.shape[1], 3, 3))
+
+            # Apply the mask to the loss tensor
+            rec_loss = rec_loss[masks]
+
+            # Create a mask to filter out rows with NaN values
+            mask = ~torch.isnan(rec_loss).any(dim=1)
+            rec_loss = rec_loss[mask]
+
+            rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
 
@@ -352,7 +364,7 @@ def main(dict_config, config_file_path):
 
     from data.dataset import prepare_se3_vqvae_dataloaders
     train_dataloader, valid_dataloader, visualization_loader = prepare_se3_vqvae_dataloaders(logging, accelerator,
-                                                                                         configs)
+                                                                                             configs)
 
     logging.info('preparing dataloaders are done')
 
