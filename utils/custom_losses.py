@@ -26,19 +26,28 @@ def rigid_from_3_points_batch(x1, x2, x3):
     return R, t
 
 
-def transform_predicted_points(T, x):
+def transform_predicted_points(R, t, x):
     """
-    Transforms the predicted points using the batch of transformation matrices.
+    Transforms the predicted points using the batch of rotation matrices and translation vectors.
 
     Parameters:
-    - T (torch.Tensor): Transformation matrices of shape (batch_size, num_amino_acids, 3, 3)
+    - R (torch.Tensor): Rotation matrices of shape (batch_size, num_amino_acids, 3, 3)
+    - t (torch.Tensor): Translation vectors of shape (batch_size, num_amino_acids, 3)
     - x (torch.Tensor): Predicted points of shape (batch_size, num_amino_acids, 3)
 
     Returns:
     - torch.Tensor: Transformed points of shape (batch_size, num_amino_acids, 3)
     """
-    # Apply the rotation to each point
-    x_transformed = torch.einsum('bnik,bnk->bni', T, x)
+
+    # Calculate inverse rotation matrix
+    R_inv = torch.linalg.inv(R)
+
+    # Apply inverse rotation to t
+    rotated_center = -torch.einsum('bnik,bnk->bni', R_inv, t)
+
+    # Apply inverse transform to x
+    x_transformed = torch.einsum('bnik,bnk->bni', R_inv, x)
+    x_transformed += rotated_center
 
     return x_transformed
 
@@ -70,8 +79,8 @@ def fape_loss(x_predicted, x_true, Z=100.0, d_clamp=100.0, epsilon=1e-4):
     x_predicted_alpha_carbon = x_predicted[:, :, 1, :3].squeeze(2)
 
     # Transform all true and predicted points
-    x_true_transformed = transform_predicted_points(r_true, x_true_alpha_carbon)
-    x_predicted_transformed = transform_predicted_points(r_predicted, x_predicted_alpha_carbon)
+    x_true_transformed = transform_predicted_points(r_true, t_true, x_true_alpha_carbon)
+    x_predicted_transformed = transform_predicted_points(r_predicted, t_predicted, x_predicted_alpha_carbon)
 
     # Compute distances using L2 loss
     # distances = torch.nn.functional.mse_loss(x_true_transformed, x_predicted_transformed, reduction='none')
