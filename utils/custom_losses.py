@@ -4,29 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-def rigidFrom3Points(x1, x2, x3):
-    """
-    Compute the rigid transformation from 3 points using the Gram-Schmidt process.
-
-    Parameters:
-    - x1, x2, x3: Tensors of shape (3,) representing the 3D coordinates of the points.
-
-    Returns:
-    - R: Rotation matrix of shape (3, 3).
-    - t: Translation vector of shape (3,).
-    """
-    v1 = x3 - x2
-    v2 = x1 - x2
-    e1 = v1 / torch.norm(v1)
-    u2 = v2 - e1 * torch.dot(e1, v2)
-    e2 = u2 / torch.norm(u2)
-    e3 = torch.cross(e1, e2)
-    R = torch.stack([e1, e2, e3], dim=1)
-    t = x2
-    return R, t
-
-
-def rigidFrom3PointsBatch(x1, x2, x3):
+def rigid_from_3_points_batch(x1, x2, x3):
     """
     Compute the rigid transformation from 3 points using the Gram-Schmidt process for a batch of data.
 
@@ -81,7 +59,7 @@ def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0):
     batch_size, num_amino_acids, _, _ = x_true.shape
 
     # Compute the rigid transformation using the first three amino acids
-    R, t = rigidFrom3PointsBatch(x_true[:, :, 0, :], x_true[:, :, 1, :], x_true[:, :, 2, :])
+    R, t = rigid_from_3_points_batch(x_true[:, :, 0, :], x_true[:, :, 1, :], x_true[:, :, 2, :])
 
     x_true_alpha_carbon = x_true[:, :, 1, :].squeeze()
     x_predicted_alpha_carbon = x_predicted[:, :, 1, :3].squeeze()
