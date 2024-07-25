@@ -26,6 +26,82 @@ def rigidFrom3Points(x1, x2, x3):
     return R, t
 
 
+def rigidFrom3PointsBatch(x1, x2, x3):
+    """
+    Compute the rigid transformation from 3 points using the Gram-Schmidt process for a batch of data.
+
+    Parameters:
+    - x1, x2, x3: Tensors of shape (batch_size, num_amino_acids, 3) representing the 3D coordinates of the points.
+
+    Returns:
+    - R: Rotation matrix of shape (batch_size, num_amino_acids, 3, 3).
+    - t: Translation vector of shape (batch_size, num_amino_acids, 3).
+    """
+    v1 = x3 - x2
+    v2 = x1 - x2
+    e1 = v1 / torch.norm(v1, dim=2, keepdim=True)
+    u2 = v2 - e1 * torch.sum(e1 * v2, dim=2, keepdim=True)
+    e2 = u2 / torch.norm(u2, dim=2, keepdim=True)
+    e3 = torch.cross(e1, e2, dim=2)
+    R = torch.stack([e1, e2, e3], dim=3)
+    t = x2
+    return R, t
+
+
+def transform_predicted_points(T, x):
+    """
+    Transforms the predicted points using the batch of transformation matrices.
+
+    Parameters:
+    - T (torch.Tensor): Transformation matrices of shape (batch_size, num_amino_acids, 3, 3)
+    - x (torch.Tensor): Predicted points of shape (batch_size, num_amino_acids, 3)
+
+    Returns:
+    - torch.Tensor: Transformed points of shape (batch_size, num_amino_acids, 3)
+    """
+    # Apply the rotation to each point
+    x_transformed = torch.einsum('bnik,bnk->bni', T, x)
+
+    return x_transformed
+
+
+def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0):
+    """
+    Computes the Frame Aligned Point Error (FAPE) loss for a batch of predicted protein structures.
+
+    Parameters:
+    - x_true (torch.Tensor): True points of shape (batch_size, number_of_amino_acids, 3, 3)
+    - x_predicted (torch.Tensor): Predicted points of shape (batch_size, number_of_amino_acids, 3, 3)
+    - Z (float): Normalization factor
+    - d_clamp (float): Clamping distance
+
+    Returns:
+    - float: Frame Aligned Point Error (FAPE)
+    """
+    batch_size, num_amino_acids, _, _ = x_true.shape
+
+    # Compute the rigid transformation using the first three amino acids
+    R, t = rigidFrom3PointsBatch(x_true[:, :, 0, :], x_true[:, :, 1, :], x_true[:, :, 2, :])
+
+    x_true_alpha_carbon = x_true[:, :, 1, :].squeeze()
+    x_predicted_alpha_carbon = x_predicted[:, :, 1, :3].squeeze()
+
+    # Transform all true and predicted points
+    x_true_transformed = transform_predicted_points(R, x_true_alpha_carbon)
+    x_predicted_transformed = transform_predicted_points(R, x_predicted_alpha_carbon)
+
+    # Compute distances using L2 loss
+    distances = torch.nn.functional.mse_loss(x_true_transformed, x_predicted_transformed, reduction='none')
+
+    # Clamp the distances by d_clamp
+    clamped_distances = torch.minimum(distances, torch.tensor(d_clamp, dtype=distances.dtype))
+
+    # Normalize by Z
+    fape = clamped_distances / Z
+
+    return fape
+
+
 def compute_fape(T_pred, x_pred, T_true, x_true, Z=10.0, d_clamp=10.0, epsilon=1e-4):
     """
     Compute the Frame Aligned Point Error (FAPE) loss.
