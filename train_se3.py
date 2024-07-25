@@ -110,8 +110,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             rec_loss = rec_loss[masks]
 
             # Create a mask to filter out rows with NaN values
-            mask = ~torch.isnan(rec_loss).any(dim=1)
-            rec_loss = rec_loss[mask]
+            # mask = ~torch.isnan(rec_loss).any(dim=1)
+            # rec_loss = rec_loss[mask]
 
             rec_loss = rec_loss.mean()
 
