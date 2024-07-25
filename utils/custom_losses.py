@@ -62,8 +62,8 @@ def fape_loss(x_true, x_predicted, Z=10.0, d_clamp=10.0, epsilon=1e-4):
     r_true, t_true = rigid_from_3_points_batch(x_true[:, :, 0, :], x_true[:, :, 1, :], x_true[:, :, 2, :])
     r_predicted, t_predicted = rigid_from_3_points_batch(x_predicted[:, :, 0, :], x_predicted[:, :, 1, :], x_predicted[:, :, 2, :])
 
-    x_true_alpha_carbon = x_true[:, :, 1, :].squeeze()
-    x_predicted_alpha_carbon = x_predicted[:, :, 1, :3].squeeze()
+    x_true_alpha_carbon = x_true[:, :, 1, :].squeeze(2)
+    x_predicted_alpha_carbon = x_predicted[:, :, 1, :3].squeeze(2)
 
     # Transform all true and predicted points
     x_true_transformed = transform_predicted_points(r_true, x_true_alpha_carbon)
