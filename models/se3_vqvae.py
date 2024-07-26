@@ -159,9 +159,9 @@ class SE3VQVAE3DTransformer(nn.Module):
             num_tokens=self.max_length+1,
             num_positions=self.max_length,
             # unless what you are passing in is an unordered set, set this to the maximum sequence length
-            dim=self.encoder_dim,
+            dim=512,
             # m_dim=64,
-            depth=1,
+            depth=2,
             # global_linear_attn_every=1,
             # global_linear_attn_heads=8,
             # global_linear_attn_dim_head=32,
@@ -172,7 +172,7 @@ class SE3VQVAE3DTransformer(nn.Module):
             # coor_weights_clamp_value=10.0,
             # absolute clamped value for the coordinate weights, needed if you increase the num neareest neighbors
         )
-        input_shape = self.encoder_dim
+        input_shape = 512
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
@@ -180,10 +180,11 @@ class SE3VQVAE3DTransformer(nn.Module):
             # TransformerBlock(start_dim, start_dim * 2),
         )
 
-        encoder_blocks = []
-        for i in range(self.num_encoder_blocks):
-            encoder_blocks.append(TransformerBlock(self.encoder_dim, self.encoder_dim * 2))
-        self.encoder_blocks = nn.Sequential(*encoder_blocks)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.encoder_dim, nhead=8, dim_feedforward=self.encoder_dim * 4, activation='gelu', dropout=0.0,
+            batch_first=True
+        )
+        self.encoder_blocks = nn.TransformerEncoder(encoder_layer, num_layers=self.num_encoder_blocks)
 
         self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
 
@@ -211,10 +212,11 @@ class SE3VQVAE3DTransformer(nn.Module):
         )
 
         # Decoder
-        decoder_blocks = []
-        for i in range(self.num_decoder_blocks):
-            decoder_blocks.append(TransformerBlock(self.decoder_dim, self.decoder_dim * 2))
-        self.decoder_blocks = nn.Sequential(*decoder_blocks)
+        decoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.decoder_dim, nhead=8, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
+            batch_first=True
+        )
+        self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
 
         self.decoder_head = nn.Sequential(
             # ResidualBlock(self.decoder_dim, self.decoder_dim),
@@ -231,30 +233,31 @@ class SE3VQVAE3DTransformer(nn.Module):
         x = x[0]
 
         x = x.permute(0, 2, 1)
-
         x = self.encoder_tail(x)
-        x = self.encoder_blocks(x)
 
-        # Apply positional encoding to encoder
         x = x.permute(0, 2, 1)
+        # Apply positional encoding to encoder
         x = x + self.pos_embed_encoder
+        x = self.encoder_blocks(x)
         x = x.permute(0, 2, 1)
 
         x = self.encoder_head(x)
 
-        x = x.permute(0, 2, 1)
-        x, indices, commit_loss = self.vector_quantizer(x)
-        x = x.permute(0, 2, 1)
+        # x = x.permute(0, 2, 1)
+        # x, indices, commit_loss = self.vector_quantizer(x)
+        # x = x.permute(0, 2, 1)
 
         # if return_vq_only:
         #     return x, indices, commit_loss
 
         # Apply positional encoding to decoder
+        x = self.decoder_tail(x)
+
         x = x.permute(0, 2, 1)
         x = x + self.pos_embed_decoder
-        x = x.permute(0, 2, 1)
-        x = self.decoder_tail(x)
         x = self.decoder_blocks(x)
+        x = x.permute(0, 2, 1)
+
         x = self.decoder_head(x)
 
         x = x.permute(0, 2, 1)

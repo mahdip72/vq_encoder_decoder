@@ -1,5 +1,5 @@
 fix_seed: 0
-checkpoints_every: 16
+checkpoints_every: 256
 tensorboard_log: True
 tqdm_progress_bar: True
 result_path: ./results/se3_vqvae/
@@ -13,34 +13,34 @@ resume:
 model:
   architecture: se3_vqvae
   compile_model: False
-  max_length: 512
+  max_length: 128
   vqvae:
     add_features:
       enable: False
     vector_quantization:
-      dim: 128
+      dim: 512
       decay: 0.8
       codebook_size: 512
       commitment_weight : 1.0
       alpha: 1.0
     residual_encoder:
-      dimension: 128
+      dimension: 512
       num_blocks: 6
     residual_decoder:
-      dimension: 128
+      dimension: 512
       num_blocks: 6
 
 train_settings:
   data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
-  num_epochs: 32
+  num_epochs: 255
   shuffle: True
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 16
+  batch_size: 32
   num_workers: 2
-  grad_accumulation: 4
-  max_task_samples: 1000
+  grad_accumulation: 1
+  max_task_samples: 5000
   rotate_randomly: 0.0
   cutout:
     enable: False
@@ -50,14 +50,14 @@ train_settings:
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5/
-  do_every: 1
+  do_every: 256
   batch_size: 64
   num_workers: 2
 
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 4
+  do_every: 256
   batch_size: 1
   num_workers: 2
 
