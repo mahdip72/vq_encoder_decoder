@@ -174,9 +174,9 @@ class VQVAE3DTransformer(nn.Module):
 
         x, indices, commit_loss = self.vector_quantizer(x)
 
-        if return_vq_only:
-            x = x.permute(0, 2, 1)
-            return x, indices, commit_loss
+        # if return_vq_only:
+        #     x = x.permute(0, 2, 1)
+        #     return x, indices, commit_loss
 
         # Apply vq_out_projection
         x = self.vq_out_projection(x)
@@ -196,7 +196,8 @@ class VQVAE3DTransformer(nn.Module):
             x = layer(x)
         x = x.permute(0, 2, 1)
 
-        return x, indices, commit_loss
+        # return x, indices, commit_loss
+        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
 class GVPVQVAE(nn.Module):

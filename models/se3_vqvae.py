@@ -159,7 +159,7 @@ class SE3VQVAE3DTransformer(nn.Module):
             num_tokens=self.max_length+1,
             num_positions=self.max_length,
             # unless what you are passing in is an unordered set, set this to the maximum sequence length
-            dim=128,
+            dim=self.encoder_dim,
             # m_dim=64,
             depth=1,
             # global_linear_attn_every=1,
@@ -169,10 +169,10 @@ class SE3VQVAE3DTransformer(nn.Module):
             norm_coors=True,
             # whether to normalize the coordinates, using a strategy from the SE(3) Transformers paper
             # num_nearest_neighbors=4,
-            # coor_weights_clamp_value=0.2
+            # coor_weights_clamp_value=10.0,
             # absolute clamped value for the coordinate weights, needed if you increase the num neareest neighbors
         )
-        input_shape = self.max_length
+        input_shape = self.encoder_dim
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
@@ -246,8 +246,8 @@ class SE3VQVAE3DTransformer(nn.Module):
         x, indices, commit_loss = self.vector_quantizer(x)
         x = x.permute(0, 2, 1)
 
-        if return_vq_only:
-            return x, indices, commit_loss
+        # if return_vq_only:
+        #     return x, indices, commit_loss
 
         # Apply positional encoding to decoder
         x = x.permute(0, 2, 1)
@@ -258,7 +258,8 @@ class SE3VQVAE3DTransformer(nn.Module):
         x = self.decoder_head(x)
 
         x = x.permute(0, 2, 1)
-        return x, indices, commit_loss
+        # return x, indices, commit_loss
+        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
