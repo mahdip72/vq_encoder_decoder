@@ -252,44 +252,47 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
-            target_coordinates_labels = data['target_coords']
-            labels = data['target_distance_map']
-
+            labels = data['target_coords']
             masks = data['masks']
 
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            rec_loss = distance_map_loss(outputs, labels)
+            # rec_loss = distance_map_loss(outputs, labels)
+
+            rec_loss, trans_pred_coords, trans_true_coords = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float())
+
+            rec_loss = rec_loss.mean()
 
             # Create the distance map for the outputs
-            outputs = create_batch_distance_map(outputs)
+            # outputs = create_batch_distance_map(outputs)
 
             # Denormalize the distance maps of outputs and labels
-            outputs = processor.denormalize_distance_map(outputs)
+            # outputs = processor.denormalize_distance_map(outputs)
             # labels = processor.denormalize_distance_map(labels)
 
             # Convert the distance maps to 3D coordinates using MDS algorithm
             # labels = batch_distance_map_to_coordinates(labels).to(accelerator.device)
-            outputs = batch_distance_map_to_coordinates(outputs).to(accelerator.device)
+            # outputs = batch_distance_map_to_coordinates(outputs).to(accelerator.device)
             # outputs = outputs.reshape(outputs.shape[0], -1, 3)
 
             # Apply PCA to the coordinates
-            outputs = apply_pca(processor, outputs.detach())
-            target_coordinates_labels = apply_pca(processor, target_coordinates_labels.detach())
+            # outputs = apply_pca(processor, outputs.detach())
+            # target_coordinates_labels = apply_pca(processor, target_coordinates_labels.detach())
 
             # Compute the loss
-            masked_outputs = outputs[masks]
-            masked_labels = target_coordinates_labels[masks]
+            # masked_outputs = trans_pred_coords[masks]
+            # masked_labels = trans_true_coords[masks]
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
             # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
-            rmse.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
-            gdtts.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            # mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            # rmse.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+            # gdtts.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
             # lddt.update(accelerator.gather(masked_outputs.detach(), accelerator.gather(masked_labels.detach())
 
         if configs.tqdm_progress_bar:
@@ -307,17 +310,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     # Compute average losses and metrics
     avg_rec_loss = total_rec_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmse = rmse.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
+    # denormalized_rec_mae = mae.compute().cpu().item()
+    # denormalized_rec_rmse = rmse.compute().cpu().item()
+    # gdtts_score = gdtts.compute().cpu().item()
     # lddt_score = lddt.compute().cpu().item()
 
     # Log the metrics to TensorBoard
     if configs.tensorboard_log:
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        writer.add_scalar('gdtts', gdtts_score, epoch)
+        # writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
+        # writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
+        # writer.add_scalar('gdtts', gdtts_score, epoch)
         # writer.add_scalar('val_lddt', lddt_score, epoch)
         writer.flush()
 
@@ -329,9 +332,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     return_dict = {
         "rec_loss": avg_rec_loss,
-        "denormalized_rec_mae": denormalized_rec_mae,
-        "denormalized_rec_rmse": denormalized_rec_rmse,
-        "gdtts": gdtts_score,
+        # "denormalized_rec_mae": denormalized_rec_mae,
+        # "denormalized_rec_rmse": denormalized_rec_rmse,
+        "gdtts": 0,
         # "lddt": lddt_score,
         "counter": counter,
     }
@@ -466,9 +469,9 @@ def main(dict_config, config_file_path):
                 logging.info(
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
-                    f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
-                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                    # f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
+                    # f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
+                    # f'gdtts {valid_loop_reports["gdtts"]:.4f}'
                     # f'lddt {valid_loop_reports["lddt"]:.4f}'
                 )
 
