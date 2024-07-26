@@ -14,7 +14,8 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
-from utils.custom_losses import distance_map_loss, fape_loss
+from utils.custom_losses import distance_map_loss
+from utils.fape_loss.fape_loss import compute_fape_loss as fape_loss
 from utils.custom_losses import MultiTaskLossWrapper
 import gc
 import torch
@@ -104,10 +105,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # rec_loss = distance_map_loss(outputs, labels)
 
             rec_loss = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                                      labels.reshape(labels.shape[0], labels.shape[1], 3, 3))
+                                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float())
 
             # Apply the mask to the loss tensor
-            rec_loss = rec_loss[masks]
+            # rec_loss = rec_loss[masks]
 
             # Create a mask to filter out rows with NaN values
             # mask = ~torch.isnan(rec_loss).any(dim=1)
@@ -160,7 +161,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             if configs.tqdm_progress_bar:
                 progress_bar.set_description(f"epoch {epoch} "
                                              + f"[loss: {total_loss / counter:.3f}, "
-                                             + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                             + f"rec loss: {total_rec_loss / counter:.5f}, "
                                              + f"cmt loss: {total_cmt_loss / counter:.3f}]")
         if configs.tqdm_progress_bar:
             progress_bar.set_postfix(
@@ -180,14 +181,14 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
-    avg_activation = total_activation / counter
+    # avg_activation = total_activation / counter
 
     # Log the metrics to TensorBoard
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
-        writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
+        # writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
         writer.flush()
 
     # Reset the metrics for the next epoch

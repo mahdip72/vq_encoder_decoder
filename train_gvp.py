@@ -9,10 +9,10 @@ from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_
 from utils.utils import load_checkpoints
 from utils.metrics import GDTTS, LDDT
 from accelerate import Accelerator
-from visualization.main import compute_visualization_gvp
+from visualization.main import compute_visualization
 from data.normalizer import Protein3DProcessing
-# from data.data_cifar import prepare_dataloaders
-# from models.models import prepare_models
+# from utils.custom_losses import fape_loss
+from utils.fape_loss.fape_loss import compute_fape_loss as fape_loss
 from tqdm import tqdm
 import time
 import torchmetrics
@@ -65,22 +65,29 @@ def train_loop(net, train_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
             optimizer.zero_grad()
-            outputs, indices, commit_loss, gvp_embeddings= net(data)
+            outputs, indices, commit_loss = net(data)
+
+            rec_loss = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks)
+
+            # Apply the mask to the loss tensor
+            # rec_loss = rec_loss[masks]
+            rec_loss = rec_loss.mean()
 
             # Compute the loss
-            masked_outputs = outputs[masks]
-            masked_labels = labels[masks]
-            rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
+            # masked_outputs = outputs[masks]
+            # masked_labels = labels[masks]
+
             loss = rec_loss + alpha * commit_loss
 
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
@@ -97,7 +104,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
 
         if accelerator.sync_gradients:
             progress_bar.update(1)
@@ -108,7 +115,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
-            total_activation += indices.unique().numel() / codebook_size
+            # total_activation += indices.unique().numel() / codebook_size
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
@@ -128,7 +135,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 "step_loss": loss.detach().item(),
                 "rec_loss": rec_loss.detach().item(),
                 "cmt_loss": commit_loss.detach().item(),
-                "activation": indices.unique().numel() / codebook_size * 100,
+                # "activation": indices.unique().numel() / codebook_size * 100,
                 "global_step": global_step
             }
         )
@@ -136,9 +143,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
     # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmse = rmse.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
+    # denormalized_rec_mae = mae.compute().cpu().item()
+    # denormalized_rec_rmse = rmse.compute().cpu().item()
+    # gdtts_score = gdtts.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
@@ -146,9 +153,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        writer.add_scalar('gdtts', gdtts_score, epoch)
+        # writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
+        # writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
+        # writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
 
@@ -160,9 +167,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
-        "denormalized_rec_mae": denormalized_rec_mae,
-        "denormalized_rec_rmse": denormalized_rec_rmse,
-        "gdtts": gdtts_score,
+        # "denormalized_rec_mae": denormalized_rec_mae,
+        # "denormalized_rec_rmse": denormalized_rec_rmse,
+        # "gdtts": gdtts_score,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
@@ -210,7 +217,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
             optimizer.zero_grad()
-            outputs, indices, commit_loss,_ = net(data)
+            outputs, indices, commit_loss, _ = net(data)
 
             # Compute the loss
             masked_outputs = outputs[masks]
@@ -219,13 +226,13 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             loss = rec_loss + alpha * commit_loss
 
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
+            # masked_labels = processor.denormalize_coords(masked_labels.reshape(-1, 4, 3)).reshape(-1, 3)
 
             # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
             # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
 
         progress_bar.update(1)
@@ -253,15 +260,15 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     if configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
-        writer.add_scalar('gdtts', gdtts_score, epoch)
+        # writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
+        # writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
+        # writer.add_scalar('gdtts', gdtts_score, epoch)
         # writer.add_scalar('val_lddt', lddt_score, epoch)
 
     # Reset the metrics for the next epoch
-    mae.reset()
-    rmse.reset()
-    gdtts.reset()
+    # mae.reset()
+    # rmse.reset()
+    # gdtts.reset()
     # lddt.reset()
 
     return_dict = {
@@ -269,7 +276,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "rec_loss": avg_rec_loss,
         "denormalized_rec_mae": denormalized_rec_mae,
         "denormalized_rec_rmse": denormalized_rec_rmse,
-        "gdtts": gdtts_score,
+        # "gdtts": gdtts_score,
         # "lddt": lddt_score,
         "counter": counter,
     }
@@ -374,9 +381,9 @@ def main(dict_config, config_file_path):
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
-                f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
-                f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                f'gdtts {training_loop_reports["gdtts"]:.4f}, '
+                # f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
+                # f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
+                # f'gdtts {training_loop_reports["gdtts"]:.4f}, '
                 f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
@@ -410,9 +417,9 @@ def main(dict_config, config_file_path):
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
                     f'loss {valid_loop_reports["loss"]:.4f}, '
                     f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
-                    f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
-                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                    # f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
+                    # f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
+                    # f'gdtts {valid_loop_reports["gdtts"]:.4f}'
                     # f'lddt {valid_loop_reports["lddt"]:.4f}'
                 )
 
@@ -442,7 +449,7 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
-            compute_visualization_gvp(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
+            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch)
 
     logging.info("Training is completed!\n")
 
@@ -465,7 +472,7 @@ def main(dict_config, config_file_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
     parser.add_argument("--config_path", "-c", help="The location of config file",
-                        default='./configs/config_vqvae.yaml')
+                        default='./configs/config_gvp.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
