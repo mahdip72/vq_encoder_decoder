@@ -107,12 +107,6 @@ class VQVAE3DTransformer(nn.Module):
         # Projecting the input to the dimension expected by the Transformer
         self.input_projection = nn.Sequential(
             nn.Conv1d(100, self.encoder_dim, 1),
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 3, padding=1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU(),
-            nn.Conv1d(self.encoder_dim, self.encoder_dim, 3, padding=1),
-            nn.BatchNorm1d(self.encoder_dim),
-            nn.ReLU()
         )
 
         self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
@@ -151,17 +145,8 @@ class VQVAE3DTransformer(nn.Module):
         )
         self.decoder = nn.TransformerEncoder(self.decoder_layer, num_layers=configs.model.vqvae.decoder.num_layers)
 
-        # Projecting the output back to the original dimension
-        # self.output_projection = nn.Linear(self.decoder_dim, 12)
-
         self.output_projection = nn.Sequential(
-            nn.Conv1d(self.decoder_dim, self.decoder_dim, 3, padding=1),
-            nn.BatchNorm1d(self.decoder_dim),
-            nn.ReLU(),
-            nn.Conv1d(self.decoder_dim, int(self.decoder_dim / 2), 3, padding=1),
-            nn.BatchNorm1d(int(self.decoder_dim / 2)),
-            nn.ReLU(),
-            nn.Conv1d(int(self.decoder_dim / 2), 12, 1),
+            nn.Conv1d(self.decoder_dim, 9, 1),
         )
 
     @staticmethod
@@ -242,7 +227,7 @@ class GVPVQVAE(nn.Module):
                 pad = torch.zeros(size_diff, t.size(1), device=t.device)
                 t_padded = torch.cat([t, pad], dim=0)
             else:
-                t_padded = t
+                t_padded = t[:self.max_length, :]
             padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
 
         # Concatenate tensors
