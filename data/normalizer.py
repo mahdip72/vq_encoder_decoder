@@ -271,10 +271,10 @@ class Protein3DProcessing:
                              "or load a saved one using load_normalizer.")
 
         # Apply individual PCA transformation
-        coords_pca = self.apply_pca(coords)
+        # coords_pca = self.apply_pca(coords)
 
         # Flatten the PCA-transformed coordinates and convert to a 2D array for normalization
-        coords_np = coords_pca.view(-1, 3).cpu().numpy()
+        coords_np = coords.view(-1, 3).cpu().numpy()
 
         # Normalize the coordinates
         normalized_coords_np = self.normalizer.transform(coords_np)
