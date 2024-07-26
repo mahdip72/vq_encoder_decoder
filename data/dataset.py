@@ -216,84 +216,6 @@ class GVPDataset(Dataset):
         self.processor.load_normalizer(kwargs['configs'].normalizer_path)
 
     @staticmethod
-    def normalize_coords(coords: torch.Tensor, divisor: int) -> torch.Tensor:
-        """
-        Normalize the coordinates of a protein structure by dividing by a fixed integer.
-
-        Parameters:
-        coords (torch.Tensor): A tensor of shape (N, 4, 3) where N is the number of amino acids,
-                               and each amino acid has four 3D coordinates (x, y, z).
-        divisor (int): The integer by which to divide all coordinates.
-
-        Returns:
-        torch.Tensor: The normalized coordinates with the same shape as the input.
-        """
-        if divisor == 0:
-            raise ValueError("Divisor must be a non-zero integer")
-
-        # Divide all coordinates by the specified integer
-        normalized_coords = coords / divisor
-
-        return normalized_coords
-
-    @staticmethod
-    def recenter_coords(coords: torch.Tensor) -> torch.Tensor:
-        """
-        Recenter the coordinates of a protein structure to its geometric center.
-        The shape of coordinates are based on a list containing four coordinates
-        for each amino acid in the protein structure:
-        [[(x1, y1, z1), (x2, y2, z2), (x3, y3, z3), (x4, y4, z4)], ...].
-        """
-        # Reshape the tensor to 2D
-        original_shape = coords.shape
-        coords = coords.view(-1, 3)
-
-        # Get the geometric center of the coordinates
-        center = torch.mean(coords, dim=0, keepdim=True)
-
-        # Subtract the center from the coordinates
-        recentered_coords = coords - center
-
-        # Reshape the tensor back to its original shape
-        recentered_coords = recentered_coords.view(original_shape)
-
-        return recentered_coords
-
-    @staticmethod
-    def align_coords(coords: torch.Tensor) -> torch.Tensor:
-        """
-        Align the coordinates of a protein structure using PCA.
-
-        Parameters:
-        coords (torch.Tensor): A tensor of shape (N, 4, 3) where N is the number of amino acids,
-                               and each amino acid has four 3D coordinates (x, y, z).
-
-        Returns:
-        torch.Tensor: The aligned coordinates with the same shape as the input.
-        """
-        if coords.dim() != 3 or coords.size(1) != 4 or coords.size(2) != 3:
-            raise ValueError("Input tensor must have the shape (N, 4, 3)")
-
-        # Reshape the tensor to 2D (flatten the first two dimensions)
-        original_shape = coords.shape
-        coords = coords.view(-1, 3)
-
-        # Perform PCA to find the principal components
-        pca = PCA(n_components=3)
-        pca.fit(coords.cpu().numpy())  # Ensure coords are on CPU for sklearn compatibility
-
-        # Rotate the coordinates to align with the principal axes
-        aligned_coords = pca.transform(coords.cpu().numpy())
-
-        # Convert back to tensor and move to the original device
-        aligned_coords = torch.tensor(aligned_coords, dtype=coords.dtype, device=coords.device)
-
-        # Reshape the tensor back to its original shape
-        aligned_coords = aligned_coords.view(original_shape)
-
-        return aligned_coords
-
-    @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
         Replaces NaN values in the coordinates with the previous or next valid coordinate values.
@@ -351,21 +273,14 @@ class GVPDataset(Dataset):
 
         coords_tensor = coords_tensor[:self.max_length, ...]
 
-        coords_tensor = self.handle_nan_coordinates(coords_tensor)[..., :3, :]
-        # coords_tensor = self.processor.normalize_coords(coords_tensor)
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
 
-        # Recenter the coordinates center
-        # coords_tensor = self.recenter_coords(coords_tensor)
-
-        # Align the coordinates rotation
-        # coords_tensor = self.align_coords(coords_tensor)
-
-        # Normalize the coordinates
-        # coords_tensor = self.normalize_coords(coords_tensor, 200)
-
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
         # Merge the features and create a mask
-        coords_tensor = coords_tensor.reshape(1, -1, 9)
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+
+        coords = coords[..., :9] # only use N, CA, C atoms
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
@@ -1002,6 +917,7 @@ class SE3VQVAEDataset(Dataset):
         coords_tensor = coords_tensor[:self.max_length, ...]
 
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
 
         if self.rotate_randomly > 0 and self.train_mode:
             # Apply random rotation
@@ -1020,7 +936,7 @@ class SE3VQVAEDataset(Dataset):
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
         input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
-        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 3)
+        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 9)
 
         # input_distance_map = create_distance_map(input_coords_tensor.squeeze(0))
         # target_distance_map = create_distance_map(coords_tensor.squeeze(0))
@@ -1028,10 +944,6 @@ class SE3VQVAEDataset(Dataset):
         # input_distance_map = self.processor.normalize_distance_map(input_distance_map)
         # target_distance_map = self.processor.normalize_distance_map(target_distance_map)
 
-        input_coords_tensor = self.processor.normalize_coords(input_coords_tensor)
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
-
-        coords_tensor = coords_tensor.reshape(1, -1, 9)
         # squeeze coords and masks to return them to 2D
         coords_tensor = coords_tensor.squeeze(0)
         input_coords_tensor = input_coords_tensor.squeeze(0)

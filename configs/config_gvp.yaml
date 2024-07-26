@@ -1,8 +1,8 @@
 fix_seed: 0
-checkpoints_every: 32
+checkpoints_every: 512
 tensorboard_log: True
-tqdm_progress_bar: True
-result_path: ./results/gvp
+tqdm_progress_bar: False
+result_path: ./results/gvp_vqvae
 normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
 
 resume:
@@ -13,7 +13,7 @@ resume:
 model:
   architecture: gvp_vqvae
   compile_model: False
-  max_length: 1024
+  max_length: 128
   struct_encoder:
     enable: False
     use_rotary_embeddings: True
@@ -31,7 +31,7 @@ model:
        seq_embed_dim: 20 #1280 for ESM2
     fine_tune:
       enable: False
-      last_layers_trainable: 2
+      last_layers_trainable: 5
   vqvae:
     vector_quantization:
       dim: 128
@@ -40,46 +40,46 @@ model:
       commitment_weight : 1.0
       alpha: 1.0
     encoder:
-      dimension: 128
-      dim_feedforward: 256
-      num_heads: 4
+      dimension: 512
+      dim_feedforward: 1024
+      num_heads: 8
       num_layers: 8
       activation_function: gelu
     decoder:
-      dimension: 128
-      dim_feedforward: 256
-      num_heads: 4
+      dimension: 512
+      dim_feedforward: 1024
+      num_heads: 8
       num_layers: 8
       activation_function: gelu
 
 train_settings:
   data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
-  num_epochs: 512
+  num_epochs: 1024
   shuffle: True
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 32
-  num_workers: 6
+  batch_size: 8
+  num_workers: 2
   grad_accumulation: 1
-  max_task_samples: 5000
+  max_task_samples: 1000
 
 valid_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
-  do_every: 32
-  batch_size: 4
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5/
+  do_every: 4
+  batch_size: 8
   num_workers: 0
 
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
   fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 64
+  do_every: 1025
   batch_size: 1
   num_workers: 4
 
 optimizer:
-  name: adam
-  lr: 1e-4
+  name: schedulerfree
+  lr: 8e-5
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -88,7 +88,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 16
-    min_lr: 5e-6
+    warmup: 256
+    min_lr: 1e-5
     gamma: 0.2
     num_restarts: 1
