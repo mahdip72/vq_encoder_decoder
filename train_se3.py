@@ -104,7 +104,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             # Compute the loss
             # rec_loss = distance_map_loss(outputs, labels)
 
-            rec_loss = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+            # Get FAPE loss as well as the transformed predicted and true coordinates.
+            rec_loss, trans_pred_coords, trans_true_coords = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                                  labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float())
 
             # Apply the mask to the loss tensor
