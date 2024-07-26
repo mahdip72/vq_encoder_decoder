@@ -67,8 +67,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            rec_loss = fape_loss(outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks)
+            rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
+                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float()
+            )
 
             # Apply the mask to the loss tensor
             # rec_loss = rec_loss[masks]
@@ -220,10 +222,15 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             outputs, indices, commit_loss, _ = net(data)
 
             # Compute the loss
-            masked_outputs = outputs[masks]
-            masked_labels = labels[masks]
-            rec_loss = torch.nn.functional.l1_loss(masked_outputs, masked_labels)
+            rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
+                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float()
+            )
+
             loss = rec_loss + alpha * commit_loss
+
+            # masked_outputs = outputs[masks]
+            # masked_labels = labels[masks]
 
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs.reshape(-1, 4, 3)).reshape(-1, 3)
@@ -251,9 +258,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     # Compute average losses and metrics
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmse = rmse.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
+    # denormalized_rec_mae = mae.compute().cpu().item()
+    # denormalized_rec_rmse = rmse.compute().cpu().item()
+    # gdtts_score = gdtts.compute().cpu().item()
     # lddt_score = lddt.compute().cpu().item()
 
     # Log the metrics to TensorBoard
@@ -274,9 +281,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
-        "denormalized_rec_mae": denormalized_rec_mae,
-        "denormalized_rec_rmse": denormalized_rec_rmse,
-        # "gdtts": gdtts_score,
+        # "denormalized_rec_mae": denormalized_rec_mae,
+        # "denormalized_rec_rmse": denormalized_rec_rmse,
+        "gdtts": 0,
         # "lddt": lddt_score,
         "counter": counter,
     }
