@@ -351,8 +351,8 @@ class GVPDataset(Dataset):
 
         coords_tensor = coords_tensor[:self.max_length, ...]
 
-        coords_tensor = self.handle_nan_coordinates(coords_tensor)
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)[..., :3, :]
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
 
         # Recenter the coordinates center
         # coords_tensor = self.recenter_coords(coords_tensor)
@@ -364,7 +364,7 @@ class GVPDataset(Dataset):
         # coords_tensor = self.normalize_coords(coords_tensor, 200)
 
         # Merge the features and create a mask
-        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        coords_tensor = coords_tensor.reshape(1, -1, 9)
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
 
         # squeeze coords and masks to return them to 2D
