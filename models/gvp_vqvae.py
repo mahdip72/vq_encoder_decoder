@@ -111,6 +111,7 @@ class VQVAE3DTransformer(nn.Module):
 
         self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
 
+        # todo: fix batch first issue
         # Transformer Encoder
         self.encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.encoder_dim,
@@ -136,6 +137,7 @@ class VQVAE3DTransformer(nn.Module):
         # Projecting the output of the VQ layer back to the decoder dimension
         self.vq_out_projection = nn.Linear(configs.model.vqvae.vector_quantization.dim, self.decoder_dim)
 
+        # todo: fix batch first issue
         # Transformer Decoder
         self.decoder_layer = nn.TransformerEncoderLayer(
             d_model=self.decoder_dim,
