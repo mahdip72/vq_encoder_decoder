@@ -1020,7 +1020,7 @@ class SE3VQVAEDataset(Dataset):
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
         input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
-        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 9)
+        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 3)
 
         # input_distance_map = create_distance_map(input_coords_tensor.squeeze(0))
         # target_distance_map = create_distance_map(coords_tensor.squeeze(0))
@@ -1028,6 +1028,10 @@ class SE3VQVAEDataset(Dataset):
         # input_distance_map = self.processor.normalize_distance_map(input_distance_map)
         # target_distance_map = self.processor.normalize_distance_map(target_distance_map)
 
+        input_coords_tensor = self.processor.normalize_coords(input_coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
+
+        coords_tensor = coords_tensor.reshape(1, -1, 9)
         # squeeze coords and masks to return them to 2D
         coords_tensor = coords_tensor.squeeze(0)
         input_coords_tensor = input_coords_tensor.squeeze(0)
