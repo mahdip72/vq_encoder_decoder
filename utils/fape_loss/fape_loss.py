@@ -52,6 +52,10 @@ def compute_frame_aligned_point_error(
         target_positions[..., None, :, :],
     )
 
+    # Replace NaNs with zeros. This is extra steps compared to openfold code.
+    local_pred_pos = torch.nan_to_num(local_pred_pos, nan=0.0)
+    local_target_pos = torch.nan_to_num(local_target_pos, nan=0.0)
+
     error_dist = torch.sqrt(
         torch.sum((local_pred_pos - local_target_pos) ** 2, dim=-1) + eps
     )
