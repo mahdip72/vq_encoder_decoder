@@ -193,17 +193,17 @@ class SE3VQVAE3DTransformer(nn.Module):
         )
 
         # Vector Quantizer layer
-        self.vector_quantizer = VectorQuantize(
-            dim=latent_dim,
-            codebook_size=codebook_size,
-            decay=decay,
-            commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
-            # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
-            # orthogonal_reg_max_codes=512,
-            # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
-            # orthogonal_reg_active_codes_only=False
-            # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
-        )
+        # self.vector_quantizer = VectorQuantize(
+        #     dim=latent_dim,
+        #     codebook_size=codebook_size,
+        #     decay=decay,
+        #     commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+        #     # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
+        #     # orthogonal_reg_max_codes=512,
+        #     # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+        #     # orthogonal_reg_active_codes_only=False
+        #     # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
+        # )
 
         self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
 
