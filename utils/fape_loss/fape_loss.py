@@ -58,6 +58,9 @@ def compute_frame_aligned_point_error(
     local_pred_pos = torch.nan_to_num(local_pred_pos, nan=0.0)
     local_target_pos = torch.nan_to_num(local_target_pos, nan=0.0)
 
+    average_prediction_coords = torch.mean(local_pred_pos, dim=1).detach()
+    average_true_coords = torch.mean(local_target_pos, dim=1).detach()
+
     error_dist = torch.sqrt(
         torch.sum((local_pred_pos - local_target_pos) ** 2, dim=-1) + eps
     )
@@ -94,7 +97,7 @@ def compute_frame_aligned_point_error(
         normed_error = torch.sum(normed_error, dim=-1)
         normed_error = normed_error / (eps + torch.sum(positions_mask, dim=-1))
 
-    return normed_error, local_pred_pos, local_target_pos
+    return normed_error, average_prediction_coords, average_true_coords
 
 
 def compute_fape_loss(x_predicted, x_true, masks):
