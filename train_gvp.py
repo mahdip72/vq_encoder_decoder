@@ -219,13 +219,15 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
             optimizer.zero_grad()
-            outputs, indices, commit_loss, _ = net(data)
+            outputs, indices, commit_loss = net(data)
 
             # Compute the loss
             rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
                 outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float()
             )
+
+            rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
 
