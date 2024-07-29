@@ -917,7 +917,7 @@ class SE3VQVAEDataset(Dataset):
         coords_tensor = coords_tensor[:self.max_length, ...]
 
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
 
         if self.rotate_randomly > 0 and self.train_mode:
             # Apply random rotation

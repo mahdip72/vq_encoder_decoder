@@ -166,7 +166,7 @@ class Protein3DProcessing:
 
         # Apply PCA
         pca = PCA(n_components=3)
-        pca.fit(centered_coords.view(-1, 3).cpu().numpy())
+        pca.fit(centered_coords.reshape(-1, 3).cpu().numpy())
 
         # Ensure the PCA components form a proper rotation matrix (Determinant = 1)
         rotation_matrix = pca.components_.T
@@ -271,17 +271,17 @@ class Protein3DProcessing:
                              "or load a saved one using load_normalizer.")
 
         # Apply individual PCA transformation
-        # coords_pca = self.apply_pca(coords)
+        coords_pca = self.apply_pca(coords)
 
         # Flatten the PCA-transformed coordinates and convert to a 2D array for normalization
-        coords_np = coords.view(-1, 3).cpu().numpy()
+        coords_np = coords_pca.reshape(-1, 3).cpu().numpy()
 
         # Normalize the coordinates
         normalized_coords_np = self.normalizer.transform(coords_np)
 
         # Convert back to tensor and reshape to original shape
         normalized_coords = torch.tensor(normalized_coords_np, dtype=coords.dtype, device=coords.device)
-        normalized_coords = normalized_coords.view(coords.shape)
+        normalized_coords = normalized_coords.reshape(coords.shape)
 
         return normalized_coords
 

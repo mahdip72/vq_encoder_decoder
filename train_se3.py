@@ -43,7 +43,7 @@ def create_batch_distance_map(coords):
 def apply_pca(processor, coords):
     s = []
     for coord in coords:
-        s.append(processor.apply_pca(coord))
+        s.append(processor.apply_pca(coord.reshape(-1, 3)).reshape(-1, 3, 3)[..., 1, :])
 
     return torch.stack(s)
 
@@ -133,6 +133,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 scheduler.step()
             else:
                 optimizer.step()
+
+        # Apply PCA to the coordinates
+        # trans_pred_coords = apply_pca(processor, outputs.detach())
+        # trans_true_coords = apply_pca(processor, labels.detach())
 
         masked_outputs = trans_pred_coords[masks]
         masked_labels = trans_true_coords[masks]
@@ -299,17 +303,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # target_coordinates_labels = apply_pca(processor, target_coordinates_labels.detach())
 
             # Denormalize outputs and labels
-            denorm_trans_pred_coords = processor.denormalize_coords(trans_pred_coords)
-            denorm_trans_true_coords = processor.denormalize_coords(trans_true_coords)
+            trans_pred_coords = processor.denormalize_coords(trans_pred_coords)
+            trans_true_coords = processor.denormalize_coords(trans_true_coords)
 
             # Calculate TM-score using denormalized, unmasked coords
             detached_masks = accelerator.gather(masks).to(accelerator.device)
-            tm_score.update(accelerator.gather(denorm_trans_pred_coords), accelerator.gather(denorm_trans_true_coords),
+            tm_score.update(accelerator.gather(trans_pred_coords), accelerator.gather(trans_true_coords),
                             detached_masks)
 
             # Apply masks
-            masked_outputs = denorm_trans_pred_coords[masks]
-            masked_labels = denorm_trans_true_coords[masks]
+            masked_outputs = trans_pred_coords[masks]
+            masked_labels = trans_true_coords[masks]
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
