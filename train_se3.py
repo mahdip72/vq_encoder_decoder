@@ -134,6 +134,15 @@ def train_loop(net, train_loader, epoch, **kwargs):
             else:
                 optimizer.step()
 
+        masked_outputs = trans_pred_coords[masks]
+        masked_labels = trans_true_coords[masks]
+
+        # Update the metrics
+        mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+        rmse.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+        gdtts.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
+        # lddt.update(accelerator.gather(masked_outputs.detach(), accelerator.gather(masked_labels.detach())
+
         if accelerator.sync_gradients:
             if configs.tqdm_progress_bar:
                 progress_bar.update(1)
@@ -177,6 +186,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
+    denormalized_rec_mae = mae.compute().cpu().item()
+    denormalized_rec_rmse = rmse.compute().cpu().item()
+    gdtts_score = gdtts.compute().cpu().item()
+
     # avg_activation = total_activation / counter
 
     # Log the metrics to TensorBoard
@@ -184,6 +197,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
+        writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
+        writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
+        writer.add_scalar('gdtts', gdtts_score, epoch)
         # writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
         writer.flush()
 
@@ -196,6 +212,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
         "cmt_loss": avg_cmt_loss,
+        "denormalized_rec_mae": denormalized_rec_mae,
+        "denormalized_rec_rmse": denormalized_rec_rmse,
+        "gdtts": gdtts_score,
         "counter": counter,
         "global_step": global_step
     }
@@ -428,7 +447,11 @@ def main(dict_config, config_file_path):
                 f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
                 f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
                 f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
-                f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
+                f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, '
+                f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
+                f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
+                f'gdtts {training_loop_reports["gdtts"]:.4f}'
+            )
 
         global_step = training_loop_reports["global_step"]
 
