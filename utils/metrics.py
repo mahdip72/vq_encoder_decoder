@@ -189,12 +189,9 @@ def calc_tm_score(coords1, coords2):
     d0 = max(d0, 0.5)  # Minimum d0 is 0.5 (to avoid negative values)
     d0_squared = d0 ** 2
 
-    sum_scores = 0.0
-    for i in range(len(coords1)):
-        dist_squared = torch.sum((coords1[i] - coords2[i]) ** 2)
-        dist_squared = dist_squared.item()
-        score = 1 / (1 + dist_squared / d0_squared)
-        sum_scores += score
+    dist_squared = torch.sum((coords1 - coords2) ** 2, dim=1)
+    scores = 1 / (1 + dist_squared / d0_squared)
+    sum_scores = torch.sum(scores).item()
 
     tm_score = sum_scores / L
     return tm_score
