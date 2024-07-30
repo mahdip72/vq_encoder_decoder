@@ -265,6 +265,33 @@ class SE3VQVAE3DTransformer(nn.Module):
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
+class Pairwise(nn.Module):
+    """
+    Module for computing a pairwise representation of the structure from the
+    quantized sequence.
+    """
+    def __init__(self, input_dim, output_dim):
+        super(Pairwise, self).__init__()
+        self.layer_norm = nn.LayerNorm(input_dim)
+        self.linear_left = nn.Linear(input_dim, output_dim)
+        self.linear_right = nn.Linear(input_dim, output_dim)
+
+    def forward(self, s):
+        # Layer normalization
+        s_normalized = self.layer_norm(s)
+
+        # Linear transformations to get s_left and s_right
+        s_left = self.linear_left(s_normalized)
+        s_right = self.linear_right(s_normalized)
+
+        # Compute the outer product between s_left and s_right
+        k = torch.einsum("nd,kd->nkd", s_left, s_right)
+
+        # TODO: MLP step with RelativePositionalEncoding
+
+        return k
+
+
 def prepare_models_vqvae(configs, logger, accelerator):
     vqvae = SE3VQVAE3DTransformer(
         latent_dim=configs.model.vqvae.vector_quantization.dim,
