@@ -323,6 +323,8 @@ class Pairwise(nn.Module):
         self.mlp = MLP(input_dim=embedding_dim + embedding_dim, hidden_dim=hidden_dim, output_dim=embedding_dim)
 
     def forward(self, s):
+        batch_size, N, _ = s.shape
+
         s_normalized = s
         # Layer normalization
         # s_normalized = self.layer_norm(s)
@@ -332,15 +334,16 @@ class Pairwise(nn.Module):
         s_right = self.linear_right(s_normalized)
 
         # Compute the outer product between s_left and s_right
-        k = torch.einsum("nd,kd->nkd", s_left, s_right)
+        k = torch.einsum("bnd,bkd->bnkd", s_left, s_right)
 
         # Prepare indices for relative positional encoding
-        N = s.shape[0]
         i_indices = torch.arange(N).view(N, 1).expand(N, N).flatten()
         j_indices = torch.arange(N).view(1, N).expand(N, N).flatten()
 
         # Compute positional encodings for all pairs (i, j)
         positional_encodings = self.relative_position(i_indices, j_indices).view(N, N, -1)
+        # Shape: (batch_size, N, N, embedding_dim)
+        positional_encodings = positional_encodings.unsqueeze(0).expand(batch_size, -1, -1, -1)
 
         # Concatenate k with positional encodings
         k_concat = torch.cat((k, positional_encodings), dim=-1)
@@ -367,13 +370,14 @@ def prepare_models_vqvae(configs, logger, accelerator):
 if __name__ == '__main__':
 
     # Example usage
+    batch_size = 2
     N = 128  # Protein length
     input_dim = 64  # Input embedding dimension
     embedding_dim = 32  # Output embedding dimension
     hidden_dim = 64  # Hidden dimension for MLP
 
     # Create a batch of embeddings with shape (N, input_dim)
-    s = torch.randn(N, input_dim)
+    s = torch.randn(batch_size, N, input_dim)
     print(s.shape)
 
     # Instantiate the model
