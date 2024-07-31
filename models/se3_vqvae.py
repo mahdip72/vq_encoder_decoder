@@ -319,7 +319,7 @@ class Pairwise(nn.Module):
         self.layer_norm = nn.LayerNorm(input_dim)
         self.linear_left = nn.Linear(input_dim, embedding_dim)
         self.linear_right = nn.Linear(input_dim, embedding_dim)
-        self.relative_position = RelativePositionalEncoding(input_dim, embedding_dim)
+        self.relative_position = RelativePosition(input_dim, embedding_dim)
         self.mlp = MLP(input_dim=embedding_dim + embedding_dim, hidden_dim=hidden_dim, output_dim=embedding_dim)
 
     def forward(self, s):
