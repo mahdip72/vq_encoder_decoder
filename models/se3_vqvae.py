@@ -290,6 +290,23 @@ class RelativePosition(nn.Module):
         return embeddings
 
 
+class MLP(nn.Module):
+    """
+    MLP module for Pairwise
+    """
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
+
 class Pairwise(nn.Module):
     """
     Module for computing a pairwise representation of the structure from the
@@ -297,9 +314,19 @@ class Pairwise(nn.Module):
     """
     def __init__(self, input_dim, output_dim):
         super(Pairwise, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+
         self.layer_norm = nn.LayerNorm(input_dim)
         self.linear_left = nn.Linear(input_dim, output_dim)
         self.linear_right = nn.Linear(input_dim, output_dim)
+
+        # TODO: are these dimensions right?
+        self.relative_position = RelativePosition(input_dim, output_dim)
+
+        # Calculate hidden dim as geometric mean of input and output dim
+        hidden_dim = np.trunc(np.sqrt(input_dim * output_dim))
+        self.mlp = MLP(input_dim, hidden_dim, output_dim)
 
     def forward(self, s):
         # Layer normalization
@@ -312,7 +339,14 @@ class Pairwise(nn.Module):
         # Compute the outer product between s_left and s_right
         k = torch.einsum("nd,kd->nkd", s_left, s_right)
 
-        # TODO: MLP step with RelativePositionalEncoding
+        # Compute positional encodings
+        positional_encodings = self.relative_position(self.input_dim, self.output_dim)
+
+        # Concatenate k with positional encodings
+        k_concat = torch.cat((k, positional_encodings), dim=-1)
+
+        # Apply MLP
+        k = self.mlp(k_concat)
 
         return k
 
