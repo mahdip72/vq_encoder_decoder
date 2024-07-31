@@ -312,25 +312,18 @@ class Pairwise(nn.Module):
     Module for computing a pairwise representation of the structure from the
     quantized sequence. Based on the algorithm described by Gaujac et al., 2024.
     """
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, embedding_dim, hidden_dim):
         super(Pairwise, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
         self.layer_norm = nn.LayerNorm(input_dim)
-        self.linear_left = nn.Linear(input_dim, output_dim)
-        self.linear_right = nn.Linear(input_dim, output_dim)
-
-        # TODO: are these dimensions right?
-        self.relative_position = RelativePosition(input_dim, output_dim)
-
-        # Calculate hidden dim as geometric mean of input and output dim
-        hidden_dim = np.trunc(np.sqrt(input_dim * output_dim))
-        self.mlp = MLP(input_dim, hidden_dim, output_dim)
+        self.linear_left = nn.Linear(input_dim, embedding_dim)
+        self.linear_right = nn.Linear(input_dim, embedding_dim)
+        self.relative_position = RelativePosition(num_units=embedding_dim, max_relative_position=input_dim)
+        self.mlp = MLP(input_dim=embedding_dim + embedding_dim, hidden_dim=hidden_dim, output_dim=embedding_dim)
 
     def forward(self, s):
+        s_normalized = s
         # Layer normalization
-        s_normalized = self.layer_norm(s)
+        # s_normalized = self.layer_norm(s)
 
         # Linear transformations to get s_left and s_right
         s_left = self.linear_left(s_normalized)
@@ -339,8 +332,13 @@ class Pairwise(nn.Module):
         # Compute the outer product between s_left and s_right
         k = torch.einsum("nd,kd->nkd", s_left, s_right)
 
-        # Compute positional encodings
-        positional_encodings = self.relative_position(self.input_dim, self.output_dim)
+        # Prepare indices for relative positional encoding
+        N = s.shape[0]
+        i_indices = torch.arange(N).view(N, 1).expand(N, N).flatten()
+        j_indices = torch.arange(N).view(1, N).expand(N, N).flatten()
+
+        # Compute positional encodings for all pairs (i, j)
+        positional_encodings = self.relative_position(i_indices, j_indices).view(N, N, -1)
 
         # Concatenate k with positional encodings
         k_concat = torch.cat((k, positional_encodings), dim=-1)
