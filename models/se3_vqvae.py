@@ -265,10 +265,35 @@ class SE3VQVAE3DTransformer(nn.Module):
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
+class RelativePosition(nn.Module):
+    """
+    This code was written by Yining Hong.
+    https://github.com/evelinehong/Transformer_Relative_Position_PyTorch/blob/master/relative_position.py
+    """
+
+    def __init__(self, num_units, max_relative_position):
+        super().__init__()
+        self.num_units = num_units
+        self.max_relative_position = max_relative_position
+        self.embeddings_table = nn.Parameter(torch.Tensor(max_relative_position * 2 + 1, num_units))
+        nn.init.xavier_uniform_(self.embeddings_table)
+
+    def forward(self, length_q, length_k):
+        range_vec_q = torch.arange(length_q)
+        range_vec_k = torch.arange(length_k)
+        distance_mat = range_vec_k[None, :] - range_vec_q[:, None]
+        distance_mat_clipped = torch.clamp(distance_mat, -self.max_relative_position, self.max_relative_position)
+        final_mat = distance_mat_clipped + self.max_relative_position
+        final_mat = torch.LongTensor(final_mat).cuda()
+        embeddings = self.embeddings_table[final_mat].cuda()
+
+        return embeddings
+
+
 class Pairwise(nn.Module):
     """
     Module for computing a pairwise representation of the structure from the
-    quantized sequence.
+    quantized sequence. Based on the algorithm described by Gaujac et al., 2024.
     """
     def __init__(self, input_dim, output_dim):
         super(Pairwise, self).__init__()
