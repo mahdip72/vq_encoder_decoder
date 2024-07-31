@@ -398,3 +398,13 @@ class StrucModule(nn.Module):
         outputs = outputs + (pLDDT,)
 
         return outputs
+
+
+if __name__ == '__main__':
+    model = StrucModule()
+    seq_feat = torch.randn(1, 100, 256)
+    pair_feat = torch.randn(1, 100, 100, 128)
+    res_mask = torch.ones(1, 100)
+    outputs = model(seq_feat, pair_feat, res_mask)
+    for out in outputs:
+        print(out.shape)
