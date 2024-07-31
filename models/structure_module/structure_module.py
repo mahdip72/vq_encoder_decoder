@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch import einsum
 from einops import rearrange, repeat
 import numpy as np
+from models.se3_vqvae import Pairwise
 
 from models.structure_module.side_chain import SideChain1D
 
@@ -324,11 +325,11 @@ class StrucModule(nn.Module):
         # Update backbone
         self.bbupdate_layer = nn.Linear(node_dim_hidden, 6)
 
-        # side chain
-        self.sidechain_module = SideChain1D(node_dim_hidden, node_dim_hidden)
-
-        # pLDDT
-        self.pLDDT_module = PredictedLDDT(node_dim_hidden)
+        # # side chain
+        # self.sidechain_module = SideChain1D(node_dim_hidden, node_dim_hidden)
+        #
+        # # pLDDT
+        # self.pLDDT_module = PredictedLDDT(node_dim_hidden)
 
     def forward(self, seq_feat, pair_feat, res_mask):
         """
@@ -356,7 +357,7 @@ class StrucModule(nn.Module):
 
         # iteration
         ca_coords, rots = [], []
-        unnorm_angles, norm_angles = [], []
+        # unnorm_angles, norm_angles = [], []
 
         for i in range(self.n_layer):
             seq_feat = seq_feat + self.IPA(seq_feat, pair_feat, rot, tran, res_mask)
@@ -370,10 +371,10 @@ class StrucModule(nn.Module):
             ca_coords.append(tran)
             rots.append(rot)
 
-            # predict side_chain
-            norm_angle, unnorm_angle = self.sidechain_module(seq_feat, seq_feat_init)
-            unnorm_angles.append(unnorm_angle)
-            norm_angles.append(norm_angle)
+            # # predict side_chain
+            # norm_angle, unnorm_angle = self.sidechain_module(seq_feat, seq_feat_init)
+            # unnorm_angles.append(unnorm_angle)
+            # norm_angles.append(norm_angle)
 
             rot = rot.detach()
 
@@ -385,26 +386,46 @@ class StrucModule(nn.Module):
             torch.stack(rots),
         )
 
-        # side chain
-        outputs = outputs + (
-            unnorm_angles[-1],
-            norm_angles[-1],
-            torch.stack(unnorm_angles),
-            torch.stack(norm_angles),
-        )
+        # # side chain
+        # outputs = outputs + (
+        #     unnorm_angles[-1],
+        #     norm_angles[-1],
+        #     torch.stack(unnorm_angles),
+        #     torch.stack(norm_angles),
+        # )
 
-        # pLDDT
-        pLDDT = self.pLDDT_module(seq_feat)
-        outputs = outputs + (pLDDT,)
+        # # pLDDT
+        # pLDDT = self.pLDDT_module(seq_feat)
+        # outputs = outputs + (pLDDT,)
 
         return outputs
 
 
 if __name__ == '__main__':
-    model = StrucModule()
-    seq_feat = torch.randn(1, 100, 256)
-    pair_feat = torch.randn(1, 100, 100, 128)
-    res_mask = torch.ones(1, 100)
-    outputs = model(seq_feat, pair_feat, res_mask)
+
+    batch_size = 1
+    N = 100 # Protein length
+    input_dim = 256  # Input embedding dimension
+    embedding_dim = 128  # Output embedding dimension
+    hidden_dim = 64  # Hidden dimension for MLP
+
+    # Create a batch of embeddings with shape (N, input_dim)
+    seq_feat = torch.randn(batch_size, N, input_dim)
+
+    # Instantiate the model
+    pairwise_model = Pairwise(input_dim=input_dim, embedding_dim=embedding_dim, hidden_dim=hidden_dim)
+
+    # Forward pass to get k
+    pair_feat = pairwise_model(seq_feat)
+
+    struc_model = StrucModule(node_dim_in=input_dim, edge_dim_in=embedding_dim)
+    # seq_feat = torch.randn(1, 100, 256)
+    # pair_feat = torch.randn(1, 100, 100, 128)
+
+    print("seq_feat", seq_feat.shape, "pair_feat", pair_feat.shape)
+    # exit()
+
+    res_mask = torch.ones(batch_size, N)
+    outputs = struc_model(seq_feat, pair_feat, res_mask)
     for out in outputs:
         print(out.shape)
