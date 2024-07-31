@@ -5,7 +5,7 @@ from torch import einsum
 from einops import rearrange, repeat
 import numpy as np
 
-from models.side_chain import SideChain1D
+from models.structure_module.side_chain import SideChain1D
 
 
 class InvariantPointAttention(nn.Module):

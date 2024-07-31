@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ResNet1D import ResNet1DBlock
+from models.structure_module.resnet_1d import ResNet1DBlock
 
 
 class SideChain(nn.Module):
