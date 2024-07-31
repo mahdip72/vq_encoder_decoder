@@ -267,25 +267,27 @@ class SE3VQVAE3DTransformer(nn.Module):
 
 class RelativePosition(nn.Module):
     """
-    This code was written by Yining Hong.
+    This code was written adapted from Yining Hong.
     https://github.com/evelinehong/Transformer_Relative_Position_PyTorch/blob/master/relative_position.py
     """
 
-    def __init__(self, num_units, max_relative_position):
+    def __init__(self, max_relative_position, num_units):
         super().__init__()
         self.num_units = num_units
         self.max_relative_position = max_relative_position
         self.embeddings_table = nn.Parameter(torch.Tensor(max_relative_position * 2 + 1, num_units))
         nn.init.xavier_uniform_(self.embeddings_table)
 
-    def forward(self, length_q, length_k):
-        range_vec_q = torch.arange(length_q)
-        range_vec_k = torch.arange(length_k)
-        distance_mat = range_vec_k[None, :] - range_vec_q[:, None]
+    def forward(self, i_indices, j_indices):
+        # range_vec_q = torch.arange(length_q)
+        # range_vec_k = torch.arange(length_k)
+        # distance_mat = range_vec_k[None, :] - range_vec_q[:, None]
+
+        distance_mat = i_indices - j_indices
         distance_mat_clipped = torch.clamp(distance_mat, -self.max_relative_position, self.max_relative_position)
         final_mat = distance_mat_clipped + self.max_relative_position
-        final_mat = torch.LongTensor(final_mat).cuda()
-        embeddings = self.embeddings_table[final_mat].cuda()
+        final_mat = torch.LongTensor(final_mat)
+        embeddings = self.embeddings_table[final_mat]
 
         return embeddings
 
@@ -317,7 +319,7 @@ class Pairwise(nn.Module):
         self.layer_norm = nn.LayerNorm(input_dim)
         self.linear_left = nn.Linear(input_dim, embedding_dim)
         self.linear_right = nn.Linear(input_dim, embedding_dim)
-        self.relative_position = RelativePosition(num_units=embedding_dim, max_relative_position=input_dim)
+        self.relative_position = RelativePositionalEncoding(input_dim, embedding_dim)
         self.mlp = MLP(input_dim=embedding_dim + embedding_dim, hidden_dim=hidden_dim, output_dim=embedding_dim)
 
     def forward(self, s):
@@ -363,6 +365,26 @@ def prepare_models_vqvae(configs, logger, accelerator):
 
 
 if __name__ == '__main__':
+
+    # Example usage
+    N = 128  # Protein length
+    input_dim = 64  # Input embedding dimension
+    embedding_dim = 32  # Output embedding dimension
+    hidden_dim = 64  # Hidden dimension for MLP
+
+    # Create a batch of embeddings with shape (N, input_dim)
+    s = torch.randn(N, input_dim)
+    print(s.shape)
+
+    # Instantiate the model
+    model = Pairwise(input_dim=input_dim, embedding_dim=embedding_dim, hidden_dim=hidden_dim)
+
+    # Forward pass to get k
+    k = model(s)
+    print(k.shape)
+
+    exit()
+
     import yaml
     import tqdm
     from utils.utils import load_configs, get_dummy_logger
