@@ -945,15 +945,16 @@ class SE3VQVAEDataset(Dataset):
         # input_distance_map = self.processor.normalize_distance_map(input_distance_map)
         # target_distance_map = self.processor.normalize_distance_map(target_distance_map)
 
+        # Calculate rotation matrices
+        r_true, t_true = rigid_from_3_points_batch(coords_tensor.reshape(1, -1, 3, 3)[:, :, 0, :],
+                                                   coords_tensor.reshape(1, -1, 3, 3)[:, :, 1, :],
+                                                   coords_tensor.reshape(1, -1, 3, 3)[:, :, 2, :])
+
         # squeeze coords and masks to return them to 2D
         coords_tensor = coords_tensor.squeeze(0)
         input_coords_tensor = input_coords_tensor.squeeze(0)
         masks = masks.squeeze(0)
-
-        # Calculate rotation matrices
-        r_true, t_true = rigid_from_3_points_batch(coords_tensor[:, :, 0, :],
-                                                   coords_tensor[:, :, 1, :],
-                                                   coords_tensor[:, :, 2, :])
+        r_true = r_true.squeeze(0)
 
         return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords_tensor, 'masks': masks,
                 'rotation_matrices': r_true

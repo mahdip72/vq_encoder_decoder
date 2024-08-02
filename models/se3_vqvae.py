@@ -222,7 +222,7 @@ class SE3VQVAE3DTransformer(nn.Module):
 
         self.pairwise_model = Pairwise(input_dim=self.decoder_dim, embedding_dim=self.decoder_dim, hidden_dim=64)
 
-        self.decoder_head = StrucModule(input_dim=self.decoder_dim, edge_dim_in=self.decoder_dim, n_layer=4)
+        self.decoder_head = StrucModule(input_dim=self.decoder_dim, edge_dim_in=self.decoder_dim, n_layer=12)
 
         # self.decoder_head = nn.Sequential(
             # ResidualBlock(self.decoder_dim, self.decoder_dim),
