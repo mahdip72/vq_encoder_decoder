@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import einsum
 from einops import rearrange, repeat
 import numpy as np
-from models.se3_vqvae import Pairwise
+from models.structure_module.pairwise import Pairwise
 
 from models.structure_module.side_chain import SideChain1D
 
