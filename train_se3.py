@@ -282,7 +282,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     net.eval()
-    if optimizer_name != 'schedulerfree':
+    if optimizer_name == 'schedulerfree':
         optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
