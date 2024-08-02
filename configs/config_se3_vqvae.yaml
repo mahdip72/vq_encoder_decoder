@@ -1,7 +1,7 @@
 fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
-tqdm_progress_bar: False
+tqdm_progress_bar: True
 result_path: ./results/se3_vqvae/
 normalizer_path: ./data/normalizer.pkl
 
@@ -18,17 +18,17 @@ model:
     add_features:
       enable: False
     vector_quantization:
-      dim: 512
+      dim: 256
       decay: 0.8
       codebook_size: 512
       commitment_weight : 1.0
       alpha: 1.0
     residual_encoder:
-      dimension: 512
+      dimension: 256
       num_blocks: 6
     residual_decoder:
-      dimension: 512
-      num_blocks: 6
+      dimension: 256
+      num_blocks: 2
 
 train_settings:
   data_path: ../../datasets/vqvae/swissprot_1024_h5/
