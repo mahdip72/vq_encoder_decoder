@@ -152,8 +152,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
         masked_labels = trans_true_coords[masks]
 
         # Denormalize the outputs and labels
-        masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
-        masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
+        # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
+        # masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
 
         # Update the metrics
         mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
@@ -317,8 +317,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # target_coordinates_labels = apply_pca(processor, target_coordinates_labels.detach())
 
             # Denormalize outputs and labels
-            trans_pred_coords = processor.denormalize_coords(trans_pred_coords)
-            trans_true_coords = processor.denormalize_coords(trans_true_coords)
+            # trans_pred_coords = processor.denormalize_coords(trans_pred_coords)
+            # trans_true_coords = processor.denormalize_coords(trans_true_coords)
 
             # # Perform Procrustes analysis on coordinates
             # for i in range(len(trans_true_coords)):
