@@ -21,6 +21,8 @@ from test_distance_map_mds import custom_procrustes
 import gc
 import torch
 
+torch.set_printoptions(sci_mode=False)
+
 
 def create_batch_distance_map(coords):
     """
