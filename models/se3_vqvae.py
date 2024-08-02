@@ -286,27 +286,6 @@ def prepare_models_vqvae(configs, logger, accelerator):
 
 
 if __name__ == '__main__':
-
-    # Example usage
-    batch_size = 2
-    N = 128  # Protein length
-    input_dim = 64  # Input embedding dimension
-    embedding_dim = 32  # Output embedding dimension
-    hidden_dim = 64  # Hidden dimension for MLP
-
-    # Create a batch of embeddings with shape (N, input_dim)
-    s = torch.randn(batch_size, N, input_dim)
-    print(s.shape)
-
-    # Instantiate the model
-    model = Pairwise(input_dim=input_dim, embedding_dim=embedding_dim, hidden_dim=hidden_dim)
-
-    # Forward pass to get k
-    k = model(s)
-    print(k.shape)
-
-    exit()
-
     import yaml
     import tqdm
     from utils.utils import load_configs, get_dummy_logger
