@@ -17,6 +17,7 @@ import torchmetrics
 from utils.custom_losses import distance_map_loss
 from utils.fape_loss.fape_loss import compute_fape_loss as fape_loss
 from utils.custom_losses import MultiTaskLossWrapper
+from test_distance_map_mds import custom_procrustes
 import gc
 import torch
 
@@ -141,6 +142,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
         # Apply PCA to the coordinates
         # trans_pred_coords = apply_pca(processor, outputs.detach())
         # trans_true_coords = apply_pca(processor, labels.detach())
+
+        # # Perform Procrustes analysis on coordinates
+        # for i in range(len(trans_true_coords)):
+        #     new_target, new_rec, disparity = custom_procrustes(trans_true_coords[i].cpu(), trans_pred_coords[i].cpu())
+        #     trans_pred_coords[i] = torch.tensor(new_rec)
 
         masked_outputs = trans_pred_coords[masks]
         masked_labels = trans_true_coords[masks]
@@ -313,6 +319,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # Denormalize outputs and labels
             trans_pred_coords = processor.denormalize_coords(trans_pred_coords)
             trans_true_coords = processor.denormalize_coords(trans_true_coords)
+
+            # # Perform Procrustes analysis on coordinates
+            # for i in range(len(trans_true_coords)):
+            #     new_target, new_rec, disparity = custom_procrustes(trans_true_coords[i].cpu(), trans_pred_coords[i].cpu())
+            #     trans_pred_coords[i] = torch.tensor(new_rec)
 
             # Calculate TM-score using denormalized, unmasked coords
             detached_masks = accelerator.gather(masks).to(accelerator.device)
