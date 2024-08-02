@@ -106,16 +106,19 @@ def compute_frame_aligned_point_error(
     return normed_error, transformed_pred_coords, transformed_true_coords
 
 
-def compute_fape_loss(x_predicted, x_true, masks):
+def compute_fape_loss(x_predicted, x_true, r_predicted, r_true, masks):
     batch_size, num_amino_acids, _, _ = x_true.shape
 
+    t_true = x_true[:, :, 1, :]
+    t_predicted = x_predicted[:, :, 1, :]
+
     # Compute the rigid transformation using the first three amino acids
-    r_true, t_true = rigid_from_3_points_batch(x_true[:, :, 0, :],
-                                               x_true[:, :, 1, :],
-                                               x_true[:, :, 2, :])
-    r_predicted, t_predicted = rigid_from_3_points_batch(x_predicted[:, :, 0, :],
-                                                         x_predicted[:, :, 1, :],
-                                                         x_predicted[:, :, 2, :])
+    # r_true, t_true = rigid_from_3_points_batch(x_true[:, :, 0, :],
+    #                                            x_true[:, :, 1, :],
+    #                                            x_true[:, :, 2, :])
+    # r_predicted, t_predicted = rigid_from_3_points_batch(x_predicted[:, :, 0, :],
+    #                                                      x_predicted[:, :, 1, :],
+    #                                                      x_predicted[:, :, 2, :])
 
     rot_pred_object = Rotation(rot_mats=r_predicted, quats=None)
     rot_true_object = Rotation(rot_mats=r_true, quats=None)

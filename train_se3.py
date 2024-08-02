@@ -96,6 +96,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             labels = data['target_coords']
+            rotation_matrices_labels = data['rotation_matrices']
             masks = data['masks']
 
             optimizer.zero_grad()
@@ -106,8 +107,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             # Get FAPE loss as well as the transformed predicted and true coordinates.
             rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
-                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float()
+                outputs[0].reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+                rotation_matrices_labels,
+                outputs[1],
+                masks.float()
             )
 
             rec_loss = rec_loss.mean()
@@ -277,6 +281,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_coords']
+            rotation_matrices_labels = data['rotation_matrices']
             masks = data['masks']
 
             optimizer.zero_grad()
@@ -285,8 +290,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # rec_loss = distance_map_loss(outputs, labels)
 
             rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
-                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3), masks.float()
+                outputs[0].reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+                rotation_matrices_labels,
+                outputs[1],
+                masks.float()
             )
 
             rec_loss = rec_loss.mean()
