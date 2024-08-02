@@ -290,7 +290,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # rec_loss = distance_map_loss(outputs, labels)
 
             rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
-                outputs[0].reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                outputs[0],
                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 rotation_matrices_labels,
                 outputs[1],
