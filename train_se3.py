@@ -107,7 +107,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             # Get FAPE loss as well as the transformed predicted and true coordinates.
             rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
-                outputs[0].reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                outputs[0],
                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 rotation_matrices_labels,
                 outputs[1],

@@ -106,10 +106,10 @@ def compute_frame_aligned_point_error(
     return normed_error, transformed_pred_coords, transformed_true_coords
 
 
-def compute_fape_loss(x_predicted, x_true, r_predicted, r_true, masks):
-    batch_size, num_amino_acids, _, _ = x_true.shape
+def compute_fape_loss(x_predicted, t_true, r_predicted, r_true, masks):
+    # batch_size, num_amino_acids, _, _ = x_true.shape
 
-    t_true = x_true[:, :, 1, :]
+    # t_true = x_true[:, :, 1, :]
     t_predicted = x_predicted[:, :, 1, :]
 
     # Compute the rigid transformation using the first three amino acids
