@@ -25,19 +25,26 @@ def get_protein_embedding(sequence):
     return embeddings
 
 
-def get_many_embeddings(prot_dict, progress_bar=True):
+def get_many_embeddings(prot_dict, max_length=2048, progress_bar=True):
     """
     Extract the embeddings of a dictionary of protein sequences.
     :param prot_dict: dictionary of protein sequences (name: sequence)
+    :param max_length: maximum sequence length to consider
     :param progress_bar: if True, display a progress bar
     :return embedding_tensor: [N_samples, embedding_size] tensor of protein embeddings (name: embedding)
     """
     embedding_list = []
     progress_bar = tqdm(prot_dict, disable=not progress_bar)
     progress_bar.set_description("Extracting embeddings")
+
     for name in progress_bar:
-        prot_embedding = get_protein_embedding(prot_dict[name])
+        sequence = prot_dict[name]
+        # Trim sequences that are longer than 2048 residues
+        if len(sequence) > 2048:
+            sequence = sequence[0:2048]
+        prot_embedding = get_protein_embedding(sequence)
         embedding_list.append(prot_embedding.squeeze(0))
+
     embedding_tensor = torch.stack(embedding_list)
     return embedding_tensor
 
@@ -104,11 +111,12 @@ def get_k_nearest_neighbors(distance_map, k=1):
     return k_nearest
 
 
-def get_negative_kinase_pairs(kinase_df, k=1, distance_type='euclidean', progress_bar=True):
+def get_negative_kinase_pairs(kinase_df, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
     """
     Get k negative kinase pairs from a dataframe.
     :param kinase_df: DataFrame of kinase data
     :param k: number of pairs to get for each kinase sample
+    :param max_length: maximum sequence length to consider
     :param distance_type: 'euclidean' or 'cosine'
     :param progress_bar: if True, display a progress bar
     :return negative_pairs: [N_samples, k]
@@ -131,7 +139,7 @@ if __name__ == '__main__':
     embedding = get_protein_embedding(protein_sequence)
     print(embedding.shape)
 
-    data_path = "../../data/valid_filtered.csv"
+    data_path = "/DATA/renjz/data/train_filtered.csv"
     df = pd.read_csv(data_path)
 
     kinase_seq_dict = get_unique_kinases(df)
@@ -144,17 +152,18 @@ if __name__ == '__main__':
     #                    "ATM": "MSLVLNDLLICCRQLEHDRATERKKEVEKFKRLIRDPETIKHLDRHSDSKQGKYLNWDAVFRFLQKYIQKETECLRIAKPNVSASTQASRQKKMQEISSLVKYFIKCANRRAPRLKCQELLNYIMDTVKDSSNGAIYGADCSNILLKDILSVRKYWCEISQQQWLELFSVYFRLYLKPSQDVHRVLVARIIHAVTKGCCSQTDGLNSKFLDFFSKAIQCARQEKSSSGLNHILAALTIFLKTLAVNFRIRVCELGDEILPTLLYIWTQHRLNDSLKEVIIELFQLQIYIHHPKGAKTQEKGAYESTKWRSILYNLYDLLVNEISHIGSRGKYSSGFRNIAVKENLIELMADICHQVFNEDTRSLEISQSYTTTQRESSDYSVPCKRKKIELGWEVIKDHLQKSQNDFDLVPWLQIATQLISKYPASLPNCELSPLLMILSQLLPQQRHGERTPYVLRCLTEVALCQDKRSNLESSQKSDLLKLWNKIWCITFRGISSEQIQAENFGLLGAIIQGSLVEVDREFWKLFTGSACRPSCPAVCCLTLALTTSIVPGTVKMGIEQNMCEVNRSFSLKESIMKWLLFYQLEGDLENSTEVPPILHSNFPHLVLEKILVSLTMKNCKAAMNFFQSVPECEHHQKDKEELSFSEVEELFLQTTFDKMDFLTIVRECGIEKHQSSIGFSVHQNLKESLDRCLLGLSEQLLNNYSSEITNSETLVRCSRLLVGVLGCYCYMGVIAEEEAYKSELFQKAKSLMQCAGESITLFKNKTNEEFRIGSLRNMMQLCTRCLSNCTKKSPNKIASGFFLRLLTSKLMNDIADICKSLASFIKKPFDRGEVESMEDDTNGNLMEVEDQSSMNLFNDYPDSSVSDANEPGESQSTIGAINPLAEEYLSKQDLLFLDMLKFLCLCVTTAQTNTVSFRAADIRRKLLMLIDSSTLEPTKSLHLHMYLMLLKELPGEEYPLPMEDVLELLKPLSNVCSLYRRDQDVCKTILNHVLHVVKNLGQSNMDSENTRDAQGQFLTVIGAFWHLTKERKYIFSVRMALVNCLKTLLEADPYSKWAILNVMGKDFPVNEVFTQFLADNHHQVRMLAAESINRLFQDTKGDSSRLLKALPLKLQQTAFENAYLKAQEGMREMSHSAENPETLDEIYNRKSVLLTLIAVVLSCSPICEKQALFALCKSVKENGLEPHLVKKVLEKVSETFGYRRLEDFMASHLDYLVLEWLNLQDTEYNLSSFPFILLNYTNIEDFYRSCYKVLIPHLVIRSHFDEVKSIANQIQEDWKSLLTDCFPKILVNILPYFAYEGTRDSGMAQQRETATKVYDMLKSENLLGKQIDHLFISNLPEIVVELLMTLHEPANSSASQSTDLCDFSGDLDPAPNPPHFPSHVIKATFAYISNCHKTKLKSILEILSKSPDSYQKILLAICEQAAETNNVYKKHRILKIYHLFVSLLLKDIKSGLGGAWAFVLRDVIYTLIHYINQRPSCIMDVSLRSFSLCCDLLSQVCQTAVTYCKDALENHLHVIVGTLIPLVYEQVEVQKQVLDLLKYLVIDNKDNENLYITIKLLDPFPDHVVFKDLRITQQKIKYSRGPFSLLEEINHFLSVSVYDALPLTRLEGLKDLRRQLELHKDQMVDIMRASQDNPQDGIMVKLVVNLLQLSKMAINHTGEKEVLEAVGSCLGEVGPIDFSTIAIQHSKDASYTKALKLFEDKELQWTFIMLTYLNNTLVEDCVKVRSAAVTCLKNILATKTGHSFWEIYKMTTDPMLAYLQPFRTSRKKFLEVPRFDKENPFEGLDDINLWIPLSENHDIWIKTLTCAFLDSGGTKCEILQLLKPMCEVKTDFCQTVLPYLIHDILLQDTNESWRNLLSTHVQGFFTSCLRHFSQTSRSTTPANLDSESEHFFRCCLDKKSQRTMLAVVDYMRRQKRPSSGTIFNDAFWLDLNYLEVAKVAQSCAAHFTALLYAEIYADKKSMDDQEKRSLAFEEGSQNTTISSLSEKSKEETGISLQDLLLEIYRSIGEPDSLYGCGGGKMLQPITRLRTYEHEAMWGKALVTYDLETAIPSSTRQAGIIQALQNLGLCHILSVYLKGLDYENKDWCPELEELHYQAAWRNMQWDHCTSVSKEVEGTSYHESLYNALQSLRDREFSTFYESLKYARVKEVEEMCKRSLESVYSLYPTLSRLQAIGELESIGELFSRSVTHRQLSEVYIKWQKHSQLLKDSDFSFQEPIMALRTVILEILMEKEMDNSQRECIKDILTKHLVELSILARTFKNTQLPERAIFQIKQYNSVSCGVSEWQLEEAQVFWAKKEQSLALSILKQMIKKLDASCAANNPSLKLTYTECLRVCGNWLAETCLENPAVIMQTYLEKAVEVAGNYDGESSDELRNGKMKAFLSLARFSDTQYQRIENYMKSSEFENKQALLKRAKEEVGLLREHKIQTNRYTVKVQRELELDELALRALKEDRKRFLCKAVENYINCLLSGEEHDMWVFRLCSLWLENSGVSEVNGMMKANGMKIPTYKFLPLMYQLAARMGTKMMGGLGFHEVLNNLISRISMDHPHHTLFIILALANANRDEFLTKPEVARRSRITKNVPKQSSQLDEDRTEAANRIICTIRSRRPQMVRSVEALCDAYIILANLDATQWKTQRKGINIPADQPITKLKNLEDVVVPTMEIKVDHTGEYGNLVTIQSFKAEFRLAGGVNLPKIIDCVGSDGKERRQLVKGRDDLRQDAVMQQVFQMCNTLLQRNTETRKRKLTICTYKVVPLSQRSGVLEWCTGTVPIGEFLVNNEDGAHKRYRPNDFSAFQCQKKMMEVQKKSFEEKYEVFMDVCQNFQPVFRYFCMEKFLDPAIWFEKRLAYTRSVATSSIVGYILGLGDRHVQNILINEQSAELVHIDLGVAFEQGKILPTPETVPFRLTRDIVDGMGITGVEGVFRRCCEKTMEVMRNSQETLLTIVEVLLYDPLFDWTMNPLKALYLQQRPEDETELHPTLNADDQECKRNLSDIDQSFNKVAERVLMRLQEKLKGVEEGTVLSVGGQVNLLIQQAIDPKNLSRLFPGWKAWV",
     #                    }
 
-    embed_tensor = get_many_embeddings(kinase_seq_dict, True)
-    kinase_distance_map = calc_embedding_distance_map(embed_tensor, distance_type='euclidean')
-    k_nearest_neighbors = get_k_nearest_neighbors(kinase_distance_map, k=2)
-
-    print(kinase_distance_map)
-    print("k nearest indices", k_nearest_neighbors)
-
-    k_nearest_distances = torch.gather(kinase_distance_map, 1, k_nearest_neighbors)
-    print(k_nearest_distances)
-    print(k_nearest_distances.shape)
+    # embed_tensor = get_many_embeddings(kinase_seq_dict, True)
+    # kinase_distance_map = calc_embedding_distance_map(embed_tensor, distance_type='euclidean')
+    # k_nearest_neighbors = get_k_nearest_neighbors(kinase_distance_map, k=2)
+    #
+    # print(kinase_distance_map)
+    # print("k nearest indices", k_nearest_neighbors)
+    #
+    # k_nearest_distances = torch.gather(kinase_distance_map, 1, k_nearest_neighbors)
+    # print(k_nearest_distances)
+    # print(k_nearest_distances.shape)
 
     # Test the wrapper function
-    negative_pairs = get_negative_kinase_pairs(df)
-    print(k_nearest_distances)
+    negative_pairs = get_negative_kinase_pairs(df, k=5, progress_bar=True)
+    print(negative_pairs)
+    print(negative_pairs.shape)
