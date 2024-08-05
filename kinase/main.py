@@ -1,6 +1,7 @@
 from transformers import EsmTokenizer, EsmModel
 import torch
 import pandas as pd
+from copy import deepcopy
 
 
 def get_protein_embedding(sequence):
@@ -19,6 +20,18 @@ def get_protein_embedding(sequence):
 
     return embeddings
 
+
+def get_many_embeddings(prot_dict):
+    """
+    Extract the embeddings of a dictionary of protein sequences.
+    :param prot_dict: dictionary of protein sequences (name: sequence)
+    :return new_prot_dict: dictionary of protein embeddings (name: embedding)
+    """
+    new_prot_dict = deepcopy(prot_dict)
+    for name in new_prot_dict:
+        prot_embedding = get_protein_embedding(new_prot_dict[name])
+        new_prot_dict[name] = prot_embedding
+    return new_prot_dict
 
 def get_unique_kinases(kinase_df):
     """
@@ -42,7 +55,8 @@ if __name__ == '__main__':
     print(embedding.shape)
 
     data_path = "../../data/valid_filtered.csv"
-    kinase_df = pd.read_csv(data_path)
+    df = pd.read_csv(data_path)
 
-    kinase_dict = get_unique_kinases(kinase_df)
-    print(kinase_dict.keys())
+    kinase_seq_dict = get_unique_kinases(df)
+    kinase_embed_dict = get_many_embeddings(kinase_seq_dict)
+    print(len(kinase_embed_dict))
