@@ -121,6 +121,10 @@ def get_negative_kinase_pairs(kinase_df, k=1, distance_type='euclidean', progres
     return negative_pairs
 
 
+def main(pandas_df):
+    return None
+
+
 if __name__ == '__main__':
     # Example usage
     protein_sequence = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAYVLSMSPARGCVTRDCRVCTRVYADRTKFGINPQTFRYYTDRVRFDG"  # Replace with your sequence
