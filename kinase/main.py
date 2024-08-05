@@ -1,5 +1,7 @@
 from transformers import EsmTokenizer, EsmModel
 import torch
+import torch.nn.functional as F
+from torch.nn import CosineSimilarity
 import pandas as pd
 from copy import deepcopy
 
@@ -33,6 +35,7 @@ def get_many_embeddings(prot_dict):
         new_prot_dict[name] = prot_embedding
     return new_prot_dict
 
+
 def get_unique_kinases(kinase_df):
     """
     Get the unique kinase sequences from a dataset.
@@ -47,6 +50,36 @@ def get_unique_kinases(kinase_df):
 
     return kinase_dict
 
+
+def calc_embedding_distance_map(embeddings, distance_type='euclidean'):
+    """
+    Calculate the distance map for a tensor of embeddings.
+    :param embeddings: [N_samples, embedding_size] tensor of embeddings
+    :param distance_type: 'euclidean' or 'cosine'
+    :return distance_map: [N_samples, N_samples] distance map of embeddings
+    """
+
+    if distance_type == 'euclidean':
+        # Expand dimensions to compute pairwise differences
+        expanded_embeddings = embeddings.unsqueeze(1) - embeddings.unsqueeze(0)
+        # Calculate Euclidean distances
+        distance_map = torch.norm(expanded_embeddings, p=2, dim=2)
+
+    elif distance_type == 'cosine':
+        # Create a CosineSimilarity module
+        cos = torch.nn.CosineSimilarity(dim=2, eps=1e-8)
+        # Expand dimensions to compute pairwise cosine similarity
+        embeddings1 = embeddings.unsqueeze(1).expand(-1, embeddings.size(0), -1)
+        embeddings2 = embeddings.unsqueeze(0).expand(embeddings.size(0), -1, -1)
+        # Calculate cosine similarities
+        cosine_similarity = cos(embeddings1, embeddings2)
+        # Convert cosine similarity to cosine distance
+        distance_map = 1 - cosine_similarity
+
+    else:
+        raise ValueError('Distance type must be either "euclidean" or "cosine"')
+
+    return distance_map
 
 if __name__ == '__main__':
     # Example usage
