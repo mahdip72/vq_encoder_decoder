@@ -40,8 +40,7 @@ def get_many_embeddings(prot_dict, max_length=2048, progress_bar=True):
     for name in progress_bar:
         sequence = prot_dict[name]
         # Trim sequences that are longer than 2048 residues
-        if len(sequence) > 2048:
-            sequence = sequence[0:2048]
+        sequence = sequence[:2048]
         prot_embedding = get_protein_embedding(sequence)
         embedding_list.append(prot_embedding.squeeze(0))
 
@@ -111,9 +110,9 @@ def get_k_nearest_neighbors(distance_map, k=1):
     return k_nearest
 
 
-def get_negative_kinase_pairs(kinase_df, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
+def get_negative_kinase_distance_pairs(kinase_df, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
     """
-    Get k negative kinase pairs from a dataframe.
+    Get k negative kinase distance pairs from a dataframe.
     :param kinase_df: DataFrame of kinase data
     :param k: number of pairs to get for each kinase sample
     :param max_length: maximum sequence length to consider
@@ -127,6 +126,33 @@ def get_negative_kinase_pairs(kinase_df, k=1, max_length=2048, distance_type='eu
     k_nearest = get_k_nearest_neighbors(distance_map, k=k)
     negative_pairs = torch.gather(distance_map, 1, k_nearest)
     return negative_pairs
+
+
+def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
+    """
+    Get k negative kinase name pairs from a dataframe.
+    :param kinase_df: DataFrame of kinase data
+    :param k: number of pairs to get for each kinase sample
+    :param max_length: maximum sequence length to consider
+    :param distance_type: 'euclidean' or 'cosine'
+    :param progress_bar: if True, display a progress bar
+    :return kinase_name_pairs: dictionary of kinase name pairs (name:list[k nearest names])
+    """
+    kinase_dict = get_unique_kinases(kinase_df)
+    embeddings = get_many_embeddings(kinase_dict, progress_bar=progress_bar)
+    distance_map = calc_embedding_distance_map(embeddings, distance_type=distance_type)
+    k_nearest = get_k_nearest_neighbors(distance_map, k=k)
+
+    # Get the names corresponding to the k nearest neighbors
+    kinase_name_list = list(kinase_dict.values())
+    kinase_name_pairs = deepcopy(kinase_dict)
+    for i, name in enumerate(kinase_name_pairs):
+        neighbor_names = []
+        for neighbor_idx in k_nearest[i]:
+            neighbor_names.append(kinase_name_list[neighbor_idx])
+        kinase_name_pairs[name] = neighbor_names
+
+    return kinase_name_pairs
 
 
 def main(pandas_df):
@@ -164,6 +190,9 @@ if __name__ == '__main__':
     # print(k_nearest_distances.shape)
 
     # Test the wrapper function
-    negative_pairs = get_negative_kinase_pairs(df, k=5, progress_bar=True)
-    print(negative_pairs)
-    print(negative_pairs.shape)
+    # negative_pairs = get_negative_kinase_distance_pairs(df, k=5, progress_bar=True)
+    # print(negative_pairs)
+    # print(negative_pairs.shape)
+
+    name_pairs = get_negative_kinase_name_pairs(df, k=5, progress_bar=True)
+    print(name_pairs[0])
