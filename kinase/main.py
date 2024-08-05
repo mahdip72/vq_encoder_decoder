@@ -24,14 +24,17 @@ def get_protein_embedding(sequence):
     return embeddings
 
 
-def get_many_embeddings(prot_dict):
+def get_many_embeddings(prot_dict, progress_bar=True):
     """
     Extract the embeddings of a dictionary of protein sequences.
     :param prot_dict: dictionary of protein sequences (name: sequence)
+    :param progress_bar: if True, display a progress bar
     :return embedding_tensor: [N_samples, embedding_size] tensor of protein embeddings (name: embedding)
     """
     embedding_list = []
-    for name in prot_dict:
+    progress_bar = tqdm(prot_dict, disable=not progress_bar)
+    progress_bar.set_description("Extracting embeddings")
+    for name in progress_bar:
         prot_embedding = get_protein_embedding(prot_dict[name])
         embedding_list.append(prot_embedding.squeeze(0))
     embedding_tensor = torch.stack(embedding_list)
@@ -94,5 +97,5 @@ if __name__ == '__main__':
     df = pd.read_csv(data_path)
 
     kinase_seq_dict = get_unique_kinases(df)
-    embed_tensor = get_many_embeddings(kinase_seq_dict)
+    embed_tensor = get_many_embeddings(kinase_seq_dict, True)
     print(embed_tensor.size())
