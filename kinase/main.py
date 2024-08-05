@@ -87,6 +87,22 @@ def calc_embedding_distance_map(embeddings, distance_type='euclidean'):
     return distance_map
 
 
+def get_k_nearest_neighbors(distance_map, k=1):
+    """
+    Get the k-nearest-neighbors for each sample of a distance map.
+    :param distance_map: [N_samples, N_samples] distance map
+    :param k: number of neighbors to get
+    :return k_nearest: [N_samples, k] indices of nearest neighbors for each sample
+    """
+    # Ensure the distance map is a square matrix
+    assert distance_map.size(0) == distance_map.size(1), "distance_map must be a square matrix"
+
+    # Get the indices of the k smallest distances for each sample
+    k_nearest = torch.argsort(distance_map, dim=1)[:, 1:k + 1]
+
+    return k_nearest
+
+
 if __name__ == '__main__':
     # Example usage
     protein_sequence = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAYVLSMSPARGCVTRDCRVCTRVYADRTKFGINPQTFRYYTDRVRFDG"  # Replace with your sequence
@@ -97,5 +113,21 @@ if __name__ == '__main__':
     df = pd.read_csv(data_path)
 
     kinase_seq_dict = get_unique_kinases(df)
+    kinase_seq_dict = {"A": "AAA",
+                       "B": "BAA",
+                       "C": "ABA",
+                       "D": "AAAA",
+                       "E": "AAAB",
+                       "F": "AAAAAAAAAAAAAAAAAAAAAA",
+                       "G": "AAAAAAAAAAAAAAAAAAAAAB",
+                       "H": "GOIJRWORIRGJIPJPGPRCMI"}
+
     embed_tensor = get_many_embeddings(kinase_seq_dict, True)
-    print(embed_tensor.size())
+    print(embed_tensor[5][0:20])
+    print("____________________________________________________________________________________________")
+    print(embed_tensor[6][0:20])
+    kinase_distance_map = calc_embedding_distance_map(embed_tensor, distance_type='euclidean')
+    k_nearest_neighbors = get_k_nearest_neighbors(kinase_distance_map, k=1)
+
+    print(kinase_distance_map)
+    print("k nearest indices", k_nearest_neighbors)
