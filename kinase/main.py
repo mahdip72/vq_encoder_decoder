@@ -195,4 +195,4 @@ if __name__ == '__main__':
     # print(negative_pairs.shape)
 
     name_pairs = get_negative_kinase_name_pairs(df, k=5, progress_bar=True)
-    print(name_pairs[0])
+    print(name_pairs)
