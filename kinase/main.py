@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.nn import CosineSimilarity
 import pandas as pd
 from copy import deepcopy
+from tqdm import tqdm
 
 
 def get_protein_embedding(sequence):
@@ -27,13 +28,14 @@ def get_many_embeddings(prot_dict):
     """
     Extract the embeddings of a dictionary of protein sequences.
     :param prot_dict: dictionary of protein sequences (name: sequence)
-    :return new_prot_dict: dictionary of protein embeddings (name: embedding)
+    :return embedding_tensor: [N_samples, embedding_size] tensor of protein embeddings (name: embedding)
     """
-    new_prot_dict = deepcopy(prot_dict)
-    for name in new_prot_dict:
-        prot_embedding = get_protein_embedding(new_prot_dict[name])
-        new_prot_dict[name] = prot_embedding
-    return new_prot_dict
+    embedding_list = []
+    for name in prot_dict:
+        prot_embedding = get_protein_embedding(prot_dict[name])
+        embedding_list.append(prot_embedding.squeeze(0))
+    embedding_tensor = torch.stack(embedding_list)
+    return embedding_tensor
 
 
 def get_unique_kinases(kinase_df):
@@ -81,6 +83,7 @@ def calc_embedding_distance_map(embeddings, distance_type='euclidean'):
 
     return distance_map
 
+
 if __name__ == '__main__':
     # Example usage
     protein_sequence = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAYVLSMSPARGCVTRDCRVCTRVYADRTKFGINPQTFRYYTDRVRFDG"  # Replace with your sequence
@@ -91,5 +94,5 @@ if __name__ == '__main__':
     df = pd.read_csv(data_path)
 
     kinase_seq_dict = get_unique_kinases(df)
-    kinase_embed_dict = get_many_embeddings(kinase_seq_dict)
-    print(len(kinase_embed_dict))
+    embed_tensor = get_many_embeddings(kinase_seq_dict)
+    print(embed_tensor.size())
