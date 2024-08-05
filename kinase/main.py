@@ -103,6 +103,23 @@ def get_k_nearest_neighbors(distance_map, k=1):
     return k_nearest
 
 
+def get_negative_kinase_pairs(kinase_df, k=1, distance_type='euclidean', progress_bar=True):
+    """
+    Get k negative kinase pairs from a dataframe.
+    :param kinase_df: DataFrame of kinase data
+    :param k: number of pairs to get for each kinase sample
+    :param distance_type: 'euclidean' or 'cosine'
+    :param progress_bar: if True, display a progress bar
+    :return negative_pairs: [N_samples, k]
+    """
+    kinase_dict = get_unique_kinases(kinase_df)
+    embeddings = get_many_embeddings(kinase_dict, progress_bar=progress_bar)
+    distance_map = calc_embedding_distance_map(embeddings, distance_type=distance_type)
+    k_nearest = get_k_nearest_neighbors(distance_map, k=k)
+    negative_pairs = torch.gather(distance_map, 1, k_nearest)
+    return negative_pairs
+
+
 if __name__ == '__main__':
     # Example usage
     protein_sequence = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAYVLSMSPARGCVTRDCRVCTRVYADRTKFGINPQTFRYYTDRVRFDG"  # Replace with your sequence
@@ -132,3 +149,7 @@ if __name__ == '__main__':
     k_nearest_distances = torch.gather(kinase_distance_map, 1, k_nearest_neighbors)
     print(k_nearest_distances)
     print(k_nearest_distances.shape)
+
+    # Test the wrapper function
+    negative_pairs = get_negative_kinase_pairs(df)
+    print(k_nearest_distances)
