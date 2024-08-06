@@ -136,7 +136,9 @@ def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_typ
     :param max_length: maximum sequence length to consider
     :param distance_type: 'euclidean' or 'cosine'
     :param progress_bar: if True, display a progress bar
-    :return kinase_name_pairs: dictionary of kinase name pairs (name:list[k nearest names])
+    :return
+        kinase_name_pairs: dictionary of kinase name pairs (name:list[k nearest names])
+        kinase_sequences: dictionary of kinase sequences (name:sequence)
     """
     kinase_dict = get_unique_kinases(kinase_df)
     embeddings = get_many_embeddings(kinase_dict, progress_bar=progress_bar)
@@ -152,7 +154,7 @@ def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_typ
             neighbor_names.append(kinase_name_list[neighbor_idx])
         kinase_name_pairs[name] = neighbor_names
 
-    return kinase_name_pairs
+    return kinase_name_pairs, kinase_dict
 
 
 def main(pandas_df):
@@ -194,5 +196,6 @@ if __name__ == '__main__':
     # print(negative_pairs)
     # print(negative_pairs.shape)
 
-    name_pairs = get_negative_kinase_name_pairs(df, k=5, progress_bar=True)
+    name_pairs, kinase_seqs = get_negative_kinase_name_pairs(df, k=5, progress_bar=True)
     print(name_pairs)
+    print(kinase_seqs)
