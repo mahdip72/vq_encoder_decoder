@@ -144,7 +144,7 @@ def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_typ
     k_nearest = get_k_nearest_neighbors(distance_map, k=k)
 
     # Get the names corresponding to the k nearest neighbors
-    kinase_name_list = list(kinase_dict.values())
+    kinase_name_list = list(kinase_dict.keys())
     kinase_name_pairs = deepcopy(kinase_dict)
     for i, name in enumerate(kinase_name_pairs):
         neighbor_names = []
