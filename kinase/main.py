@@ -107,7 +107,8 @@ def get_k_nearest_neighbors(distance_map, k=1):
     return k_nearest
 
 
-def get_negative_kinase_name_pairs(kinase_df, model, tokenizer, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
+def get_negative_kinase_name_pairs(kinase_df, model, tokenizer, k=1, max_length=2048, distance_type='euclidean',
+                                   progress_bar=True):
     """
     Get k negative kinase name pairs from a dataframe.
     :param kinase_df: DataFrame of kinase data
@@ -152,7 +153,8 @@ if __name__ == '__main__':
     data_path = "/mnt/hdd8/mehdi/datasets/Joint_training/kinase/train_filtered.csv"
     df = pd.read_csv(data_path)
 
-    name_pairs, kinase_seq_dict = get_negative_kinase_name_pairs(df, main_model, main_tokenizer, k=20, distance_type='euclidean', progress_bar=True,
-                                                             max_length=4096)
+    name_pairs, kinase_seq_dict = get_negative_kinase_name_pairs(df, main_model, main_tokenizer, k=20,
+                                                                 distance_type='euclidean', progress_bar=True,
+                                                                 max_length=4096)
     print(name_pairs)
     print(kinase_seq_dict)
