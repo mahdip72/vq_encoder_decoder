@@ -140,7 +140,7 @@ def get_negative_kinase_name_pairs(kinase_df, model, tokenizer, k=1, max_length=
 
 if __name__ == '__main__':
     # Load the tokenizer and model
-    model_name = "facebook/esm2_t33_650M_UR50D"  # Example model, change as needed
+    model_name = "facebook/esm2_t30_150M_UR50D"  # Example model, change as needed
     main_tokenizer = EsmTokenizer.from_pretrained(model_name)
     main_model = EsmModel.from_pretrained(model_name).cuda()
 
@@ -152,9 +152,7 @@ if __name__ == '__main__':
     data_path = "/mnt/hdd8/mehdi/datasets/Joint_training/kinase/train_filtered.csv"
     df = pd.read_csv(data_path)
 
-    kinase_seq_dict = get_unique_kinases(df)
-
-    name_pairs, kinase_seqs = get_negative_kinase_name_pairs(df, main_model, main_tokenizer, k=20, distance_type='euclidean', progress_bar=True,
+    name_pairs, kinase_seq_dict = get_negative_kinase_name_pairs(df, main_model, main_tokenizer, k=20, distance_type='euclidean', progress_bar=True,
                                                              max_length=4096)
     print(name_pairs)
-    print(kinase_seqs)
+    print(kinase_seq_dict)
