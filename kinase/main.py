@@ -6,13 +6,8 @@ import pandas as pd
 from copy import deepcopy
 from tqdm import tqdm
 
-# Load the tokenizer and model
-model_name = "facebook/esm2_t12_35M_UR50D"  # Example model, change as needed
-tokenizer = EsmTokenizer.from_pretrained(model_name)
-model = EsmModel.from_pretrained(model_name).cuda()
 
-
-def get_protein_embedding(sequence):
+def get_protein_embedding(sequence, model, tokenizer):
     # Tokenize the sequence
     inputs = tokenizer(sequence, return_tensors="pt")
     # move inputs to the GPU
@@ -25,10 +20,12 @@ def get_protein_embedding(sequence):
     return embeddings
 
 
-def get_many_embeddings(prot_dict, max_length=2048, progress_bar=True):
+def get_many_embeddings(prot_dict, model, tokenizer, max_length=2048, progress_bar=True):
     """
     Extract the embeddings of a dictionary of protein sequences.
     :param prot_dict: dictionary of protein sequences (name: sequence)
+    :param model: pretrained model to use for embedding extraction
+    :param tokenizer: tokenizer to use for embedding extraction
     :param max_length: maximum sequence length to consider
     :param progress_bar: if True, display a progress bar
     :return embedding_tensor: [N_samples, embedding_size] tensor of protein embeddings (name: embedding)
@@ -40,8 +37,8 @@ def get_many_embeddings(prot_dict, max_length=2048, progress_bar=True):
     for name in progress_bar:
         sequence = prot_dict[name]
         # Trim sequences that are longer than 2048 residues
-        sequence = sequence[:2048]
-        prot_embedding = get_protein_embedding(sequence)
+        sequence = sequence[:max_length]
+        prot_embedding = get_protein_embedding(sequence, model, tokenizer)
         embedding_list.append(prot_embedding.squeeze(0))
 
     embedding_tensor = torch.stack(embedding_list)
@@ -78,7 +75,7 @@ def calc_embedding_distance_map(embeddings, distance_type='euclidean'):
         distance_map = torch.norm(expanded_embeddings, p=2, dim=2)
 
     elif distance_type == 'cosine':
-        # Create a CosineSimilarity module
+        # Create a cosine similarity module
         cos = torch.nn.CosineSimilarity(dim=2, eps=1e-8)
         # Expand dimensions to compute pairwise cosine similarity
         embeddings1 = embeddings.unsqueeze(1).expand(-1, embeddings.size(0), -1)
@@ -110,28 +107,12 @@ def get_k_nearest_neighbors(distance_map, k=1):
     return k_nearest
 
 
-def get_negative_kinase_distance_pairs(kinase_df, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
-    """
-    Get k negative kinase distance pairs from a dataframe.
-    :param kinase_df: DataFrame of kinase data
-    :param k: number of pairs to get for each kinase sample
-    :param max_length: maximum sequence length to consider
-    :param distance_type: 'euclidean' or 'cosine'
-    :param progress_bar: if True, display a progress bar
-    :return negative_pairs: [N_samples, k]
-    """
-    kinase_dict = get_unique_kinases(kinase_df)
-    embeddings = get_many_embeddings(kinase_dict, progress_bar=progress_bar)
-    distance_map = calc_embedding_distance_map(embeddings, distance_type=distance_type)
-    k_nearest = get_k_nearest_neighbors(distance_map, k=k)
-    negative_pairs = torch.gather(distance_map, 1, k_nearest)
-    return negative_pairs
-
-
-def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
+def get_negative_kinase_name_pairs(kinase_df, model, tokenizer, k=1, max_length=2048, distance_type='euclidean', progress_bar=True):
     """
     Get k negative kinase name pairs from a dataframe.
     :param kinase_df: DataFrame of kinase data
+    :param model: pretrained model to use for embedding extraction
+    :param tokenizer: tokenizer to use for embedding extraction
     :param k: number of pairs to get for each kinase sample
     :param max_length: maximum sequence length to consider
     :param distance_type: 'euclidean' or 'cosine'
@@ -141,7 +122,7 @@ def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_typ
         kinase_sequences: dictionary of kinase sequences (name:sequence)
     """
     kinase_dict = get_unique_kinases(kinase_df)
-    embeddings = get_many_embeddings(kinase_dict, progress_bar=progress_bar)
+    embeddings = get_many_embeddings(kinase_dict, model, tokenizer, progress_bar=progress_bar, max_length=max_length)
     distance_map = calc_embedding_distance_map(embeddings, distance_type=distance_type)
     k_nearest = get_k_nearest_neighbors(distance_map, k=k)
 
@@ -157,45 +138,23 @@ def get_negative_kinase_name_pairs(kinase_df, k=1, max_length=2048, distance_typ
     return kinase_name_pairs, kinase_dict
 
 
-def main(pandas_df):
-    return None
-
-
 if __name__ == '__main__':
+    # Load the tokenizer and model
+    model_name = "facebook/esm2_t33_650M_UR50D"  # Example model, change as needed
+    main_tokenizer = EsmTokenizer.from_pretrained(model_name)
+    main_model = EsmModel.from_pretrained(model_name).cuda()
+
     # Example usage
     protein_sequence = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAYVLSMSPARGCVTRDCRVCTRVYADRTKFGINPQTFRYYTDRVRFDG"  # Replace with your sequence
-    embedding = get_protein_embedding(protein_sequence)
+    embedding = get_protein_embedding(protein_sequence, main_model, main_tokenizer)
     print(embedding.shape)
 
-    data_path = "/DATA/renjz/data/train_filtered.csv"
+    data_path = "/mnt/hdd8/mehdi/datasets/Joint_training/kinase/train_filtered.csv"
     df = pd.read_csv(data_path)
 
     kinase_seq_dict = get_unique_kinases(df)
-    # kinase_seq_dict = {"A": "AAA",
-    #                    "B": "BAA",
-    #                    "F": "AAAAAAAAAAAAAAAAAAAAAA",
-    #                    "G": "AAAAAAAAAAAAAAAAAAAAAB",
-    #                    "H": "GOIJRWORIRGJIPJPGPRCMI",
-    #                    "ChaK1": "MSQKSWIESTLTKRECVYIIPSSKDPHRCLPGCQICQQLVRCFCGRLVKQHACFTASLAMKYSDVKLGDHFNQAIEEWSVEKHTEQSPTDAYGVINFQGGSHSYRAKYVRLSYDTKPEVILQLLLKEWQMELPKLVISVHGGMQKFELHPRIKQLLGKGLIKAAVTTGAWILTGGVNTGVAKHVGDALKEHASRSSRKICTIGIAPWGVIENRNDLVGRDVVAPYQTLLNPLSKLNVLNNLHSHFILVDDGTVGKYGAEVRLRRELEKTINQQRIHARIGQGVPVVALIFEGGPNVILTVLEYLQESPPVPVVVCEGTGRAADLLAYIHKQTEEGGNLPDAAEPDIISTIKKTFNFGQNEALHLFQTLMECMKRKELITVFHIGSDEHQDIDVAILTALLKGTNASAFDQLILTLAWDRVDIAKNHVFVYGQQWLVGSLEQAMLDALVMDRVAFVKLLIENGVSMHKFLTIPRLEELYNTKQGPTNPMLFHLVRDVKQGNLPPGYKITLIDIGLVIEYLMGGTYRCTYTRKRFRLIYNSLGGNNRRSGRNTSSSTPQLRKSHESFGNRADKKEKMRHNHFIKTAQPYRPKIDTVMEEGKKKRTKDEIVDIDDPETKRFPYPLNELLIWACLMKRQVMARFLWQHGEESMAKALVACKIYRSMAYEAKQSDLVDDTSEELKQYSNDFGQLAVELLEQSFRQDETMAMKLLTYELKNWSNSTCLKLAVSSRLRPFVAHTCTQMLLSDMWMGRLNMRKNSWYKVILSILVPPAILLLEYKTKAEMSHIPQSQDAHQMTMDDSENNFQNITEEIPMEVFKEVRILDSNEGKNEMEIQMKSKKLPITRKFYAFYHAPIVKFWFNTLAYLGFLMLYTFVVLVQMEQLPSVQEWIVIAYIFTYAIEKVREIFMSEAGKVNQKIKVWFSDYFNISDTIAIISFFIGFGLRFGAKWNFANAYDNHVFVAGRLIYCLNIIFWYVRLLDFLAVNQQAGPYVMMIGKMVANMFYIVVIMALVLLSFGVPRKAILYPHEAPSWTLAKDIVFHPYWMIFGEVYAYEIDVCANDSVIPQICGPGTWLTPFLQAVYLFVQYIIMVNLLIAFFNNVYLQVKAISNIVWKYQRYHFIMAYHEKPVLPPPLIILSHIVSLFCCICKRRKKDKTSDGPKLFLTEEDQKKLHDFEEQCVEMYFNEKDDKFHSGSEERIRVTFERVEQMCIQIKEVGDRVNYIKRSLQSLDSQIGHLQDLSALTVDTLKTLTAQKASEASKVHNEITRELSISKHLAQNLIDDGPVRPSVWKKHGVVNTLSSSLPQGDLESNNPFHCNILMKDDKDPQCNIFGQDLPAVPQRKEFNFPEAGSSSGALFPSAVSPPELRQRLHGVELLKIFNKNQKLGSSSTSIPHLSSPPTKFFVSTPSQPSCKSHLETGTKDQETVCSKATEGDNTEFGAFVGHRDSMDLQRFKETSNKIKILSNNNTSENTLKRVSSLAGFTDCHRTSIPVHSKQAEKISRRPSTEDTHEVDSKAALIPDWLQDRPSNREMPSEEGTLNGLTSPFKPAMDTNYYYSAVERNNLMRLSQSIPFTPVPPRGEPVTVYRLEESSPNILNNSMSSWSQLGLCAKIEFLSKEEMGGGLRRAVKVQCTWSEHDILKSGHLYIIKSFLPEVVNTWSSIYKEDTVLHLCLREIQQQRAAQKLTFAFNQMKPKSIPYSPRFLEVFLLYCHSAGQWFAVEECMTGEFRKYNNNNGDEIIPTNTLEEIMLAFSHWTYEYTRGELLVLDLQGVGENLTDPSVIKAEEKRSCDMVFGPANLGEDAIKNFRAKHHCNSCCRKLKLPDLKRNDYTPDKIIFPQDEPSDLNLQPGNSTKESESTNSVRLML",
-    #                    "ATM": "MSLVLNDLLICCRQLEHDRATERKKEVEKFKRLIRDPETIKHLDRHSDSKQGKYLNWDAVFRFLQKYIQKETECLRIAKPNVSASTQASRQKKMQEISSLVKYFIKCANRRAPRLKCQELLNYIMDTVKDSSNGAIYGADCSNILLKDILSVRKYWCEISQQQWLELFSVYFRLYLKPSQDVHRVLVARIIHAVTKGCCSQTDGLNSKFLDFFSKAIQCARQEKSSSGLNHILAALTIFLKTLAVNFRIRVCELGDEILPTLLYIWTQHRLNDSLKEVIIELFQLQIYIHHPKGAKTQEKGAYESTKWRSILYNLYDLLVNEISHIGSRGKYSSGFRNIAVKENLIELMADICHQVFNEDTRSLEISQSYTTTQRESSDYSVPCKRKKIELGWEVIKDHLQKSQNDFDLVPWLQIATQLISKYPASLPNCELSPLLMILSQLLPQQRHGERTPYVLRCLTEVALCQDKRSNLESSQKSDLLKLWNKIWCITFRGISSEQIQAENFGLLGAIIQGSLVEVDREFWKLFTGSACRPSCPAVCCLTLALTTSIVPGTVKMGIEQNMCEVNRSFSLKESIMKWLLFYQLEGDLENSTEVPPILHSNFPHLVLEKILVSLTMKNCKAAMNFFQSVPECEHHQKDKEELSFSEVEELFLQTTFDKMDFLTIVRECGIEKHQSSIGFSVHQNLKESLDRCLLGLSEQLLNNYSSEITNSETLVRCSRLLVGVLGCYCYMGVIAEEEAYKSELFQKAKSLMQCAGESITLFKNKTNEEFRIGSLRNMMQLCTRCLSNCTKKSPNKIASGFFLRLLTSKLMNDIADICKSLASFIKKPFDRGEVESMEDDTNGNLMEVEDQSSMNLFNDYPDSSVSDANEPGESQSTIGAINPLAEEYLSKQDLLFLDMLKFLCLCVTTAQTNTVSFRAADIRRKLLMLIDSSTLEPTKSLHLHMYLMLLKELPGEEYPLPMEDVLELLKPLSNVCSLYRRDQDVCKTILNHVLHVVKNLGQSNMDSENTRDAQGQFLTVIGAFWHLTKERKYIFSVRMALVNCLKTLLEADPYSKWAILNVMGKDFPVNEVFTQFLADNHHQVRMLAAESINRLFQDTKGDSSRLLKALPLKLQQTAFENAYLKAQEGMREMSHSAENPETLDEIYNRKSVLLTLIAVVLSCSPICEKQALFALCKSVKENGLEPHLVKKVLEKVSETFGYRRLEDFMASHLDYLVLEWLNLQDTEYNLSSFPFILLNYTNIEDFYRSCYKVLIPHLVIRSHFDEVKSIANQIQEDWKSLLTDCFPKILVNILPYFAYEGTRDSGMAQQRETATKVYDMLKSENLLGKQIDHLFISNLPEIVVELLMTLHEPANSSASQSTDLCDFSGDLDPAPNPPHFPSHVIKATFAYISNCHKTKLKSILEILSKSPDSYQKILLAICEQAAETNNVYKKHRILKIYHLFVSLLLKDIKSGLGGAWAFVLRDVIYTLIHYINQRPSCIMDVSLRSFSLCCDLLSQVCQTAVTYCKDALENHLHVIVGTLIPLVYEQVEVQKQVLDLLKYLVIDNKDNENLYITIKLLDPFPDHVVFKDLRITQQKIKYSRGPFSLLEEINHFLSVSVYDALPLTRLEGLKDLRRQLELHKDQMVDIMRASQDNPQDGIMVKLVVNLLQLSKMAINHTGEKEVLEAVGSCLGEVGPIDFSTIAIQHSKDASYTKALKLFEDKELQWTFIMLTYLNNTLVEDCVKVRSAAVTCLKNILATKTGHSFWEIYKMTTDPMLAYLQPFRTSRKKFLEVPRFDKENPFEGLDDINLWIPLSENHDIWIKTLTCAFLDSGGTKCEILQLLKPMCEVKTDFCQTVLPYLIHDILLQDTNESWRNLLSTHVQGFFTSCLRHFSQTSRSTTPANLDSESEHFFRCCLDKKSQRTMLAVVDYMRRQKRPSSGTIFNDAFWLDLNYLEVAKVAQSCAAHFTALLYAEIYADKKSMDDQEKRSLAFEEGSQNTTISSLSEKSKEETGISLQDLLLEIYRSIGEPDSLYGCGGGKMLQPITRLRTYEHEAMWGKALVTYDLETAIPSSTRQAGIIQALQNLGLCHILSVYLKGLDYENKDWCPELEELHYQAAWRNMQWDHCTSVSKEVEGTSYHESLYNALQSLRDREFSTFYESLKYARVKEVEEMCKRSLESVYSLYPTLSRLQAIGELESIGELFSRSVTHRQLSEVYIKWQKHSQLLKDSDFSFQEPIMALRTVILEILMEKEMDNSQRECIKDILTKHLVELSILARTFKNTQLPERAIFQIKQYNSVSCGVSEWQLEEAQVFWAKKEQSLALSILKQMIKKLDASCAANNPSLKLTYTECLRVCGNWLAETCLENPAVIMQTYLEKAVEVAGNYDGESSDELRNGKMKAFLSLARFSDTQYQRIENYMKSSEFENKQALLKRAKEEVGLLREHKIQTNRYTVKVQRELELDELALRALKEDRKRFLCKAVENYINCLLSGEEHDMWVFRLCSLWLENSGVSEVNGMMKANGMKIPTYKFLPLMYQLAARMGTKMMGGLGFHEVLNNLISRISMDHPHHTLFIILALANANRDEFLTKPEVARRSRITKNVPKQSSQLDEDRTEAANRIICTIRSRRPQMVRSVEALCDAYIILANLDATQWKTQRKGINIPADQPITKLKNLEDVVVPTMEIKVDHTGEYGNLVTIQSFKAEFRLAGGVNLPKIIDCVGSDGKERRQLVKGRDDLRQDAVMQQVFQMCNTLLQRNTETRKRKLTICTYKVVPLSQRSGVLEWCTGTVPIGEFLVNNEDGAHKRYRPNDFSAFQCQKKMMEVQKKSFEEKYEVFMDVCQNFQPVFRYFCMEKFLDPAIWFEKRLAYTRSVATSSIVGYILGLGDRHVQNILINEQSAELVHIDLGVAFEQGKILPTPETVPFRLTRDIVDGMGITGVEGVFRRCCEKTMEVMRNSQETLLTIVEVLLYDPLFDWTMNPLKALYLQQRPEDETELHPTLNADDQECKRNLSDIDQSFNKVAERVLMRLQEKLKGVEEGTVLSVGGQVNLLIQQAIDPKNLSRLFPGWKAWV",
-    #                    }
 
-    # embed_tensor = get_many_embeddings(kinase_seq_dict, True)
-    # kinase_distance_map = calc_embedding_distance_map(embed_tensor, distance_type='euclidean')
-    # k_nearest_neighbors = get_k_nearest_neighbors(kinase_distance_map, k=2)
-    #
-    # print(kinase_distance_map)
-    # print("k nearest indices", k_nearest_neighbors)
-    #
-    # k_nearest_distances = torch.gather(kinase_distance_map, 1, k_nearest_neighbors)
-    # print(k_nearest_distances)
-    # print(k_nearest_distances.shape)
-
-    # Test the wrapper function
-    # negative_pairs = get_negative_kinase_distance_pairs(df, k=5, progress_bar=True)
-    # print(negative_pairs)
-    # print(negative_pairs.shape)
-
-    name_pairs, kinase_seqs = get_negative_kinase_name_pairs(df, k=5, progress_bar=True)
+    name_pairs, kinase_seqs = get_negative_kinase_name_pairs(df, main_model, main_tokenizer, k=20, distance_type='euclidean', progress_bar=True,
+                                                             max_length=4096)
     print(name_pairs)
     print(kinase_seqs)
