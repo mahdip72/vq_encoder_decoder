@@ -12,10 +12,15 @@ def get_protein_embedding(sequence, model, tokenizer):
     inputs = tokenizer(sequence, return_tensors="pt")
     # move inputs to the GPU
     inputs = {key: value.cuda() for key, value in inputs.items()}
-    # Get the embeddings
-    with torch.inference_mode():
-        outputs = model(**inputs)
-        embeddings = outputs.pooler_output.cpu()
+
+    # Ensure the model is in FP16
+    model.half()
+
+    # Get the embeddings with mixed precision
+    with torch.cuda.amp.autocast():
+        with torch.inference_mode():
+            outputs = model(**inputs)
+            embeddings = outputs.pooler_output.cpu()
 
     return embeddings
 
@@ -91,70 +96,121 @@ def calc_embedding_distance_map(embeddings, distance_type='euclidean'):
     return distance_map
 
 
-def get_k_nearest_neighbors(distance_map, k=1):
-    """
-    Get the k-nearest-neighbors for each sample of a distance map.
-    :param distance_map: [N_samples, N_samples] distance map
-    :param k: number of neighbors to get
-    :return k_nearest: [N_samples, k] indices of nearest neighbors for each sample
-    """
-    # Ensure the distance map is a square matrix
-    assert distance_map.size(0) == distance_map.size(1), "distance_map must be a square matrix"
-
-    # Get the indices of the k smallest distances for each sample
-    k_nearest = torch.argsort(distance_map, dim=1)[:, 1:k + 1]
-
-    return k_nearest
-
-
-def get_negative_kinase_name_pairs(kinase_df, model, tokenizer, k=1, max_length=2048, distance_type='euclidean',
+def get_negative_kinase_name_pairs(kinase_df, model, tokenizer, max_length=2048, distance_type='euclidean',
                                    progress_bar=True):
     """
     Get k negative kinase name pairs from a dataframe.
     :param kinase_df: DataFrame of kinase data
     :param model: pretrained model to use for embedding extraction
     :param tokenizer: tokenizer to use for embedding extraction
-    :param k: number of pairs to get for each kinase sample
     :param max_length: maximum sequence length to consider
     :param distance_type: 'euclidean' or 'cosine'
     :param progress_bar: if True, display a progress bar
     :return
-        kinase_name_pairs: dictionary of kinase name pairs (name:list[k nearest names])
+        kinase_name_pairs: dictionary of kinase name pairs (name:list[(nearest name, distance)])
         kinase_sequences: dictionary of kinase sequences (name:sequence)
     """
     kinase_dict = get_unique_kinases(kinase_df)
     embeddings = get_many_embeddings(kinase_dict, model, tokenizer, progress_bar=progress_bar, max_length=max_length)
     distance_map = calc_embedding_distance_map(embeddings, distance_type=distance_type)
-    k_nearest = get_k_nearest_neighbors(distance_map, k=k)
 
-    # Get the names corresponding to the k nearest neighbors
+    # Get the sorted distances and corresponding indices
+    sorted_distances, indices = torch.sort(distance_map, dim=1)
+
     kinase_name_list = list(kinase_dict.keys())
     kinase_name_pairs = deepcopy(kinase_dict)
+
     for i, name in enumerate(kinase_name_pairs):
-        neighbor_names = []
-        for neighbor_idx in k_nearest[i]:
-            neighbor_names.append(kinase_name_list[neighbor_idx])
-        kinase_name_pairs[name] = neighbor_names
+        neighbor_names_distances = []
+        for j in range(1, len(kinase_name_list)):
+            neighbor_idx = indices[i, j]
+            distance = sorted_distances[i, j].item()
+            neighbor_names_distances.append((kinase_name_list[neighbor_idx], round(distance, 4)))
+        kinase_name_pairs[name] = neighbor_names_distances
 
     return kinase_name_pairs, kinase_dict
 
 
+def prepare_negative_samples(dataset, name_pairs, kinase_seqs, k=20):
+    """
+    Prepare negative samples for a dataset.
+    :param dataset: DataFrame of protein data
+    :param name_pairs: dictionary of kinase name pairs (name:list[(nearest name, distance)])
+    :param kinase_seqs: dictionary of kinase sequences (name:sequence)
+    :param k: number of nearest neighbors to sample
+    :return negative_samples: list of negative samples
+
+    Returns: negative_samples: list of negative samples (substrate, kinase)
+    """
+    grouped_dataset = dataset.groupby('Uniprotid')
+
+    # Initialize a list to store negative samples with additional columns
+    negative_samples = []
+
+    # Iterate through each unique protein
+    for uniprot_id, group in grouped_dataset:
+        # Get the unique protein sequence (substrate)
+        unique_substrate = group['Sequence'].iloc[0]
+
+        # Get all kinases and their families that interact with this protein
+        kinase_labels = group['kinase'].unique()
+
+        temp_list = []
+        for kinase_label in kinase_labels:
+            # Get the nearest neighbors for this kinase
+            all_neighbors = name_pairs[kinase_label]
+
+            for neighbor in all_neighbors:
+                if neighbor[0] not in kinase_labels:
+                    temp_list.append((neighbor[0], neighbor[1]))
+
+            # Get the k nearest neighbors
+            k_nearest_neighbors = temp_list[:k]
+
+            # Create negative pairs with the sampled kinase sequences
+            for neighbor_name, _ in k_nearest_neighbors:
+                negative_samples.append([unique_substrate, kinase_seqs[neighbor_name], neighbor_name, 'disconnect'])
+
+    return negative_samples
+
+
+def compute_negative_samples(df, max_length=4096, k=20):
+    """
+    Compute negative kinase samples from a dataset.
+    :param df: DataFrame of protein data
+    :param max_length: maximum sequence length to consider for embedding extraction
+    :param k: number of nearest neighbors to sample
+
+    Returns:
+    name_pairs: dictionary of kinase name pairs (name:list[k nearest names])
+    kinase_seqs: dictionary of kinase sequences (name:sequence)
+    """
+    # Load the tokenizer and model
+    model_name = "facebook/esm2_t33_650M_UR50D"  # Example model, change as needed
+    tokenizer = EsmTokenizer.from_pretrained(model_name)
+    model = EsmModel.from_pretrained(model_name).to('cuda:0')
+
+    name_pairs, kinase_seqs = get_negative_kinase_name_pairs(df, model, tokenizer,
+                                                             distance_type='euclidean', progress_bar=False,
+                                                             max_length=max_length)
+
+    del model, tokenizer
+    torch.cuda.empty_cache()
+    negative_samples = prepare_negative_samples(df, name_pairs, kinase_seqs, k)
+    return negative_samples, kinase_seqs
+
+
 if __name__ == '__main__':
     # Load the tokenizer and model
-    model_name = "facebook/esm2_t30_150M_UR50D"  # Example model, change as needed
-    main_tokenizer = EsmTokenizer.from_pretrained(model_name)
-    main_model = EsmModel.from_pretrained(model_name).cuda()
-
-    # Example usage
-    protein_sequence = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAYVLSMSPARGCVTRDCRVCTRVYADRTKFGINPQTFRYYTDRVRFDG"  # Replace with your sequence
-    embedding = get_protein_embedding(protein_sequence, main_model, main_tokenizer)
-    print(embedding.shape)
+    main_model_name = "facebook/esm2_t33_650M_UR50D"  # Example model, change as needed
+    main_tokenizer = EsmTokenizer.from_pretrained(main_model_name)
+    main_model = EsmModel.from_pretrained(main_model_name).cuda()
 
     data_path = "/mnt/hdd8/mehdi/datasets/Joint_training/kinase/train_filtered.csv"
-    df = pd.read_csv(data_path)
+    main_df = pd.read_csv(data_path)
 
-    name_pairs, kinase_seq_dict = get_negative_kinase_name_pairs(df, main_model, main_tokenizer, k=20,
-                                                                 distance_type='euclidean', progress_bar=True,
-                                                                 max_length=4096)
-    print(name_pairs)
-    print(kinase_seq_dict)
+    test_name_pairs, test_kinase_seqs = get_negative_kinase_name_pairs(main_df, main_model, main_tokenizer,
+                                                                       distance_type='euclidean', progress_bar=True,
+                                                                       max_length=4096)
+    print(test_name_pairs)
+    print(test_kinase_seqs)
