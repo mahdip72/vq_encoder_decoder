@@ -1,4 +1,5 @@
 import os
+import glob
 import datetime
 import shutil
 import ast
@@ -394,3 +395,41 @@ def load_h5_file(file_path):
         n_ca_c_o_coord = f['N_CA_C_O_coord'][:]
         plddt_scores = f['plddt_scores'][:]
     return seq, n_ca_c_o_coord, plddt_scores
+
+
+def ca_coords_to_pdb(ca_coords, masks, save_path):
+    """
+    Convert alpha carbon coordinates to a PDB file.
+
+    :param ca_coords: (torch.Tensor[batch_size, n_residues, 3]) Alpha carbon coordinates.
+    :param masks: (torch.Tensor[batch_size, n_residues]) Masks corresponding to each residue.
+    :param save_path: (str) Path to save the PDB file.
+    """
+    with open(save_path, 'w') as pdb_file:
+        atom_index = 1
+
+        for i in range(ca_coords.shape[0]):  # Loop over batch
+            for j in range(ca_coords.shape[1]):  # Loop over residues
+
+                if masks[i, j].item() == 1:  # Only write residues that are present
+                    x, y, z = ca_coords[i, j].tolist()
+
+                    # Write current residue to PDB file
+                    pdb_file.write(
+                        f"ATOM  {atom_index:5d}  CA  UNK A{i + 1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C\n")
+                    atom_index += 1
+
+
+if __name__ == "__main__":
+
+    bsz = 1
+    num_res = 5
+    pdb_path = "test.pdb"
+
+    # Test ca_coords_to_pdb with random coordinates
+    coordinates = torch.rand((bsz, num_res, 3))
+    atom_masks = torch.zeros((bsz, num_res))
+    atom_masks = torch.tensor([[1, 1, 0, 1, 1]])
+    ca_coords_to_pdb(coordinates, atom_masks, pdb_path)
+    # print(coordinates)
+
