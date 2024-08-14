@@ -425,6 +425,7 @@ if __name__ == "__main__":
     bsz = 1
     num_res = 5
     pdb_path = "test.pdb"
+    h5_path = "/DATA/renjz/data/swissprot_1024_h5"
 
     # Test ca_coords_to_pdb with random coordinates
     coordinates = torch.rand((bsz, num_res, 3))
@@ -433,3 +434,17 @@ if __name__ == "__main__":
     ca_coords_to_pdb(coordinates, atom_masks, pdb_path)
     # print(coordinates)
 
+    # Test ca_coords_to_pdb with h5 structures
+    n_samps = 1
+    h5_samples = glob.glob(os.path.join(h5_path, '*.h5'))[:n_samps]
+    batch_coords = []
+    for i in range(n_samps):
+        sample_path = h5_samples[i]
+        sample = load_h5_file(sample_path)
+        coords_list = sample[1].tolist()
+        coords_tensor = torch.Tensor(coords_list)[:, 1, :]
+        batch_coords.append(coords_tensor)
+    coordinates = torch.stack(batch_coords)
+    atom_masks = torch.ones((n_samps, coordinates.shape[1]))
+    ca_coords_to_pdb(coordinates, atom_masks, pdb_path)
+    print(coordinates)
