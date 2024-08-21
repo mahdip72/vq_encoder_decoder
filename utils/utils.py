@@ -405,10 +405,9 @@ def ca_coords_to_pdb(ca_coords, masks, save_path):
     :param masks: (torch.Tensor[batch_size, n_residues]) Masks corresponding to each residue.
     :param save_path: (str) Path to save the PDB file.
     """
-    with open(save_path, 'w') as pdb_file:
-        atom_index = 1
-
-        for i in range(ca_coords.shape[0]):  # Loop over batch
+    for i in range(ca_coords.shape[0]):  # Loop over batch
+        with open(save_path + f'_{i}.pdb', 'w') as pdb_file:
+            atom_index = 1
             for j in range(ca_coords.shape[1]):  # Loop over residues
 
                 if masks[i, j].item() == 1:  # Only write residues that are present
@@ -416,7 +415,7 @@ def ca_coords_to_pdb(ca_coords, masks, save_path):
 
                     # Write current residue to PDB file
                     pdb_file.write(
-                        f"ATOM  {atom_index:5d}  CA  UNK A{i + 1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C\n")
+                        f"ATOM  {atom_index:5d}  CA  UNK A{j + 1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C\n")
                     atom_index += 1
 
 
