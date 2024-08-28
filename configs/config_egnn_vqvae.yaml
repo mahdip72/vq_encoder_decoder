@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
 tqdm_progress_bar: True
-result_path: ./results/se3_vqvae/
+result_path: ./results/test/
 normalizer_path: ./data/normalizer.pkl
 
 resume:
@@ -23,20 +23,20 @@ model:
       codebook_size: 512
       commitment_weight : 1.0
       alpha: 1.0
-    residual_encoder:
+    encoder:
       dimension: 256
       num_blocks: 6
-    residual_decoder:
+    decoder:
       dimension: 256
-      num_blocks: 2
+      num_blocks: 4
 
 train_settings:
   data_path: ../../datasets/vqvae/swissprot_1024_h5/
-  num_epochs: 512
+  num_epochs: 32
   shuffle: True
   loss: crossentropy
   sample_weight: True
-  mixed_precision: fp16 # no, fp16, bf16, fp8
+  mixed_precision: "no" # no, fp16, bf16, fp8
   batch_size: 32
   num_workers: 2
   grad_accumulation: 1
