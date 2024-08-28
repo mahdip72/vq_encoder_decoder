@@ -3,79 +3,8 @@ import torch
 import numpy as np
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
-# from se3_transformer_pytorch import SE3Transformer
-# from equiformer_pytorch import Equiformer
 from egnn_pytorch import EGNN_Network
-from models.structure_module.structure_module import StrucModule
-from models.structure_module.pairwise import Pairwise
 import torch.nn.functional as F
-import flash_attn
-
-
-class MultiHeadAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, dropout=0.1):
-        super(MultiHeadAttention, self).__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
-
-        self.query = nn.Linear(embed_dim, embed_dim)
-        self.key = nn.Linear(embed_dim, embed_dim)
-        self.value = nn.Linear(embed_dim, embed_dim)
-        self.out = nn.Linear(embed_dim, embed_dim)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        batch_size, seq_length, _ = x.size()
-        Q = self.query(x)
-        K = self.key(x)
-        V = self.value(x)
-
-        Q = Q.view(batch_size, seq_length, self.num_heads, self.head_dim)
-        K = K.view(batch_size, seq_length, self.num_heads, self.head_dim)
-        V = V.view(batch_size, seq_length, self.num_heads, self.head_dim)
-
-        # Use Flash Attention
-        attn_output = flash_attn.flash_attn_func(Q, K, V, dropout_p=self.dropout.p, causal=False)
-
-        # Merge heads
-        attn_output = attn_output.contiguous().view(batch_size, seq_length, self.embed_dim)
-        out = self.out(attn_output)
-        return out
-
-
-class FeedForward(nn.Module):
-    def __init__(self, embed_dim, ff_dim):
-        super(FeedForward, self).__init__()
-        self.fc1 = nn.Linear(embed_dim, ff_dim)
-        self.fc2 = nn.Linear(ff_dim, embed_dim)
-
-    def forward(self, x):
-        x = F.gelu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class TransformerBlock(nn.Module):
-    def __init__(self, embed_dim, ff_dim, num_heads=4, dropout=0.0):
-        super(TransformerBlock, self).__init__()
-        self.attention = MultiHeadAttention(embed_dim, num_heads)
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.ff = FeedForward(embed_dim, ff_dim)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        x = x.permute(0, 2, 1)
-        attn_output = self.attention(x)
-        x = x + self.dropout(attn_output)
-        x = self.norm1(x)
-        ff_output = self.ff(x)
-        x = x + self.dropout(ff_output)
-        x = self.norm2(x)
-        x = x.permute(0, 2, 1)
-        return x
 
 
 class ResidualBlock(nn.Module):
@@ -117,9 +46,9 @@ class ConvNeXtBlock(nn.Module):
         return out
 
 
-class SE3VQVAE3DTransformer(nn.Module):
+class EGNNVQVAE3DTransformer(nn.Module):
     def __init__(self, latent_dim, codebook_size, decay, configs):
-        super(SE3VQVAE3DTransformer, self).__init__()
+        super(EGNNVQVAE3DTransformer, self).__init__()
 
         self.max_length = configs.model.max_length
 
@@ -129,39 +58,13 @@ class SE3VQVAE3DTransformer(nn.Module):
         self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
         self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
 
-        # self.se3_model = SE3Transformer(
-        #     num_tokens=257,
-        #     dim=8,
-        #     heads=2,
-        #     depth=4,
-        #     dim_head=8,
-        #     num_degrees=1,
-        #     valid_radius=0.5
-        # )
-
-        # self.se3_model = Equiformer(
-        #     num_tokens=self.max_length+1,
-        #     dim=(8, 8),  # dimensions per type, ascending, length must match number of degrees (num_degrees)
-        #     dim_head=(8, 8),  # dimension per attention head
-        #     heads=(4, 4),
-        #     num_linear_attn_heads=0,  # number of global linear attention heads, can see all the neighbors
-        #     num_degrees=2,  # number of degrees
-        #     depth=3,  # depth of equivariant transformer
-        #     attend_self=True,  # attending to self or not
-        #     reduce_dim_out=False,
-        #     single_headed_kv=True,
-        #     reversible=False,
-        #     # whether to reduce out to dimension of 1, say for predicting new coordinates for type 1 features
-        #     l2_dist_attention=False  # set to False to try out MLP attention
-        # )
-
         # self.embedding_encoder = nn.Embedding(num_embeddings=self.max_length+1, embedding_dim=128, padding_idx=0)
 
-        self.se3_model = EGNN_Network(
+        self.egnn_model = EGNN_Network(
             num_tokens=self.max_length+1,
             num_positions=self.max_length,
             # unless what you are passing in is an unordered set, set this to the maximum sequence length
-            dim=512,
+            dim=128,
             # m_dim=64,
             depth=2,
             # global_linear_attn_every=1,
@@ -174,12 +77,10 @@ class SE3VQVAE3DTransformer(nn.Module):
             # coor_weights_clamp_value=10.0,
             # absolute clamped value for the coordinate weights, needed if you increase the num neareest neighbors
         )
-        input_shape = 512
+        input_shape = 128
         # Encoder
         self.encoder_tail = nn.Sequential(
             nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
-            # ResidualBlock(self.encoder_dim, self.encoder_dim),
-            # TransformerBlock(start_dim, start_dim * 2),
         )
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -220,21 +121,20 @@ class SE3VQVAE3DTransformer(nn.Module):
         )
         self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
 
-        self.pairwise_model = Pairwise(input_dim=self.decoder_dim, embedding_dim=self.decoder_dim, hidden_dim=64)
+        # todo: build GCPnet here
+        # self.decoder_head =
 
-        self.decoder_head = StrucModule(input_dim=self.decoder_dim, edge_dim_in=self.decoder_dim, n_layer=12)
-
-        # self.decoder_head = nn.Sequential(
-            # ResidualBlock(self.decoder_dim, self.decoder_dim),
-            # nn.Conv1d(self.decoder_dim, 9, 1),
-        # )
+        self.decoder_head = nn.Sequential(
+            ResidualBlock(self.decoder_dim, self.decoder_dim),
+            nn.Conv1d(self.decoder_dim, 9, 1),
+        )
 
     def forward(self, batch, return_vq_only=False):
         initial_x = batch['input_coords']
         mask = batch['masks']
         feats = torch.tensor(range(1, self.max_length+1)).reshape(1, self.max_length).to(initial_x.device)
         feats = feats.repeat_interleave(mask.shape[0], dim=0)
-        x = self.se3_model(feats, initial_x, mask)
+        x = self.egnn_model(feats, initial_x, mask)
 
         x = x[0]
 
@@ -262,18 +162,18 @@ class SE3VQVAE3DTransformer(nn.Module):
         x = x.permute(0, 2, 1)
         x = x + self.pos_embed_decoder
         x = self.decoder_blocks(x)
-        # x = x.permute(0, 2, 1)
+        x = x.permute(0, 2, 1)
 
-        pairwise_x = self.pairwise_model(x)
-        outputs = self.decoder_head(x, pairwise_x, mask)
+        # todo: use GCPnet here: x shape (batch, number of amino acids, feature dim)
+        # outputs = self.decoder_head(x, mask)
 
-        # x = x.permute(0, 2, 1)
+        x = x.permute(0, 2, 1)
         # return x, indices, commit_loss
-        return outputs[:2], torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
-    vqvae = SE3VQVAE3DTransformer(
+    vqvae = EGNNVQVAE3DTransformer(
         latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
@@ -293,7 +193,7 @@ if __name__ == '__main__':
     from accelerate import Accelerator
     from data.dataset import VQVAEDataset
 
-    config_path = "../configs/config_se3_vqvae.yaml"
+    config_path = "../configs/config_egnn_vqvae.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
