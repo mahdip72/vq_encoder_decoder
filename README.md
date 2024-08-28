@@ -68,5 +68,6 @@ So, you can use it for your final training.
 - [x] Add the evaluation code to fashionMNIST dataset
 - [x] Create the main VQ model with the GVP encoder and a decoder
 - [x] Add contact map dataloader to the project
-- [ ] Add and test the LFQ model as an option
 - [x] Add other features of accelerate training to the project
+- [ ] Add and test the LFQ model as an option
+- [ ] Add GCPNet model as the decoder of EGNN-VQVAE model
