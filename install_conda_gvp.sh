@@ -11,7 +11,6 @@ pip install tensorboard
 pip install python-box
 pip install fair-esm
 conda install --yes pandas
-pip install peft
 conda install --yes pytorch-scatter -c pyg
 conda install --yes pytorch-cluster -c pyg
 pip install h5py
