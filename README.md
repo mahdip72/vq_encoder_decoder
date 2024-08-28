@@ -12,17 +12,32 @@ Here is a great repo of different pytorch implementation of VQ-VAE models: [repo
 To use this project, follow the install.sh file to install the dependencies.
 
 ### Install using SH file
-Create a conda environment and use this command to install the required packages inside the conda environment.
-First, make the install.sh file executable by running the following command:
+
+First, create a conda environment by running the following command:
 ```commandline
-chmod +x install.sh
+conda create --name vqvae python=3.11
 ```
-Then, run the following command to install the required packages inside the conda environment:
+and activate the conda environment by running the following command:
 ```commandline
-bash install.sh
+conda activate vqvae
 ```
 
-## Training
+Next, make the install.sh file executable by running the following command:
+```commandline
+chmod +x install_conda.sh
+```
+
+Then, run the following command to install the required packages inside the conda environment:
+```commandline
+bash install_conda.sh
+```
+
+A separate sh file is created for the installation of the gvp model. You can run the following command to install the required packages for the gvp model:
+```commandline
+bash install_conda_gvp.sh
+```
+
+## Training EGNN model
 
 To utilize the accelerator power in you training code such as distributed multi GPU training, 
 you have to set the accelerator config by running accelerate config in the command line:
@@ -32,13 +47,14 @@ accelerate config
 This command will create an accelerate config file in your environment. Then, you have to set
 the training settings and hyperparameters inside your target task `configs/config_{task}.yaml` file. Finally,
 you can start your training using a config file from configs by running the following command:
+
 ```commandline
 accelerate launch train.py --config_path configs/config_file.yaml
 ```
 
 Example:
 ```commandline
-accelerate launch train_cifar.py --config_path configs/config_cifar.yaml
+accelerate launch train_egnn.py --config_path configs/config_egnn_vqvae.yaml
 ```
 
 You might not use accelerator to run the train.py script if you just want to debug your script on single GPU.
