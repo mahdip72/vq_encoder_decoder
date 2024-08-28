@@ -166,9 +166,8 @@ class EGNNVQVAE3DTransformer(nn.Module):
         # todo: use GCPnet here
         # x shape is (batch, number of amino acids, decoder dim) e.g., (32, 128, 256)
         # mask shape is (batch, number of amino acids) e.g., (32, 128)
-        # outputs = self.decoder_head(x, mask)
+        # x = self.decoder_head(x, mask)
 
-        x = x.permute(0, 2, 1)
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)  # dummy return values for vq layer
 
