@@ -13,10 +13,10 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
-# from utils.custom_losses import distance_map_loss
+from data.dataset import prepare_egnn_vqvae_dataloaders
+from models.egnn_vqvae import prepare_models_vqvae
 from utils.fape_loss.fape_loss import compute_fape_loss as fape_loss
 from utils.custom_losses import MultiTaskLossWrapper
-# from test_distance_map_mds import custom_procrustes
 import gc
 import torch
 
@@ -396,13 +396,11 @@ def main(dict_config, config_file_path):
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
 
-    from data.dataset import prepare_egnn_vqvae_dataloaders
     train_dataloader, valid_dataloader, visualization_loader = prepare_egnn_vqvae_dataloaders(logging, accelerator,
                                                                                              configs)
 
     logging.info('preparing dataloaders are done')
 
-    from models.egnn_vqvae import prepare_models_vqvae
     net = prepare_models_vqvae(configs, logging, accelerator)
     logging.info('preparing models is done')
 
@@ -438,7 +436,7 @@ def main(dict_config, config_file_path):
         logging.info(f'number of train steps per epoch: {int(train_steps)}')
 
     num_losses = sum(1 for loss in list(configs.auxiliary_loss.values())[1:] if loss is True)
-    # Combine the losses using adaptive weighting
+    # Combine the losses using adaptive weighting. This is an optional step and can be skipped.
     loss_wrapper = MultiTaskLossWrapper(num_losses=num_losses)
 
     loss_wrapper = accelerator.prepare([loss_wrapper])[0]
