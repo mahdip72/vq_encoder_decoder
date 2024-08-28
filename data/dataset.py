@@ -759,9 +759,9 @@ class VQVAEDataset(Dataset):
         return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords, 'masks': masks}
 
 
-class SE3VQVAEDataset(Dataset):
+class EGNNVQVAEDataset(Dataset):
     def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
-        super(SE3VQVAEDataset, self).__init__()
+        super(EGNNVQVAEDataset, self).__init__()
 
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['max_samples']]
 
@@ -915,6 +915,7 @@ class SE3VQVAEDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
+        # Remove amino acids longer than max_length
         coords_tensor = coords_tensor[:self.max_length, ...]
 
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
@@ -936,30 +937,16 @@ class SE3VQVAEDataset(Dataset):
         coords_tensor, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
+        # extract carbon alpha coordinates from all amino acids
         input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
-        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 9)
-
-        # input_distance_map = create_distance_map(input_coords_tensor.squeeze(0))
-        # target_distance_map = create_distance_map(coords_tensor.squeeze(0))
-
-        # input_distance_map = self.processor.normalize_distance_map(input_distance_map)
-        # target_distance_map = self.processor.normalize_distance_map(target_distance_map)
-
-        # Calculate rotation matrices
-        r_true, t_true = rigid_from_3_points_batch(coords_tensor.reshape(1, -1, 3, 3)[:, :, 0, :],
-                                                   coords_tensor.reshape(1, -1, 3, 3)[:, :, 1, :],
-                                                   coords_tensor.reshape(1, -1, 3, 3)[:, :, 2, :])
+        coords_tensor = coords_tensor[..., 3:6].reshape(1, -1, 3)
 
         # squeeze coords and masks to return them to 2D
         coords_tensor = coords_tensor.squeeze(0)
         input_coords_tensor = input_coords_tensor.squeeze(0)
         masks = masks.squeeze(0)
-        r_true = r_true.squeeze(0)
 
-        return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords_tensor, 'masks': masks,
-                'rotation_matrices': r_true
-                # 'input_distance_map': input_distance_map, 'target_distance_map': target_distance_map
-                }
+        return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords_tensor, 'masks': masks}
 
 
 class DistanceMapVQVAEDataset(Dataset):
@@ -1273,20 +1260,20 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
     return train_loader, valid_loader, visualization_loader
 
 
-def prepare_se3_vqvae_dataloaders(logging, accelerator, configs):
+def prepare_egnn_vqvae_dataloaders(logging, accelerator, configs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
         logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
-    train_dataset = SE3VQVAEDataset(configs.train_settings.data_path, train_mode=True,
+    train_dataset = EGNNVQVAEDataset(configs.train_settings.data_path, train_mode=True,
                                     rotate_randomly=configs.train_settings.rotate_randomly,
                                     max_samples=configs.train_settings.max_task_samples,
                                     configs=configs)
-    valid_dataset = SE3VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False,
+    valid_dataset = EGNNVQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False,
                                     max_samples=configs.train_settings.max_task_samples,
                                     configs=configs)
-    visualization_dataset = SE3VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
+    visualization_dataset = EGNNVQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
                                             max_samples=configs.train_settings.max_task_samples,
                                             configs=configs)
 
@@ -1466,7 +1453,7 @@ if __name__ == '__main__':
     from accelerate import Accelerator
     from utils.metrics import batch_distance_map_to_coordinates
 
-    config_path = "../configs/config_se3_vqvae.yaml"
+    config_path = "../configs/config_egnn_vqvae.yaml"
 
     with open(config_path) as file:
         config_file = yaml.full_load(file)
@@ -1486,7 +1473,7 @@ if __name__ == '__main__':
     #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
     #                      configs=test_configs)
 
-    dataset = SE3VQVAEDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+    dataset = EGNNVQVAEDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
                               max_samples=test_configs.train_settings.max_task_samples,
                               configs=test_configs)
 
