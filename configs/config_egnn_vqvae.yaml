@@ -11,7 +11,7 @@ resume:
   restart_optimizer: True
 
 model:
-  architecture: se3_vqvae
+  architecture: egnn_vqvae
   compile_model: False
   max_length: 128
   vqvae:
