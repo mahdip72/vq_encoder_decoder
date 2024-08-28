@@ -4,8 +4,7 @@ import yaml
 import os
 import torch
 from utils.utils import load_configs, load_configs_gvp, prepare_saving_dir, get_logging, prepare_optimizer, \
-    prepare_tensorboard, \
-    save_checkpoint
+    prepare_tensorboard, save_checkpoint, ca_coords_to_pdb
 from utils.utils import load_checkpoints
 from utils.metrics import GDTTS, LDDT, batch_distance_map_to_coordinates, TMScore
 from accelerate import Accelerator
@@ -14,10 +13,10 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
-from utils.custom_losses import distance_map_loss
+# from utils.custom_losses import distance_map_loss
 from utils.fape_loss.fape_loss import compute_fape_loss as fape_loss
 from utils.custom_losses import MultiTaskLossWrapper
-from test_distance_map_mds import custom_procrustes
+# from test_distance_map_mds import custom_procrustes
 import gc
 import torch
 
@@ -99,23 +98,22 @@ def train_loop(net, train_loader, epoch, **kwargs):
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             labels = data['target_coords']
-            rotation_matrices_labels = data['rotation_matrices']
             masks = data['masks']
 
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
+            # todo: change the loss function as you want
             # Compute the loss
-            # rec_loss = distance_map_loss(outputs, labels)
-
+            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
             # Get FAPE loss as well as the transformed predicted and true coordinates.
-            rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
-                outputs[0],
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                rotation_matrices_labels,
-                outputs[1],
-                masks.float()
-            )
+            # rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
+            #     outputs[0],
+            #     labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+            #     rotation_matrices_labels,
+            #     outputs[1],
+            #     masks.float()
+            # )
 
             rec_loss = rec_loss.mean()
 
@@ -145,13 +143,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
         # trans_pred_coords = apply_pca(processor, outputs.detach())
         # trans_true_coords = apply_pca(processor, labels.detach())
 
-        # # Perform Procrustes analysis on coordinates
-        # for i in range(len(trans_true_coords)):
-        #     new_target, new_rec, disparity = custom_procrustes(trans_true_coords[i].cpu(), trans_pred_coords[i].cpu())
-        #     trans_pred_coords[i] = torch.tensor(new_rec)
-
-        masked_outputs = trans_pred_coords[masks]
-        masked_labels = trans_true_coords[masks]
+        masked_outputs = outputs[masks] * 100
+        masked_labels = labels[masks] * 100
 
         # Denormalize the outputs and labels
         # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
@@ -289,30 +282,23 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_coords']
-            rotation_matrices_labels = data['rotation_matrices']
+            # rotation_matrices_labels = data['rotation_matrices']
             masks = data['masks']
 
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            # rec_loss = distance_map_loss(outputs, labels)
-
-            rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
-                outputs[0],
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                rotation_matrices_labels,
-                outputs[1],
-                masks.float()
-            )
+            # todo: change the loss function as you want
+            rec_loss = torch.nn.functional.l1_loss(outputs, labels)
+            # rec_loss, trans_pred_coords, trans_true_coords = fape_loss(
+            #     outputs[0],
+            #     labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+            #     rotation_matrices_labels,
+            #     outputs[1],
+            #     masks.float()
+            # )
 
             rec_loss = rec_loss.mean()
-
-            # Create the distance map for the outputs
-            # outputs = create_batch_distance_map(outputs)
-
-            # Denormalize the distance maps of outputs and labels
-            # outputs = processor.denormalize_distance_map(outputs)
-            # labels = processor.denormalize_distance_map(labels)
 
             # Apply PCA to the coordinates
             # outputs = apply_pca(processor, outputs.detach())
@@ -322,19 +308,14 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # trans_pred_coords = processor.denormalize_coords(trans_pred_coords)
             # trans_true_coords = processor.denormalize_coords(trans_true_coords)
 
-            # # Perform Procrustes analysis on coordinates
-            # for i in range(len(trans_true_coords)):
-            #     new_target, new_rec, disparity = custom_procrustes(trans_true_coords[i].cpu(), trans_pred_coords[i].cpu())
-            #     trans_pred_coords[i] = torch.tensor(new_rec)
-
             # Calculate TM-score using denormalized, unmasked coords
             detached_masks = accelerator.gather(masks).to(accelerator.device)
-            tm_score.update(accelerator.gather(trans_pred_coords), accelerator.gather(trans_true_coords),
+            tm_score.update(accelerator.gather(outputs), accelerator.gather(labels),
                             detached_masks)
 
             # Apply masks
-            masked_outputs = trans_pred_coords[masks]
-            masked_labels = trans_true_coords[masks]
+            masked_outputs = outputs[masks]
+            masked_labels = labels[masks]
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs.detach()), accelerator.gather(masked_labels.detach()))
@@ -399,10 +380,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
 
 def main(dict_config, config_file_path):
-    if dict_config["model"]["architecture"] == 'gvp_vqvae':
-        configs = load_configs_gvp(dict_config)
-    else:
-        configs = load_configs(dict_config)
+    configs = load_configs(dict_config)
 
     if isinstance(configs.fix_seed, int):
         torch.manual_seed(configs.fix_seed)
@@ -418,13 +396,13 @@ def main(dict_config, config_file_path):
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
 
-    from data.dataset import prepare_se3_vqvae_dataloaders
-    train_dataloader, valid_dataloader, visualization_loader = prepare_se3_vqvae_dataloaders(logging, accelerator,
+    from data.dataset import prepare_egnn_vqvae_dataloaders
+    train_dataloader, valid_dataloader, visualization_loader = prepare_egnn_vqvae_dataloaders(logging, accelerator,
                                                                                              configs)
 
     logging.info('preparing dataloaders are done')
 
-    from models.se3_vqvae import prepare_models_vqvae
+    from models.egnn_vqvae import prepare_models_vqvae
     net = prepare_models_vqvae(configs, logging, accelerator)
     logging.info('preparing models is done')
 
@@ -476,7 +454,8 @@ def main(dict_config, config_file_path):
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
                                            logging=logging, global_step=global_step,
-                                           writer=train_writer, loss_wrapper=loss_wrapper)
+                                           writer=train_writer, loss_wrapper=loss_wrapper,
+                                           result_path=result_path)
         end_time = time.time()
         training_time = end_time - start_time
         torch.cuda.empty_cache()
@@ -582,7 +561,7 @@ def main(dict_config, config_file_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
     parser.add_argument("--config_path", "-c", help="The location of config file",
-                        default='./configs/config_se3_vqvae.yaml')
+                        default='./configs/config_egnn_vqvae.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
