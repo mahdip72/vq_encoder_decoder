@@ -165,6 +165,7 @@ class EGNNVQVAE3DTransformer(nn.Module):
 
         # todo: use GCPnet here
         # x shape is (batch, number of amino acids, decoder dim) e.g., (32, 128, 256)
+        # mask shape is (batch, number of amino acids) e.g., (32, 128)
         # outputs = self.decoder_head(x, mask)
 
         x = x.permute(0, 2, 1)
