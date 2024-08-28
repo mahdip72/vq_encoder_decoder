@@ -53,15 +53,15 @@ class EGNNVQVAE3DTransformer(nn.Module):
         self.max_length = configs.model.max_length
 
         # Define the number of residual blocks for encoder and decoder
-        self.num_encoder_blocks = configs.model.vqvae.residual_encoder.num_blocks
-        self.num_decoder_blocks = configs.model.vqvae.residual_decoder.num_blocks
-        self.encoder_dim = configs.model.vqvae.residual_encoder.dimension
-        self.decoder_dim = configs.model.vqvae.residual_decoder.dimension
+        self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
+        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
+        self.encoder_dim = configs.model.vqvae.encoder.dimension
+        self.decoder_dim = configs.model.vqvae.decoder.dimension
 
         # self.embedding_encoder = nn.Embedding(num_embeddings=self.max_length+1, embedding_dim=128, padding_idx=0)
 
         self.egnn_model = EGNN_Network(
-            num_tokens=self.max_length+1,
+            num_tokens=self.max_length + 1,
             num_positions=self.max_length,
             # unless what you are passing in is an unordered set, set this to the maximum sequence length
             dim=128,
@@ -122,7 +122,7 @@ class EGNNVQVAE3DTransformer(nn.Module):
         self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
 
         # todo: build GCPnet here
-        # self.decoder_head =
+        # self.decoder_head = GCPNet()
 
         self.decoder_head = nn.Sequential(
             ResidualBlock(self.decoder_dim, self.decoder_dim),
@@ -132,7 +132,7 @@ class EGNNVQVAE3DTransformer(nn.Module):
     def forward(self, batch, return_vq_only=False):
         initial_x = batch['input_coords']
         mask = batch['masks']
-        feats = torch.tensor(range(1, self.max_length+1)).reshape(1, self.max_length).to(initial_x.device)
+        feats = torch.tensor(range(1, self.max_length + 1)).reshape(1, self.max_length).to(initial_x.device)
         feats = feats.repeat_interleave(mask.shape[0], dim=0)
         x = self.egnn_model(feats, initial_x, mask)
 
@@ -162,14 +162,14 @@ class EGNNVQVAE3DTransformer(nn.Module):
         x = x.permute(0, 2, 1)
         x = x + self.pos_embed_decoder
         x = self.decoder_blocks(x)
-        x = x.permute(0, 2, 1)
 
-        # todo: use GCPnet here: x shape (batch, number of amino acids, feature dim)
+        # todo: use GCPnet here
+        # x shape is (batch, number of amino acids, decoder dim) e.g., (32, 128, 256)
         # outputs = self.decoder_head(x, mask)
 
         x = x.permute(0, 2, 1)
         # return x, indices, commit_loss
-        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)  # dummy return values for vq layer
 
 
 def prepare_models_vqvae(configs, logger, accelerator):
@@ -191,7 +191,7 @@ if __name__ == '__main__':
     from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
-    from data.dataset import VQVAEDataset
+    from data.dataset import EGNNVQVAEDataset
 
     config_path = "../configs/config_egnn_vqvae.yaml"
 
@@ -205,7 +205,10 @@ if __name__ == '__main__':
 
     test_model = prepare_models_vqvae(test_configs, test_logger, accelerator)
 
-    dataset = VQVAEDataset(test_configs.valid_settings.data_path, configs=test_configs)
+    dataset = EGNNVQVAEDataset(test_configs.valid_settings.data_path,
+                               train_mode=False, rotate_randomly=False,
+                               max_samples=test_configs.train_settings.max_task_samples,
+                               configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size,
                              num_workers=test_configs.train_settings.num_workers, pin_memory=True)
