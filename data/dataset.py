@@ -938,8 +938,8 @@ class EGNNVQVAEDataset(Dataset):
         input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
 
         # extract carbon alpha coordinates from all amino acids
-        input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
-        coords_tensor = coords_tensor[..., 3:6].reshape(1, -1, 3)
+        input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)  # ['N', 'CA', 'C', 'O']
+        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 3)  # ['N', 'CA', 'C', 'O']
 
         # squeeze coords and masks to return them to 2D
         coords_tensor = coords_tensor.squeeze(0)
