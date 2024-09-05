@@ -17,6 +17,7 @@ model:
   struct_encoder:
     enable: False
     use_rotary_embeddings: True
+    use_positional_embeddings: True
     use_foldseek: True
     use_foldseek_vector: True
     top_k: 30 #default 30 The number of edges to draw per node (as destination node).
@@ -51,7 +52,7 @@ model:
       vector_linear: true
       vector_identity: true
       default_bottleneck: 4
-      predict_node_positions: false  # note: if `false`, then the input node positions will not be updated
+      predict_backbone_positions: false  # note: if `false`, then the input node backbone positions will not be updated
       predict_node_rep: true  # note: if `false`, then a final projection of the node features will not be performed
       node_positions_weight: 1.0
       update_positions_with_vector_sum: false
@@ -69,6 +70,7 @@ model:
       e_hidden_dim: 32
       xi_hidden_dim: 4
       num_layers: 6
+      num_bb_update_layers: 6
       dropout: 0.0
     # GCPNet layer config #
     layer_cfg:
@@ -103,6 +105,8 @@ model:
       activation_function: gelu
     decoder:
       dimension: 512
+      chi_init_dimension: 2
+      xi_init_dimension: 1
       dim_feedforward: 1024
       num_heads: 8
       num_layers: 8

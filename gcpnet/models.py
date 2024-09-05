@@ -25,6 +25,7 @@ class GCPNetModel(torch.nn.Module):
         num_rbf: int = 8,
         activation: str = "silu",
         pool: str = "sum",
+        backbone_key: str = "x_bb",
         # Note: Each of the arguments above are stored in the corresponding `kwargs` configs below
         # They are simply listed here to highlight key available arguments
         **kwargs,
@@ -59,6 +60,9 @@ class GCPNetModel(torch.nn.Module):
         :param pool: Global pooling method to be used
             (default: ``"sum"``)
         :type pool: str
+        :param backbone_key: Key to access the backbone node positions
+            (default: ``"x_bb"``)
+        :type backbone_key: str
         :param kwargs: Primary model arguments in the form of the
             `DictConfig`s `module_cfg`, `model_cfg`, and `layer_cfg`, respectively
         :type kwargs: dict
@@ -74,7 +78,7 @@ class GCPNetModel(torch.nn.Module):
 
         configs = kwargs["configs"]
 
-        self.predict_node_pos = module_cfg.predict_node_positions
+        self.predict_backbone_positions = module_cfg.predict_backbone_positions
         self.predict_node_rep = module_cfg.predict_node_rep
 
         # Feature dimensionalities
@@ -88,7 +92,7 @@ class GCPNetModel(torch.nn.Module):
                 edge_input_dims += (8, 0)  # 8+2+3+3 only for mode ==3 add 8D pos_embeddings
             else:
                 edge_input_dims += (2, 0)  # 8+2
-        else:
+        elif configs.model.struct_encoder.use_positional_embeddings:
             edge_input_dims += (
                 configs.model.struct_encoder.num_positional_embeddings, 0
             )  # 8+num_positional_embeddings
@@ -112,7 +116,7 @@ class GCPNetModel(torch.nn.Module):
         # Position-wise operations
         self.centralize = partial(centralize, key="x")
         self.localize = partial(localize, norm_pos_diff=module_cfg.norm_pos_diff)
-        self.decentralize = partial(decentralize, key="x")
+        self.decentralize = partial(decentralize, key=backbone_key if self.predict_backbone_positions else "x")
 
         # Input embeddings
         self.gcp_embedding = gcp.GCPEmbedding(
@@ -161,7 +165,7 @@ class GCPNetModel(torch.nn.Module):
 
     @property
     def required_batch_attributes(self) -> List[str]:
-        return ["edge_index", "x", "h", "chi", "e", "xi", "seq", "batch"]
+        return ["edge_index", "x", "x_bb", "h", "chi", "e", "xi", "seq", "batch"]
 
     @jaxtyped(typechecker=typechecker)
     def forward(self, batch: Batch, esm2_representation: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
@@ -207,12 +211,12 @@ class GCPNetModel(torch.nn.Module):
 
         # Update graph features using a series of geometric message-passing layers
         for layer in self.interaction_layers:
-            (h, chi), batch.x = layer(
+            (h, chi), batch.x_bb = layer(
                 (h, chi),
                 (e, xi),
                 batch.edge_index,
                 batch.f_ij,
-                node_pos=batch.x,
+                node_pos=batch.x_bb,
             )
 
         # Record final version of each feature in `Batch` object
@@ -220,8 +224,8 @@ class GCPNetModel(torch.nn.Module):
 
         # When updating node positions, decentralize updated positions to make their updates translation-equivariant
         pos = None
-        if self.predict_node_pos:
-            batch.x = self.decentralize(
+        if self.predict_backbone_positions:
+            batch.x_bb = self.decentralize(
                 batch, batch_index=batch.batch, entities_centroid=pos_centroid
             )
             if self.predict_node_rep:
@@ -230,7 +234,7 @@ class GCPNetModel(torch.nn.Module):
                     batch, batch_index=batch.batch
                 )
                 batch.f_ij = self.localize(centralized_node_pos, batch.edge_index)
-            pos = batch.x  # (n, 3) -> (batch_size, 3)
+            pos = batch.x_bb  # (n, 3) -> (batch_size, 3)
 
         # Summarize intermediate node representations as final predictions
         out = h

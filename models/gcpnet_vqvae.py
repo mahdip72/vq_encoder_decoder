@@ -1,7 +1,9 @@
 import torch.nn as nn
 import torch
+import torch_geometric
 from vector_quantize_pytorch import VectorQuantize
 from gcpnet.models import GCPNetModel
+from gcpnet.utils import _normalize, batch_orientations
 from utils.utils import print_trainable_parameters
 
 
@@ -101,8 +103,12 @@ class VQVAE3DTransformer(nn.Module):
         super(VQVAE3DTransformer, self).__init__()
 
         self.max_length = configs.model.max_length
+        self.top_k = configs.model.struct_encoder.top_k
         self.encoder_dim = configs.model.vqvae.encoder.dimension
         self.decoder_dim = configs.model.vqvae.decoder.dimension
+
+        self.chi_init_dim = configs.model.vqvae.decoder.chi_init_dimension
+        self.xi_init_dim = configs.model.vqvae.decoder.xi_init_dimension
 
         # Projecting the input to the dimension expected by the Transformer
         self.input_projection = nn.Sequential(
@@ -151,16 +157,138 @@ class VQVAE3DTransformer(nn.Module):
         )
         self.decoder = nn.TransformerEncoder(self.decoder_layer, num_layers=configs.model.vqvae.decoder.num_layers)
 
-        self.output_projection = nn.Sequential(
-            nn.Conv1d(self.decoder_dim, 9, 1),
+        # GCPNet output (positions) projection # 
+        configs.model.struct_encoder.module_cfg.predict_backbone_positions = True
+        configs.model.struct_encoder.module_cfg.predict_node_rep = False
+        configs.model.struct_encoder.model_cfg.num_layers = 1
+
+        output_projection_layers = []
+
+        # Embedding layer
+        configs.model.struct_encoder.use_rotary_embeddings = False
+        configs.model.struct_encoder.use_positional_embeddings = False
+
+        configs.model.struct_encoder.use_foldseek = False
+        configs.model.struct_encoder.use_foldseek_vector = False
+
+        configs.model.struct_encoder.model_cfg.h_input_dim = self.decoder_dim
+        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
+        configs.model.struct_encoder.model_cfg.e_input_dim = self.decoder_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
+        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
+
+        output_projection_layers.append(
+            GCPNetModel(
+                module_cfg=configs.model.struct_encoder.module_cfg,
+                model_cfg=configs.model.struct_encoder.model_cfg,
+                layer_cfg=configs.model.struct_encoder.layer_cfg,
+                configs=configs,
+                backbone_key="x_bb",
+            )
         )
+
+        # Output projection layers
+        configs.model.struct_encoder.model_cfg.h_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim
+        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
+        configs.model.struct_encoder.model_cfg.e_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
+        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
+
+        output_projection_layers.extend(
+            [
+                GCPNetModel(
+                    module_cfg=configs.model.struct_encoder.module_cfg,
+                    model_cfg=configs.model.struct_encoder.model_cfg,
+                    layer_cfg=configs.model.struct_encoder.layer_cfg,
+                    configs=configs,
+                    backbone_key="x_bb",
+                )
+                for _ in range(
+                    configs.model.struct_encoder.model_cfg.num_bb_update_layers
+                )
+            ]
+        )
+
+        self.output_projections = nn.ModuleList(output_projection_layers)
 
     @staticmethod
     def drop_positional_encoding(embedding, pos_embed):
         embedding = embedding + pos_embed
         return embedding
+    
+    def construct_black_hole_graph_batch(self, feats, mask, batch_indices, x_slice_index):
+        batch_num_nodes = mask.sum().item()
+        device, dtype = feats.device, feats.dtype
 
-    def forward(self, x, return_vq_only=False):
+        h = feats[mask]
+        mask = torch.ones((batch_num_nodes,), device=device, dtype=torch.bool)
+
+        x_bb = torch.randn((batch_num_nodes, 3, 3), device=device, dtype=dtype)
+        x = x_bb[:, 1]
+
+        chi = batch_orientations(x, x_slice_index)
+
+        # Initialize the structural graph with scalar node feature topological information
+        edge_index = torch_geometric.nn.knn_graph(
+            h,
+            self.top_k,
+            batch=batch_indices,
+            loop=False,
+            flow="source_to_target",
+            cosine=True,
+        )
+
+        e = torch.cat([h[edge_index[0]], h[edge_index[1]]], dim=-1)
+        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2)
+
+        batch = torch_geometric.data.Batch(
+            x=x,
+            x_bb=x_bb,
+            seq=None,
+            h=h,
+            chi=chi,
+            e=e,
+            xi=xi,
+            edge_index=edge_index,
+            mask=mask,
+            batch=batch_indices,
+            x_slice_index=x_slice_index,
+        )
+
+        return batch
+
+    def construct_updated_graph_batch(self, batch):
+        x = batch.x_bb[:, 1]
+
+        chi = batch_orientations(x, batch.x_slice_index)
+
+        edge_index = torch_geometric.nn.knn_graph(
+            x,
+            self.top_k,
+            batch=batch.batch,
+            loop=False,
+            flow="source_to_target",
+            cosine=False,
+        )
+
+        e = torch.cat([batch.h[edge_index[0]], batch.h[edge_index[1]]], dim=-1)
+        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2)
+
+        new_batch = torch_geometric.data.Batch(
+            x=x,
+            x_bb=batch.x_bb,
+            seq=None,
+            h=batch.h,
+            chi=chi,
+            e=e,
+            xi=xi,
+            edge_index=edge_index,
+            mask=batch.mask,
+            batch=batch.batch,
+            x_slice_index=batch.x_slice_index,
+        )
+
+        return new_batch
+
+    def forward(self, x, mask, batch_indices, x_slice_index, return_vq_only=False):
         # Apply input projection
         x = x.permute(0, 2, 1)
         for layer in self.input_projection:
@@ -197,14 +325,17 @@ class VQVAE3DTransformer(nn.Module):
         # Decoder
         x = self.decoder(x)
 
-        # Permute back to [batch, feature, sequence]
-        x = x.permute(0, 2, 1)
+        # Apply output projections in a sparse graph format
+        batch = self.construct_black_hole_graph_batch(x, mask, batch_indices, x_slice_index)
+        _, batch.h, batch.x_bb = self.output_projections[0](batch)
 
-        # Apply output projection
-        # x = self.output_projection(x)
-        for layer in self.output_projection:
-            x = layer(x)
-        x = x.permute(0, 2, 1)
+        for proj in self.output_projections[1:]:
+            batch = self.construct_updated_graph_batch(batch)
+            _, batch.h, batch.x_bb = proj(batch)
+
+        # Pad the output back into the original shape
+        x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9), batch.batch)
+        x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
@@ -221,39 +352,61 @@ class GCPNetVQVAE(nn.Module):
 
     @staticmethod
     def separate_features(batched_features, batch):
-        # Get the number of nodes in each graph
-        node_counts = batch.bincount().tolist()
-
         # Split the features tensor into separate tensors for each graph
-        features_list = torch.split(batched_features, node_counts)
-
+        features_list = torch_geometric.utils.unbatch(batched_features, batch)
         return features_list
 
-    def merge_features(self, features_list):
-        # Pad tensors
+    @staticmethod
+    def merge_features(features_list, max_length):
+        # Pad tensors and create masks
+        device = features_list[0].device
+
         padded_tensors = []
+        masks = []
+        slice_lengths = [0]
         for t in features_list:
-            if t.size(0) < self.max_length:
-                size_diff = self.max_length - t.size(0)
+            # Create mask of size (original_length,)
+            mask = torch.ones(t.size(0), device=t.device)
+
+            if t.size(0) < max_length:
+                size_diff = max_length - t.size(0)
                 pad = torch.zeros(size_diff, t.size(1), device=t.device)
                 t_padded = torch.cat([t, pad], dim=0)
-            else:
-                t_padded = t[:self.max_length, :]
-            padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
 
-        # Concatenate tensors
-        result = torch.cat(padded_tensors, dim=0)
-        return result
+                # Pad mask with zeros for the padded positions
+                mask = torch.cat([mask, torch.zeros(size_diff, device=t.device)], dim=0)
+            else:
+                t_padded = t[:max_length, :]
+                mask = mask[:max_length]  # Trim mask if necessary
+
+            padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
+            masks.append(mask.unsqueeze(0))  # Add an extra dimension to mask as well
+            slice_lengths.append(min(max_length, t.size(0)))
+
+        # Concatenate tensors and masks
+        padded_features = torch.cat(padded_tensors, dim=0)
+        mask = torch.cat(masks, dim=0).bool()
+
+        # Flatten padded features and mask
+        flat_mask = mask.view(-1)  # Shape: (num_batches * max_length)
+
+        # Create batch assignment tensor
+        num_batches = padded_features.size(0)
+        batch_indices = torch.arange(num_batches, device=device).unsqueeze(1).repeat(1, max_length).view(-1)  # Shape: (num_batches * max_length)
+        valid_batch_indices = batch_indices[flat_mask.bool()]  # Filter based on mask
+
+        slice_indices = torch.cumsum(torch.tensor(slice_lengths), dim=0)
+        slice_indices[-1] -= 1  # Decrement the last element
+
+        return padded_features, mask, valid_batch_indices, slice_indices
 
     def forward(self, batch):
         _, x, _ = self.gcpnet(batch=batch['graph'])
+
         x = self.separate_features(x, batch['graph'].batch)
-        x = self.merge_features(x)
+        x, mask, batch_indices, x_slice_indices = self.merge_features(x, self.max_length)
 
-        # change the shape of x from (batch, num_nodes, node_dim) to (batch, node_dim, num_nodes)
-        # x = x.permute(0, 2, 1)
-
-        x, indices, commit_loss = self.vqvae(x)
+        x, indices, commit_loss = self.vqvae(x, mask, batch_indices, x_slice_indices)
         return x, indices, commit_loss
 
 

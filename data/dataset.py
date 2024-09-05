@@ -727,7 +727,7 @@ class GCPNetDataset(Dataset):
             node_s, node_v, edge_s, edge_v = map(torch.nan_to_num,
                                                  (node_s, node_v, edge_s, edge_v))
 
-        data = Data(x=X_ca, seq=seq, name=name,
+        data = Data(x=X_ca, x_bb=coords[:, :3], seq=seq, name=name,
                     h=node_s, chi=node_v,
                     e=edge_s, xi=edge_v,
                     edge_index=edge_index, mask=mask)

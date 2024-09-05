@@ -685,7 +685,7 @@ class GCPInteractions(nn.Module):
         if nonlinearities is None:
             nonlinearities = cfg.nonlinearities
         self.pre_norm = layer_cfg.pre_norm
-        self.predict_node_positions = getattr(cfg, "predict_node_positions", False)
+        self.predict_backbone_positions = getattr(cfg, "predict_backbone_positions", False)
         self.node_positions_weight = getattr(cfg, "node_positions_weight", 1.0)
         self.update_positions_with_vector_sum = getattr(
             cfg, "update_positions_with_vector_sum", False
@@ -761,12 +761,12 @@ class GCPInteractions(nn.Module):
         self.feedforward_network = nn.ModuleList(ff_interaction_layers)
 
         # potentially build out node position update modules
-        if self.predict_node_positions:
+        if self.predict_backbone_positions:
             # node position update GCP(s)
             position_output_dims = (
                 node_dims
                 if getattr(cfg, "update_positions_with_vector_sum", False)
-                else (node_dims.scalar, 1)
+                else (node_dims.scalar, 3)
             )
             self.node_position_update_gcp = ff_GCP(
                 node_dims,
@@ -782,7 +782,7 @@ class GCPInteractions(nn.Module):
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         f_ij: Float[torch.Tensor, "batch_num_edges 3 3"],
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
-    ) -> Float[torch.Tensor, "batch_num_nodes 3"]:
+    ) -> Float[torch.Tensor, "batch_num_nodes ... 3"]:
         # use vector-valued features to derive node position updates
         node_rep_update = self.node_position_update_gcp(
             node_rep, edge_index, f_ij, node_inputs=True, node_mask=node_mask
@@ -811,13 +811,13 @@ class GCPInteractions(nn.Module):
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
-        node_pos: Optional[Float[torch.Tensor, "batch_num_nodes 3"]] = None,
+        node_pos: Optional[Float[torch.Tensor, "batch_num_nodes ... 3"]] = None,
     ) -> Tuple[
         Tuple[
             Float[torch.Tensor, "batch_num_nodes hidden_dim"],
             Float[torch.Tensor, "batch_num_nodes n 3"],
         ],
-        Optional[Float[torch.Tensor, "batch_num_nodes 3"]],
+        Optional[Float[torch.Tensor, "batch_num_nodes ... 3"]],
     ]:
         node_rep = ScalarVector(node_rep[0], node_rep[1])
         edge_rep = ScalarVector(edge_rep[0], edge_rep[1])
@@ -856,7 +856,7 @@ class GCPInteractions(nn.Module):
             node_rep = node_rep.mask(node_mask.float())
 
         # bypass updating node positions
-        if not self.predict_node_positions:
+        if not self.predict_backbone_positions:
             return node_rep, node_pos
 
         # update node positions

@@ -99,6 +99,7 @@ def decentralize(
         )
         entities_centered = masked_values
     else:
+        entities_centroid = entities_centroid.unsqueeze(-2) if batch[key].ndim == 3 else entities_centroid
         entities_centered = batch[key] + entities_centroid[batch_index]
     return entities_centered
 
@@ -202,3 +203,84 @@ def is_identity(
     nonlinearity: Optional[Union[Callable, nn.Module]] = None
 ) -> bool:
     return nonlinearity is None or isinstance(nonlinearity, nn.Identity)
+
+
+@jaxtyped(typechecker=typechecker)
+def _normalize(tensor: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """
+    Safely normalize a Tensor. Adapted from:
+    https://github.com/drorlab/gvp-pytorch.
+
+    :param tensor: Tensor of any shape.
+    :type tensor: Tensor
+    :param dim: The dimension over which to normalize the input Tensor.
+    :type dim: int, optional
+    :return: The normalized Tensor.
+    :rtype: torch.Tensor
+    """
+    return torch.nan_to_num(
+        torch.div(tensor, torch.norm(tensor, dim=dim, keepdim=True))
+    )
+
+
+@jaxtyped(typechecker=typechecker)
+def batch_orientations(
+    X: torch.Tensor, coords_slice_index: torch.Tensor, ca_idx: int = 1
+) -> torch.Tensor:
+    """
+    Compute forward and backward orientation vectors for each node
+    in batched graph of protein structures.
+
+    From:
+    https://github.com/a-r-j/ProteinWorkshop/blob/main/proteinworkshop/features/node_features.py
+    
+    :param X: The input node features.
+    :type X: torch.Tensor
+    :param coords_slice_index: The slice index for the coordinates.
+    :type coords_slice_index: torch.Tensor
+    :param ca_idx: The index of the alpha carbon atom.
+    :type ca_idx: int, optional
+    :return: The forward and backward orientation vectors.
+    :rtype: torch.Tensor
+    """
+    if X.ndim == 3:
+        X = X[:, ca_idx, :]
+
+    # NOTE: the first item in the coordinates slice index is always 0,
+    # and the last item is always the node count of the batch
+    batch_num_nodes = X.shape[0]
+    slice_index = coords_slice_index[1:] - 1
+    last_node_index = slice_index[:-1]
+    first_node_index = slice_index[:-1] + 1
+    slice_mask = torch.zeros(batch_num_nodes - 1, dtype=torch.bool)
+    last_node_forward_slice_mask = slice_mask.clone()
+    first_node_backward_slice_mask = slice_mask.clone()
+
+    # NOTE: all of the last (first) nodes in a subgraph have their
+    # forward (backward) vectors set to a padding value (i.e., 0.0)
+    # to mimic feature construction behavior with single input graphs
+    forward_slice = X[1:] - X[:-1]
+    backward_slice = X[:-1] - X[1:]
+    last_node_forward_slice_mask[last_node_index] = True
+    first_node_backward_slice_mask[first_node_index - 1] = True  # NOTE: for the backward slices, our indexing defaults to node index `1`
+    forward_slice[last_node_forward_slice_mask] = 0.0 # NOTE: this handles all but the last node in the last subgraph
+    backward_slice[first_node_backward_slice_mask] = 0.0 # NOTE: this handles all but the first node in the first subgraph
+
+    # NOTE: padding first and last nodes with zero vectors does not impact feature normalization
+    forward = _normalize(forward_slice)
+    backward = _normalize(backward_slice)
+    forward = F.pad(forward, [0, 0, 0, 1])
+    backward = F.pad(backward, [0, 0, 1, 0])
+    orientations = torch.cat((forward.unsqueeze(-2), backward.unsqueeze(-2)), dim=-2)
+
+    # optionally debug/verify the orientations
+    # last_node_indices = torch.cat((last_node_index, torch.tensor([batch_num_nodes - 1])), dim=0)
+    # first_node_indices = torch.cat((torch.tensor([0]), first_node_index), dim=0)
+    # intermediate_node_indices_mask = torch.ones(batch_num_nodes, device=X.device, dtype=torch.bool)
+    # intermediate_node_indices_mask[last_node_indices] = False
+    # intermediate_node_indices_mask[first_node_indices] = False
+    # assert not orientations[last_node_indices][:, 0].any() and orientations[last_node_indices][:, 1].any()
+    # assert orientations[first_node_indices][:, 0].any() and not orientations[first_node_indices][:, 1].any()
+    # assert orientations[intermediate_node_indices_mask][:, 0].any() and orientations[intermediate_node_indices_mask][:, 1].any()
+
+    return orientations
