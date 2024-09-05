@@ -19,7 +19,8 @@ pip install plotly
 pip install joblib
 pip install egnn_pytorch
 pip install tmtools
-pip3 install flash_attn
+pip install flash_attn
+pip install scikit-learn
 
 # for multi-gpu training
 export TOKENIZERS_PARALLELISM=false
