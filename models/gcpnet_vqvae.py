@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 from vector_quantize_pytorch import VectorQuantize
-from gcpnet.models import GCPNetEncoder
+from gcpnet.models import GCPNetModel
 from utils.utils import print_trainable_parameters
 
 
@@ -246,7 +246,7 @@ class GCPNetVQVAE(nn.Module):
         return result
 
     def forward(self, batch):
-        _, x = self.gcpnet(graph=batch['graph'])
+        _, x, _ = self.gcpnet(batch=batch['graph'])
         x = self.separate_features(x, batch['graph'].batch)
         x = self.merge_features(x)
 
@@ -258,7 +258,10 @@ class GCPNetVQVAE(nn.Module):
 
 
 def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
-    gcpnet = GCPNetEncoder(configs=configs)
+    gcpnet = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
+                         model_cfg=configs.model.struct_encoder.model_cfg,
+                         layer_cfg=configs.model.struct_encoder.layer_cfg,
+                         configs=configs)
     # vqvae = VQVAE(
     #     input_dim=configs.model.struct_encoder.node_h_dim[0],
     #     latent_dim=configs.model.vqvae.vector_quantization.dim,

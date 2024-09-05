@@ -1,179 +1,248 @@
-import numpy as np
 import torch
+
 import torch.nn as nn
-from torch.distributions import Categorical
-from torch_scatter import scatter_mean
-import torch, functools
-from torch import nn
-import torch.nn.functional as F
-from torch_geometric.nn import MessagePassing, global_mean_pool, global_max_pool
-from torch_scatter import scatter_add
-from . import GVP, GVPConvLayer, LayerNorm, tuple_index
 
+from beartype import beartype as typechecker
+from functools import partial
+from jaxtyping import jaxtyped
+from torch_geometric.data import Batch
+from typing import List, Optional, Tuple
 
-class structure_encoder(nn.Module):
-    '''
-    GVP-GNN for protein sequence representation, inspired by gearnet/gvp.py
-    modified based on GVP-GNN for Model Quality Assessment as described in manuscript.
+from gcpnet import gcp
+from gcpnet.utils import centralize, decentralize, get_aggregation, localize
+from gcpnet.wrappers import ScalarVector
     
-    Takes in protein structure graphs of type `torch_geometric.data.Data` 
-    or `torch_geometric.data.Batch` and returns a scalar score for
-    each graph in the batch in a `torch.Tensor` of shape [n_nodes]
-    
-    Should be used with `gvp.data.ProteinGraphDataset`, or with generators
-    of `torch_geometric.data.Batch` objects with the same attributes.
-    
-    :param node_in_dim: node dimensions in input graph, should be
-                        (6, 3) if using original features
-    :param node_h_dim: node dimensions to use in GVP-GNN layers, out_dims
-    :param node_in_dim: edge dimensions in input graph, should be
-                        (32, 1) if using original features
-    :param edge_h_dim: edge dimensions to embed to before use
-                       in GVP-GNN layers
-    :seq_in: if `True`, sequences will also be passed in with
-             the forward pass; otherwise, sequence information
-             is assumed to be part of input node embeddings
-    :param num_layers: number of GVP-GNN layers
-    :param drop_rate: rate to use in all dropout layers
-    '''
 
-    def __init__(self, node_in_dim, node_h_dim,
-                 edge_in_dim, edge_h_dim,
-                 seq_in=False, seq_embed_mode="embedding", seq_embed_dim=20,
-                 num_layers=3, drop_rate=0.1,
-                 vector_gate=True,
-                 ):
+class GCPNetModel(torch.nn.Module):
+    def __init__(
+        self,
+        num_layers: int = 5,
+        node_s_emb_dim: int = 128,
+        node_v_emb_dim: int = 16,
+        edge_s_emb_dim: int = 32,
+        edge_v_emb_dim: int = 4,
+        r_max: float = 10.0,
+        num_rbf: int = 8,
+        activation: str = "silu",
+        pool: str = "sum",
+        # Note: Each of the arguments above are stored in the corresponding `kwargs` configs below
+        # They are simply listed here to highlight key available arguments
+        **kwargs,
+    ):
+        """
+        Initializes an instance of the GCPNetModel class with the provided
+        parameters.
+        Note: Each of the model's keyword arguments listed here
+        are also referenced in the corresponding `DictConfigs` within `kwargs`.
+        They are simply listed here to highlight some of the key arguments available.
+        See `configs/config_gcpnet.yaml` for a full list of all available arguments.
 
-        super(structure_encoder, self).__init__()
-        self.seq_embed_mode = seq_embed_mode
-        if seq_in and seq_embed_mode == "embedding":
-            self.W_s = nn.Embedding(20, seq_embed_dim)
-            node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
-        elif seq_in:
-            node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
+        :param num_layers: Number of layers in the model (default: ``5``)
+        :type num_layers: int
+        :param node_s_emb_dim: Dimension of the node state embeddings (default: ``128``)
+        :type node_s_emb_dim: int
+        :param node_v_emb_dim: Dimension of the node vector embeddings (default: ``16``)
+        :type node_v_emb_dim: int
+        :param edge_s_emb_dim: Dimension of the edge state embeddings
+            (default: ``32``)
+        :type edge_s_emb_dim: int
+        :param edge_v_emb_dim: Dimension of the edge vector embeddings
+            (default: ``4``)
+        :type edge_v_emb_dim: int
+        :param r_max: Maximum distance for radial basis functions
+            (default: ``10.0``)
+        :type r_max: float
+        :param num_rbf: Number of radial basis functions (default: ``8``)
+        :type num_rbf: int
+        :param activation: Activation function to use in each GCP layer (default: ``silu``)
+        :type activation: str
+        :param pool: Global pooling method to be used
+            (default: ``"sum"``)
+        :type pool: str
+        :param kwargs: Primary model arguments in the form of the
+            `DictConfig`s `module_cfg`, `model_cfg`, and `layer_cfg`, respectively
+        :type kwargs: dict
+        """
+        super().__init__()
 
-        # if seq_in and seq_embed_mode=="PhysicsPCA":
-        #    node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
-        # if seq_in and seq_embed_mode=="ESM2":
-        #    node_in_dim = (node_in_dim[0] + seq_embed_dim, node_in_dim[1])
+        assert all(
+            [cfg in kwargs for cfg in ["module_cfg", "model_cfg", "layer_cfg"]]
+        ), "All required GCPNet `DictConfig`s must be provided."
+        module_cfg = kwargs["module_cfg"]
+        model_cfg = kwargs["model_cfg"]
+        layer_cfg = kwargs["layer_cfg"]
 
-        self.W_v = nn.Sequential(
-            LayerNorm(node_in_dim),
-            GVP(node_in_dim, node_h_dim, activations=(None, None))
-        )
-        self.W_e = nn.Sequential(
-            LayerNorm(edge_in_dim),
-            GVP(edge_in_dim, edge_h_dim, activations=(None, None))
-        )
-        # GVPConvLayer is a nn.Module that forms messages using a GVPConv and updates the node embeddings as described in the paper
-        self.layers = nn.ModuleList(
-            GVPConvLayer(node_h_dim, edge_h_dim, drop_rate=drop_rate)
-            for _ in range(num_layers))
+        configs = kwargs["configs"]
 
-        ns, _ = node_h_dim
-        self.W_out = nn.Sequential(
-            LayerNorm(node_h_dim),
-            GVP(node_h_dim, (ns, 0)))
+        self.predict_node_pos = module_cfg.predict_node_positions
+        self.predict_node_rep = module_cfg.predict_node_rep
 
-        self.dense = nn.Sequential(
-            nn.Linear(ns, 2 * ns), nn.ReLU(inplace=True),
-            nn.Dropout(p=drop_rate),
-            nn.Linear(2 * ns, 1)
-        )
+        # Feature dimensionalities
+        edge_input_dims = ScalarVector(model_cfg.e_input_dim, model_cfg.xi_input_dim)
+        node_input_dims = ScalarVector(model_cfg.h_input_dim, model_cfg.chi_input_dim)
+        self.edge_dims = ScalarVector(model_cfg.e_hidden_dim, model_cfg.xi_hidden_dim)
+        self.node_dims = ScalarVector(model_cfg.h_hidden_dim, model_cfg.chi_hidden_dim)
 
-    def forward(self, h_V, edge_index, h_E, seq=None, batch=None):
-        '''
-        :param h_V: tuple (s, V) of node embeddings
-        :param edge_index: `torch.Tensor` of shape [2, num_edges]
-        :param h_E: tuple (s, V) of edge embeddings
-        :param seq: if not `None`, int `torch.Tensor` of shape [num_nodes]
-                    to be embedded and appended to `h_V`
-        '''
-        # print(seq)
-        if seq is not None:
-            if len(seq.shape) == 1:
-                seq = self.W_s(seq)
-                h_V = (torch.cat([h_V[0], seq], dim=-1), h_V[1])
-            else:  # seq representation from ESM2, PhysicsPCA or Atchleyfactor
-                h_V = (torch.cat([h_V[0], seq], dim=-1), h_V[1])
-
-        h_V = self.W_v(h_V)
-        h_E = self.W_e(h_E)  # in gearnet added h_edge = self.rbf((pos_out - pos_in).norm(dim=-1)), vec_edge why?
-        for layer in self.layers:
-            h_V = layer(h_V, edge_index, h_E)
-        out = self.W_out(h_V)
-
-        # if batch is None: out = out.mean(dim=0, keepdims=True)
-        # else: out = scatter_mean(out, batch, dim=0)
-
-        return out
-
-
-#### this can be move to the outside models.py
-class GCPNetEncoder(nn.Module):  # embedding table can be tuned
-    def __init__(self, configs=None):
-        super(GCPNetEncoder, self).__init__()
-        node_in_dim = [6, 3]  # default
-        if configs.model.struct_encoder.use_foldseek:
-            node_in_dim[0] += 10  # foldseek has 10 more node scalar features
-
-        if configs.model.struct_encoder.use_foldseek_vector:
-            node_in_dim[1] += 6  # foldseek_vector has 6 more node vector features
-
-        node_in_dim = tuple(node_in_dim)
         if configs.model.struct_encoder.use_rotary_embeddings:
             if configs.model.struct_encoder.rotary_mode == 3:
-                edge_in_dim = (
-                configs.model.struct_encoder.num_rbf + 8, 1)  # 16+2+3+3 only for mode ==3 add 8D pos_embeddings
+                edge_input_dims += (8, 0)  # 8+2+3+3 only for mode ==3 add 8D pos_embeddings
             else:
-                edge_in_dim = (configs.model.struct_encoder.num_rbf + 2, 1)  # 16+2
+                edge_input_dims += (2, 0)  # 8+2
         else:
-            edge_in_dim = (
-                configs.model.struct_encoder.num_rbf + configs.model.struct_encoder.num_positional_embeddings,
-                1)  # num_rbf+num_positional_embeddings
+            edge_input_dims += (
+                configs.model.struct_encoder.num_positional_embeddings, 0
+            )  # 8+num_positional_embeddings
 
-        node_h_dim = configs.model.struct_encoder.node_h_dim
-        # node_h_dim=(100, 16) #default
-        # node_h_dim = (100, 32)  # seems best?
-        edge_h_dim = configs.model.struct_encoder.edge_h_dim
-        # edge_h_dim = (32, 1) #default
-        gvp_num_layers = configs.model.struct_encoder.gvp_num_layers
-        # gvp_num_layers = 3
+        if configs.model.struct_encoder.use_foldseek:
+            node_input_dims += (10, 0)  # foldseek has 10 more node scalar features
 
+        if configs.model.struct_encoder.use_foldseek_vector:
+            node_input_dims += (0, 6)  # foldseek_vector has 6 more node vector features
+
+        # Sequence options
         self.use_seq = configs.model.struct_encoder.use_seq.enable
+        self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
+        self.seq_embed_dim = configs.model.struct_encoder.use_seq.seq_embed_dim
+
         if self.use_seq:
-            self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
-            self.backbone = structure_encoder(node_in_dim, node_h_dim,
-                                              edge_in_dim, edge_h_dim, seq_in=True,
-                                              seq_embed_mode=self.seq_embed_mode,
-                                              seq_embed_dim=configs.model.struct_encoder.use_seq.seq_embed_dim,
-                                              num_layers=gvp_num_layers)
-        else:
-            self.backbone = structure_encoder(node_in_dim, node_h_dim,
-                                              edge_in_dim, edge_h_dim, seq_in=False,
-                                              num_layers=gvp_num_layers)
+            node_input_dims += (self.seq_embed_dim, 0)
+            if self.seq_embed_mode == "embedding":
+                self.seq_embedding = nn.Embedding(20, self.seq_embed_dim)
 
-        # pretrained_state_dict = init_model.state_dict()
-        # self.backbone.load_state_dict(pretrained_state_dict,strict=False)
+        # Position-wise operations
+        self.centralize = partial(centralize, key="x")
+        self.localize = partial(localize, norm_pos_diff=module_cfg.norm_pos_diff)
+        self.decentralize = partial(decentralize, key="x")
 
-    def forward(self, graph,
-                esm2_representation=None):  # this batch is torch_geometric batch.batch to indicate the batch
+        # Input embeddings
+        self.gcp_embedding = gcp.GCPEmbedding(
+            edge_input_dims,
+            node_input_dims,
+            self.edge_dims,
+            self.node_dims,
+            cfg=module_cfg,
+        )
+
+        # Message-passing layers
+        self.interaction_layers = nn.ModuleList(
+            gcp.GCPInteractions(
+                self.node_dims,
+                self.edge_dims,
+                cfg=module_cfg,
+                layer_cfg=layer_cfg,
+                dropout=model_cfg.dropout,
+            )
+            for _ in range(model_cfg.num_layers)
+        )
+
+        if self.predict_node_rep:
+            # Predictions
+            self.invariant_node_projection = nn.ModuleList(
+                [
+                    gcp.GCPLayerNorm(self.node_dims),
+                    gcp.GCP(
+                        # Note: `GCPNet` defaults to providing SE(3) equivariance
+                        # It is possible to provide E(3) equivariance by instead setting `module_cfg.enable_e3_equivariance=true`
+                        self.node_dims,
+                        (self.node_dims.scalar, 0),
+                        nonlinearities=tuple(module_cfg.nonlinearities),
+                        scalar_gate=module_cfg.scalar_gate,
+                        vector_gate=module_cfg.vector_gate,
+                        enable_e3_equivariance=module_cfg.enable_e3_equivariance,
+                        node_inputs=True,
+                    ),
+                ]
+            )
+
+        # Global pooling/readout function
+        self.readout = get_aggregation(
+            module_cfg.pool
+        )  # {"mean": global_mean_pool, "sum": global_add_pool}[pool]
+
+    @property
+    def required_batch_attributes(self) -> List[str]:
+        return ["edge_index", "x", "h", "chi", "e", "xi", "seq", "batch"]
+
+    @jaxtyped(typechecker=typechecker)
+    def forward(self, batch: Batch, esm2_representation: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        """Implements the forward pass of the GCPNet encoder.
+
+        Returns the graph embedding and node (i.e., residue) embeddings in a tuple.
+
+        :param batch: Batch of data to encode.
+        :type batch: Batch
+        :param esm2_representation: ESM2 representation of the protein sequence.
+        :type esm2_representation: Optional[torch.Tensor]
+        :return: Dictionary of graph and node embeddings. Contains
+            ``graph_embedding`` and ``node_embedding`` fields. The node
+            embedding is of shape :math:`(|V|, d)` and the graph embedding is
+            of shape :math:`(n, d)`, where :math:`|V|` is the number of nodes
+            and :math:`n` is the number of graphs in the batch and :math:`d` is
+            the dimension of the embeddings. Also contains the predicted node
+            positions if requested.
+        :rtype: Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]
         """
-        graph: torch_geometric batchdasta
-        """
-        nodes = (graph.node_s, graph.node_v)
-        edges = (graph.edge_s, graph.edge_v)
+        # Centralize node positions to make them translation-invariant
+        pos_centroid, batch.x = self.centralize(batch, batch_index=batch.batch)
+
+        # Craft complete local frames corresponding to each edge
+        batch.f_ij = self.localize(batch.x, batch.edge_index)
+
+        # Decide which sequence representation to use
         if self.use_seq and self.seq_embed_mode != "ESM2":
-            residue_feature_embedding = self.backbone(nodes, graph.edge_index, edges,
-                                                      seq=graph.seq)
+            seq = batch.seq
         elif self.use_seq and self.seq_embed_mode == "ESM2":
-            residue_feature_embedding = self.backbone(nodes, graph.edge_index, edges,
-                                                      seq=esm2_representation
-                                                      )
+            seq = esm2_representation
         else:
-            residue_feature_embedding = self.backbone(nodes, graph.edge_index, edges,
-                                                      seq=None)
+            seq = None
 
-        # graph_feature=scatter_mean(residue_feature, batch, dim=0)
-        graph_feature_embedding = global_mean_pool(residue_feature_embedding, graph.batch)
-        return graph_feature_embedding, residue_feature_embedding
+        if seq is not None:
+            if len(seq.shape) == 1:
+                seq = self.seq_embedding(seq)
+            # NOTE: A sequence representation from ESM2, PhysicsPCA, or Atchleyfactor
+            batch.h = torch.cat([batch.h, seq], dim=-1)
+
+        # Embed node and edge input features
+        (h, chi), (e, xi) = self.gcp_embedding(batch)
+
+        # Update graph features using a series of geometric message-passing layers
+        for layer in self.interaction_layers:
+            (h, chi), batch.x = layer(
+                (h, chi),
+                (e, xi),
+                batch.edge_index,
+                batch.f_ij,
+                node_pos=batch.x,
+            )
+
+        # Record final version of each feature in `Batch` object
+        batch.h, batch.chi, batch.e, batch.xi = h, chi, e, xi
+
+        # When updating node positions, decentralize updated positions to make their updates translation-equivariant
+        pos = None
+        if self.predict_node_pos:
+            batch.x = self.decentralize(
+                batch, batch_index=batch.batch, entities_centroid=pos_centroid
+            )
+            if self.predict_node_rep:
+                # Prior to scalar node predictions, re-derive local frames after performing all node position updates
+                _, centralized_node_pos = self.centralize(
+                    batch, batch_index=batch.batch
+                )
+                batch.f_ij = self.localize(centralized_node_pos, batch.edge_index)
+            pos = batch.x  # (n, 3) -> (batch_size, 3)
+
+        # Summarize intermediate node representations as final predictions
+        out = h
+        if self.predict_node_rep:
+            out = self.invariant_node_projection[0](
+                ScalarVector(h, chi)
+            )  # e.g., GCPLayerNorm()
+            out = self.invariant_node_projection[1](
+                out, batch.edge_index, batch.f_ij, node_inputs=True
+            )  # e.g., GCP((h, chi)) -> h'
+
+        graph_feature_embedding = self.readout(out, batch.batch)  # (n, d) -> (batch_size, d)
+        residue_feature_embedding = out  # (n, d)
+
+        return graph_feature_embedding, residue_feature_embedding, pos

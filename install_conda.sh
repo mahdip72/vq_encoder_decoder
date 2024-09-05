@@ -21,6 +21,7 @@ pip install egnn_pytorch
 pip install tmtools
 pip install flash_attn
 pip install scikit-learn
+pip install schedulefree
 
 # for multi-gpu training
 export TOKENIZERS_PARALLELISM=false

@@ -2,7 +2,7 @@
 
 mamba install --yes pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia
 mamba install --yes cudatoolkit-dev -c senyan.dev
-mamba install --yes pyg -c pyg
+pip install torch_geometric
 pip install torchmetrics
 pip install accelerate
 pip install transformers
@@ -23,3 +23,4 @@ pip install joblib
 pip install tmtools
 pip install flash_attn
 pip install scikit-learn
+pip install schedulefree

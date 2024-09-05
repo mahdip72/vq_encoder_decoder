@@ -51,20 +51,20 @@ model:
       vector_linear: true
       vector_identity: true
       default_bottleneck: 4
-      predict_node_positions: true  # note: if `false`, then the input node positions will not be updated
-      predict_node_rep: false  # note: if `false`, then a final projection of the node features will not be performed
+      predict_node_positions: false  # note: if `false`, then the input node positions will not be updated
+      predict_node_rep: true  # note: if `false`, then a final projection of the node features will not be performed
       node_positions_weight: 1.0
       update_positions_with_vector_sum: false
       enable_e3_equivariance: false
       pool: sum
     # GCPNet model config #
     model_cfg:
-      h_input_dim: 32
-      chi_input_dim: 1
-      e_input_dim: 16
-      xi_input_dim: 2
+      h_input_dim: 6
+      chi_input_dim: 3
+      e_input_dim: 8
+      xi_input_dim: 1
       # note: each `hidden_dim` must be evenly divisible by `bottleneck`
-      h_hidden_dim: 128
+      h_hidden_dim: 100
       chi_hidden_dim: 16
       e_hidden_dim: 32
       xi_hidden_dim: 4
@@ -109,7 +109,7 @@ model:
       activation_function: gelu
 
 train_settings:
-  data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   num_epochs: 1024
   shuffle: True
   loss: crossentropy
@@ -121,14 +121,14 @@ train_settings:
   max_task_samples: 10
 
 valid_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5/
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   do_every: 4
   batch_size: 8
   num_workers: 0
 
 visualization_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
-  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
+  fasta_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 1025
   batch_size: 1
   num_workers: 4

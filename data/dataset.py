@@ -503,12 +503,11 @@ class GCPNetDataset(Dataset):
     """
 
     def __init__(self, data_path,
-                 num_positional_embeddings=16,
-                 top_k=30, num_rbf=16,
+                 num_positional_embeddings=16, top_k=30,
                  seq_mode="embedding", use_rotary_embeddings=False, rotary_mode=1,
                  use_foldseek=False, use_foldseek_vector=False, **kwargs
                  ):
-        super(GVPDataset, self).__init__()
+        super(GCPNetDataset, self).__init__()
         from gvp.rotary_embedding import RotaryEmbedding
         if "cath_4_3_0" in data_path:
             self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
@@ -516,7 +515,6 @@ class GCPNetDataset(Dataset):
             self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[
                               :kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
-        self.num_rbf = num_rbf
         self.num_positional_embeddings = num_positional_embeddings
         self.seq_mode = seq_mode
         # self.node_counts = [len(e['seq']) for e in data_list]
@@ -706,10 +704,6 @@ class GCPNetDataset(Dataset):
             else:
                 pos_embeddings = self._positional_embeddings(edge_index)
 
-            rbf = _rbf(E_vectors.norm(dim=-1), d_count=self.num_rbf,
-                       # device=self.device
-                       )
-
             dihedrals = self._dihedrals(coords)  # only this one used O
             orientations = self._orientations(X_ca)
             sidechains = self._sidechains(coords)
@@ -727,15 +721,15 @@ class GCPNetDataset(Dataset):
             else:
                 node_v = torch.cat([orientations, sidechains.unsqueeze(-2)], dim=-2)
 
-            edge_s = torch.cat([rbf, pos_embeddings], dim=-1)
+            edge_s = pos_embeddings  # NOTE: radial basis functions will be computed during the forward pass
             edge_v = _normalize(E_vectors).unsqueeze(-2)
 
             node_s, node_v, edge_s, edge_v = map(torch.nan_to_num,
                                                  (node_s, node_v, edge_s, edge_v))
 
         data = Data(x=X_ca, seq=seq, name=name,
-                    node_s=node_s, node_v=node_v,
-                    edge_s=edge_s, edge_v=edge_v,
+                    h=node_s, chi=node_v,
+                    e=edge_s, xi=edge_v,
                     edge_index=edge_index, mask=mask)
         return data
 
@@ -1573,6 +1567,72 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
         use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
         top_k=configs.model.struct_encoder.top_k,
         num_rbf=configs.model.struct_encoder.num_rbf,
+        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        configs=configs
+    )
+    # train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+    #                           shuffle=configs.train_settings.shuffle,
+    #                           num_workers=configs.train_settings.num_workers,
+    #                           multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+    #                           pin_memory=True,
+    #                           collate_fn=custom_collate)
+
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size, num_workers=8,
+                              pin_memory=False,
+                              collate_fn=custom_collate)
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=2,
+                              pin_memory=False,
+                              shuffle=False,
+                              collate_fn=custom_collate)
+    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
+                                      num_workers=1,
+                                      pin_memory=False,
+                                      shuffle=False,
+                                      collate_fn=custom_collate)
+    return train_loader, valid_loader, visualization_loader
+
+
+
+def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
+    if accelerator.is_main_process:
+        logging.info(f"train directory: {configs.train_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
+
+    if hasattr(configs.model.struct_encoder, "use_seq") and configs.model.struct_encoder.use_seq.enable:
+        seq_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
+    else:
+        seq_mode = "embedding"
+
+    train_dataset = GCPNetDataset(
+        configs.train_settings.data_path,
+        seq_mode=seq_mode,
+        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
+        use_foldseek=configs.model.struct_encoder.use_foldseek,
+        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
+        top_k=configs.model.struct_encoder.top_k,
+        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        configs=configs
+    )
+
+    valid_dataset = GCPNetDataset(
+        configs.valid_settings.data_path,
+        seq_mode=seq_mode,
+        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
+        use_foldseek=configs.model.struct_encoder.use_foldseek,
+        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
+        top_k=configs.model.struct_encoder.top_k,
+        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        configs=configs
+    )
+
+    visualization_dataset = GCPNetDataset(
+        configs.visualization_settings.data_path,
+        seq_mode=seq_mode,
+        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
+        use_foldseek=configs.model.struct_encoder.use_foldseek,
+        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
+        top_k=configs.model.struct_encoder.top_k,
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
     )
