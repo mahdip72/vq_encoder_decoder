@@ -539,6 +539,99 @@ def test_radius_of_gyration_loss():
     print("Radius of Gyration Loss:", loss.item())
 
 
+import torch
+
+def calculate_aligned_mse_loss(x_predicted, x_true, masks):
+    """
+    Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
+    applying the provided masks.
+
+    Parameters:
+    x_predicted (torch.Tensor): Predicted coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+
+    Returns:
+    torch.Tensor: The computed MSE loss for each batch element.
+    torch.Tensor: The predicted coordinates.
+    torch.Tensor: The aligned true coordinates.
+    """
+    batch_size = x_predicted.shape[0]
+    loss_list = []
+    x_true_aligned_list = []
+
+    for i in range(batch_size):
+        mask = masks[i].bool()  # Convert to boolean mask
+        x_pred = x_predicted[i]  # [seq_len, num_atoms, 3]
+        x_tru = x_true[i]
+
+        # Perform Kabsch alignment, keeping the same shape as the input
+        x_true_aligned = kabsch_alignment(x_tru, x_pred, mask).detach()
+        x_true_aligned_list.append(x_true_aligned)
+
+        # Compute MSE loss using the masked areas
+        loss = torch.mean(((x_pred[mask] - x_true_aligned[mask]) ** 2))
+        loss_list.append(loss)
+
+    return torch.stack(loss_list), x_predicted, torch.stack(x_true_aligned_list)
+
+
+@torch.no_grad()
+def kabsch_alignment(x_true, x_predicted, mask):
+    """
+    Performs Kabsch alignment of x_true to x_predicted, with masked coordinates.
+
+    Parameters:
+    x_true (torch.Tensor): True coordinates of shape [seq_len, num_atoms, 3].
+    x_predicted (torch.Tensor): Predicted coordinates of shape [seq_len, num_atoms, 3].
+    mask (torch.Tensor): Boolean mask of shape [seq_len], where True indicates valid positions.
+
+    Returns:
+    torch.Tensor: The aligned x_true coordinates, with the same shape as the input.
+    """
+    # Apply the mask to select only valid positions
+    x_tru_masked = x_true[mask]  # Shape: [num_valid, num_atoms, 3]
+    x_pred_masked = x_predicted[mask]  # Shape: [num_valid, num_atoms, 3]
+
+    # Reshape to [N, 3] where N = num_valid * num_atoms
+    x_tru_flat = x_tru_masked.reshape(-1, 3)
+    x_pred_flat = x_pred_masked.reshape(-1, 3)
+
+    # Subtract centroids from masked coordinates
+    centroid_true = x_tru_flat.mean(dim=0)
+    centroid_pred = x_pred_flat.mean(dim=0)
+    x_true_centered = x_tru_flat - centroid_true
+    x_pred_centered = x_pred_flat - centroid_pred
+
+    # Compute covariance matrix
+    H = x_true_centered.T @ x_pred_centered
+
+    # Singular Value Decomposition
+    U, S, Vt = torch.linalg.svd(H)
+
+    # Compute rotation matrix
+    d = torch.det(Vt.T @ U.T)
+    D = torch.diag(torch.tensor([1.0, 1.0, d], device=x_true.device))
+    R = Vt.T @ D @ U.T
+
+    # Apply rotation to the masked true coordinates
+    x_true_rotated = x_true_centered @ R
+
+    # Translate back to the predicted centroid
+    x_tru_aligned_flat = x_true_rotated + centroid_pred
+
+    # Reshape aligned flat coordinates back to the original masked shape
+    x_tru_aligned_masked = x_tru_aligned_flat.view_as(x_tru_masked)
+
+    # Create a tensor to store the aligned true coordinates (same shape as input)
+    x_tru_aligned = torch.zeros_like(x_true)
+    
+    # Place the aligned values back into their original positions
+    x_tru_aligned[mask] = x_tru_aligned_masked
+
+    return x_tru_aligned
+
+
 if __name__ == '__main__':
     test_surface_area_loss()
     test_distance_map_loss()

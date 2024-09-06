@@ -24,3 +24,6 @@ pip install tmtools
 pip install flash_attn
 pip install scikit-learn
 pip install schedulefree
+pip install jaxtyping
+pip install beartype
+pip install omegaconf
