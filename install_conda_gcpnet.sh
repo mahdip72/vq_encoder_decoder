@@ -21,7 +21,6 @@ pip install vector-quantize-pytorch
 pip install plotly
 pip install joblib
 pip install tmtools
-pip install flash_attn
 pip install scikit-learn
 pip install schedulefree
 pip install jaxtyping
