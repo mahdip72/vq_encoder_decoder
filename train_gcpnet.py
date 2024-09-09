@@ -15,6 +15,8 @@ from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
+from data.dataset import prepare_gcpnet_vqvae_dataloaders
+from models.gcpnet_vqvae import prepare_models_gcpnet_vqvae
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -324,27 +326,12 @@ def main(dict_config, config_file_path):
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
 
-    if configs.model.architecture == 'gcpnet_vqvae':
-        from data.dataset import prepare_gcpnet_vqvae_dataloaders
-        train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(logging, accelerator,
-                                                                                                 configs)
-    elif configs.model.architecture == 'distance_map_vqvae':
-        from data.dataset import prepare_distance_map_vqvae_dataloaders
-        train_dataloader, valid_dataloader, visualization_loader = prepare_distance_map_vqvae_dataloaders(logging,
-                                                                                                          accelerator,
-                                                                                                          configs)
-    else:
-        from data.dataset import prepare_vqvae_dataloaders
-        train_dataloader, valid_dataloader, visualization_loader = prepare_vqvae_dataloaders(logging, accelerator,
+    train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(logging, accelerator,
                                                                                              configs)
 
     logging.info('preparing dataloaders are done')
 
-    if configs.model.architecture == 'gcpnet_vqvae':
-        from models.gcpnet_vqvae import prepare_models_gcpnet_vqvae
-        net = prepare_models_gcpnet_vqvae(configs, logging, accelerator)
-    else:
-        raise ValueError(f'Invalid model architecture: {configs.model.architecture}')
+    net = prepare_models_gcpnet_vqvae(configs, logging, accelerator)
     logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
