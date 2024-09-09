@@ -4,7 +4,6 @@ import numpy as np
 from vector_quantize_pytorch import VectorQuantize
 from utils.utils import print_trainable_parameters
 import torch.nn.functional as F
-import flash_attn
 
 
 class MultiHeadAttention(nn.Module):
@@ -86,6 +85,7 @@ class FeedForward(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, ff_dim, num_heads=4, dropout=0.0):
         super(TransformerBlock, self).__init__()
+        import flash_attn
         self.attention = MultiHeadAttention(embed_dim, num_heads)
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
