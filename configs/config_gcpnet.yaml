@@ -1,9 +1,9 @@
 fix_seed: 0
-checkpoints_every: 512
+checkpoints_every: 1024
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/gcpnet_vqvae
-normalizer_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/normalizer.pkl
+result_path: ./results/gcpnet_vqvae/test
+normalizer_path: ./data/normalizer.pkl
 
 resume:
   resume: False
@@ -16,10 +16,10 @@ model:
   max_length: 128
   struct_encoder:
     enable: False
-    use_rotary_embeddings: True
+    use_rotary_embeddings: False
     use_positional_embeddings: True
-    use_foldseek: True
-    use_foldseek_vector: True
+    use_foldseek: False
+    use_foldseek_vector: False
     top_k: 30 #default 30 The number of edges to draw per node (as destination node).
     num_positional_embeddings: 16  #default 16
     use_seq:
@@ -65,7 +65,7 @@ model:
       e_input_dim: 8
       xi_input_dim: 1
       # note: each `hidden_dim` must be evenly divisible by `bottleneck`
-      h_hidden_dim: 100
+      h_hidden_dim: 128
       chi_hidden_dim: 16
       e_hidden_dim: 32
       xi_hidden_dim: 4
@@ -92,24 +92,19 @@ model:
 
   vqvae:
     vector_quantization:
-      dim: 128
-      codebook_size: 512
+      dim: 256
       decay: 0.8
+      codebook_size: 512
       commitment_weight : 1.0
       alpha: 1.0
     encoder:
-      dimension: 512
-      dim_feedforward: 1024
-      num_heads: 8
-      num_layers: 8
-      activation_function: gelu
+      dimension: 128
+      num_blocks: 8
     decoder:
-      dimension: 512
+      dimension: 128
+      num_blocks: 8
       chi_init_dimension: 2
       xi_init_dimension: 1
-      dim_feedforward: 1024
-      num_heads: 8
-      num_layers: 8
       activation_function: gelu
 
 train_settings:
@@ -119,21 +114,21 @@ train_settings:
   loss: crossentropy
   sample_weight: True
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 8
+  batch_size: 1
   num_workers: 2
   grad_accumulation: 1
-  max_task_samples: 10
+  max_task_samples: 1
 
 valid_settings:
   data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
-  do_every: 4
+  do_every: 2048
   batch_size: 8
   num_workers: 0
 
 visualization_settings:
   data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   fasta_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 1025
+  do_every: 4096
   batch_size: 1
   num_workers: 4
 
@@ -148,7 +143,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 256
-    min_lr: 1e-5
+    warmup: 128
+    min_lr: 1e-7
     gamma: 0.2
     num_restarts: 1
