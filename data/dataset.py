@@ -580,10 +580,10 @@ class GCPNetDataset(Dataset):
 
         self.max_length = kwargs['configs'].model.max_length
 
-        self.processor = Protein3DProcessing()
+        # self.processor = Protein3DProcessing()
 
         # Load saved pca and scaler models for processing
-        self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+        # self.processor.load_normalizer(kwargs['configs'].normalizer_path)
 
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
@@ -644,7 +644,8 @@ class GCPNetDataset(Dataset):
         coords_tensor = coords_tensor[:self.max_length, ...]
 
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
+        coords_tensor = coords_tensor / 10
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         # Merge the features and create a mask

@@ -38,8 +38,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
     gdtts.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
-    processor = Protein3DProcessing()
-    processor.load_normalizer(configs.normalizer_path)
+    # processor = Protein3DProcessing()
+    # processor.load_normalizer(configs.normalizer_path)
 
     optimizer.zero_grad()
 
@@ -84,8 +84,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             masked_labels = trans_true_coords[masks]
 
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
+            # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
+            # masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
+            masked_outputs = (masked_outputs*10).reshape(-1, 3)
+            masked_labels = (masked_labels*10).reshape(-1, 3)
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
@@ -203,8 +205,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     # lddt.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
-    processor = Protein3DProcessing()
-    processor.load_normalizer(configs.normalizer_path)
+    # processor = Protein3DProcessing()
+    # processor.load_normalizer(configs.normalizer_path)
 
     optimizer.zero_grad()
 
@@ -243,8 +245,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_labels = trans_true_coords[masks]
 
             # Denormalize the outputs and labels
-            masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
-            masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
+            # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
+            # masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
+            masked_outputs = (masked_outputs*10).reshape(-1, 3)
+            masked_labels = (masked_labels*10).reshape(-1, 3)
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
