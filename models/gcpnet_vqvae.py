@@ -7,157 +7,122 @@ from gcpnet.utils import _normalize, batch_orientations
 from utils.utils import print_trainable_parameters
 
 
-class VQVAE(nn.Module):
-    def __init__(self, input_dim, latent_dim, codebook_size, decay, configs):
-        super(VQVAE, self).__init__()
+class VQVAETransformer(nn.Module):
+    def __init__(self, latent_dim, codebook_size, decay, configs):
+        super(VQVAETransformer, self).__init__()
 
         self.max_length = configs.model.max_length
-        self.pos_embed = nn.Parameter(torch.randn(1, self.max_length, input_dim) * .02)
 
-        self.encoder_layers = nn.Sequential(
-            nn.Conv1d(input_dim, input_dim, 1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
+        # Define the number of residual blocks for encoder and decoder
+        self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
+        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
+        self.encoder_dim = configs.model.vqvae.encoder.dimension
+        self.decoder_dim = configs.model.vqvae.decoder.dimension
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
+        input_shape = 128
 
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(input_dim, latent_dim, 3, padding=1),
-            nn.BatchNorm1d(latent_dim),
-            nn.ReLU(),
+        # Encoder
+        self.encoder_tail = nn.Sequential(
+            nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
         )
 
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.encoder_dim, nhead=8, dim_feedforward=self.encoder_dim * 4, activation='gelu', dropout=0.0,
+            batch_first=True
+        )
+        self.encoder_blocks = nn.TransformerEncoder(encoder_layer, num_layers=self.num_encoder_blocks)
+
+        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+
+        self.encoder_head = nn.Sequential(
+            nn.Conv1d(self.encoder_dim, latent_dim, 1),
+        )
+
+        # Vector Quantizer layer
         self.vector_quantizer = VectorQuantize(
             dim=latent_dim,
             codebook_size=codebook_size,
             decay=decay,
-            commitment_weight=1.0,
-            # accept_image_fmap=True,
-        )
-        self.decoder_layers = nn.Sequential(
-            nn.Conv1d(latent_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(input_dim, input_dim, 3, padding=1),
-            nn.BatchNorm1d(input_dim),
-            nn.ReLU(),
-
-            nn.Conv1d(input_dim, input_dim, 1),
-            nn.BatchNorm1d(input_dim),
+            commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+            # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
+            # orthogonal_reg_max_codes=512,
+            # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+            # orthogonal_reg_active_codes_only=False
+            # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
         )
 
-        self.head = nn.Sequential(
-            nn.Conv1d(input_dim, 12, 1),
+        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+
+        self.decoder_tail = nn.Sequential(
+            nn.Conv1d(latent_dim, self.decoder_dim, 1),
         )
 
-    def drop_positional_encoding(self, embedding):
-        embedding = embedding + self.pos_embed
+        # Decoder
+        decoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.decoder_dim, nhead=8, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
+            batch_first=True
+        )
+        self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
+
+        self.decoder_head = nn.Sequential(
+            nn.Conv1d(self.decoder_dim, 9, 1),
+        )
+
+    @staticmethod
+    def drop_positional_encoding(embedding, pos_embed):
+        embedding = embedding + pos_embed
         return embedding
 
-    def forward(self, x, return_vq_only=False):
+    def forward(self, x, mask, return_vq_only=False):
+        # Apply input projection
         x = x.permute(0, 2, 1)
-        x = self.drop_positional_encoding(x)
+        x = self.encoder_tail(x)
+
+        x = x.permute(0, 2, 1)
+        # Apply positional encoding to encoder
+        x = x + self.pos_embed_encoder
+        x = self.encoder_blocks(x)
         x = x.permute(0, 2, 1)
 
-        for layer in self.encoder_layers:
-            x = layer(x)
+        x = self.encoder_head(x)
 
         x = x.permute(0, 2, 1)
         x, indices, commit_loss = self.vector_quantizer(x)
         x = x.permute(0, 2, 1)
 
         if return_vq_only:
+            x = x.permute(0, 2, 1)
             return x, indices, commit_loss
 
-        for layer in self.decoder_layers:
-            x = layer(x)
+        # Apply positional encoding to decoder
+        x = self.decoder_tail(x)
 
-        for layer in self.head:
-            x = layer(x)
-
-        # make it to be (batch, num_nodes, 12)
         x = x.permute(0, 2, 1)
+        x = x + self.pos_embed_decoder
+        x = self.decoder_blocks(x)
+
         return x, indices, commit_loss
+        # return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
-class VQVAE3DTransformer(nn.Module):
-    def __init__(self, codebook_size, decay, configs):
-        super(VQVAE3DTransformer, self).__init__()
+class GCPNetPredictor(nn.Module):
+    def __init__(self, configs):
+        super(GCPNetPredictor, self).__init__()
 
         self.max_length = configs.model.max_length
-        self.top_k = configs.model.struct_encoder.top_k
+
+        # Define the number of residual blocks for encoder and decoder
+        self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
+        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
         self.encoder_dim = configs.model.vqvae.encoder.dimension
         self.decoder_dim = configs.model.vqvae.decoder.dimension
+
+        self.top_k = configs.model.struct_encoder.top_k
 
         self.chi_init_dim = configs.model.vqvae.decoder.chi_init_dimension
         self.xi_init_dim = configs.model.vqvae.decoder.xi_init_dimension
 
-        # Projecting the input to the dimension expected by the Transformer
-        self.input_projection = nn.Sequential(
-            nn.Conv1d(100, self.encoder_dim, 1),
-        )
-
-        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
-
-        # todo: fix batch first issue
-        # Transformer Encoder
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            batch_first=True,
-            d_model=self.encoder_dim,
-            nhead=configs.model.vqvae.encoder.num_heads,
-            dim_feedforward=configs.model.vqvae.encoder.dim_feedforward,
-            activation=configs.model.vqvae.encoder.activation_function,
-            dropout=0.0
-        )
-        self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=configs.model.vqvae.encoder.num_layers)
-
-        # Projecting the output of the Transformer to the dimension expected by the VQ layer
-        self.vq_in_projection = nn.Sequential(nn.Conv1d(self.encoder_dim, configs.model.vqvae.vector_quantization.dim, 1))
-
-        # Vector Quantizer
-        self.vector_quantizer = VectorQuantize(
-            dim=configs.model.vqvae.vector_quantization.dim,
-            codebook_size=codebook_size,
-            decay=decay,
-            commitment_weight=1.0,
-        )
-
-        # Projecting the output of the VQ layer back to the decoder dimension
-        self.vq_out_projection = nn.Sequential(nn.Conv1d(configs.model.vqvae.vector_quantization.dim, self.decoder_dim, 1))
-
-        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
-
-        # todo: fix batch first issue
-        # Transformer Decoder
-        self.decoder_layer = nn.TransformerEncoderLayer(
-            batch_first=True,
-            d_model=self.decoder_dim,
-            nhead=configs.model.vqvae.decoder.num_heads,
-            dim_feedforward=configs.model.vqvae.decoder.dim_feedforward,
-            activation=configs.model.vqvae.encoder.activation_function,
-            dropout=0.0
-        )
-        self.decoder = nn.TransformerEncoder(self.decoder_layer, num_layers=configs.model.vqvae.decoder.num_layers)
-
-        # GCPNet output (positions) projection # 
+        # GCPNet output (positions) projection #
         configs.model.struct_encoder.module_cfg.predict_backbone_positions = True
         configs.model.struct_encoder.module_cfg.predict_node_rep = False
         configs.model.struct_encoder.model_cfg.num_layers = 1
@@ -202,18 +167,13 @@ class VQVAE3DTransformer(nn.Module):
                     backbone_key="x_bb",
                 )
                 for _ in range(
-                    configs.model.struct_encoder.model_cfg.num_bb_update_layers
-                )
+                configs.model.struct_encoder.model_cfg.num_bb_update_layers
+            )
             ]
         )
 
         self.output_projections = nn.ModuleList(output_projection_layers)
 
-    @staticmethod
-    def drop_positional_encoding(embedding, pos_embed):
-        embedding = embedding + pos_embed
-        return embedding
-    
     def construct_black_hole_graph_batch(self, feats, mask, batch_indices, x_slice_index):
         batch_num_nodes = mask.sum().item()
         device, dtype = feats.device, feats.dtype
@@ -288,43 +248,7 @@ class VQVAE3DTransformer(nn.Module):
 
         return new_batch
 
-    def forward(self, x, mask, batch_indices, x_slice_index, return_vq_only=False):
-        # Apply input projection
-        x = x.permute(0, 2, 1)
-        for layer in self.input_projection:
-            x = layer(x)
-
-        # Permute for Transformer [batch, sequence, feature]
-        x = x.permute(0, 2, 1)
-
-        # Apply positional encoding to encoder
-        x = self.drop_positional_encoding(x, self.pos_embed_encoder)
-
-        # Encoder
-        x = self.encoder(x)
-        x = x.permute(0, 2, 1)
-
-        # Apply qv_in_projection
-        x = self.vq_in_projection(x)
-
-        x = x.permute(0, 2, 1)
-        x, indices, commit_loss = self.vector_quantizer(x)
-        x = x.permute(0, 2, 1)
-
-        # if return_vq_only:
-        #     x = x.permute(0, 2, 1)
-        #     return x, indices, commit_loss
-
-        # Apply vq_out_projection
-        x = self.vq_out_projection(x)
-
-        x = x.permute(0, 2, 1)
-        # Apply positional encoding to decoder
-        x = self.drop_positional_encoding(x, self.pos_embed_decoder)
-
-        # Decoder
-        x = self.decoder(x)
-
+    def forward(self, x, mask, batch_indices, x_slice_index):
         # Apply output projections in a sparse graph format
         batch = self.construct_black_hole_graph_batch(x, mask, batch_indices, x_slice_index)
         _, batch.h, batch.x_bb = self.output_projections[0](batch)
@@ -337,15 +261,15 @@ class VQVAE3DTransformer(nn.Module):
         x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9), batch.batch)
         x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
 
-        # return x, indices, commit_loss
-        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        return x
 
 
 class GCPNetVQVAE(nn.Module):
-    def __init__(self, gcpnet, vqvae, configs):
+    def __init__(self, gcpnet, vqvae, gcp_predictor, configs):
         super(GCPNetVQVAE, self).__init__()
         self.gcpnet = gcpnet
         self.vqvae = vqvae
+        self.gcp_predictor = gcp_predictor
 
         self.configs = configs
         self.max_length = configs.model.max_length
@@ -392,7 +316,8 @@ class GCPNetVQVAE(nn.Module):
 
         # Create batch assignment tensor
         num_batches = padded_features.size(0)
-        batch_indices = torch.arange(num_batches, device=device).unsqueeze(1).repeat(1, max_length).view(-1)  # Shape: (num_batches * max_length)
+        batch_indices = torch.arange(num_batches, device=device).unsqueeze(1).repeat(1, max_length).view(
+            -1)  # Shape: (num_batches * max_length)
         valid_batch_indices = batch_indices[flat_mask.bool()]  # Filter based on mask
 
         slice_indices = torch.cumsum(torch.tensor(slice_lengths), dim=0)
@@ -406,8 +331,12 @@ class GCPNetVQVAE(nn.Module):
         x = self.separate_features(x, batch['graph'].batch)
         x, mask, batch_indices, x_slice_indices = self.merge_features(x, self.max_length)
 
-        x, indices, commit_loss = self.vqvae(x, mask, batch_indices, x_slice_indices)
-        return x, indices, commit_loss
+        # x, indices, commit_loss = self.vqvae(x, mask)
+
+        x = self.gcp_predictor(x, mask, batch_indices, x_slice_indices)
+
+        # return x, indices, commit_loss
+        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
 def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
@@ -415,19 +344,16 @@ def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
                          model_cfg=configs.model.struct_encoder.model_cfg,
                          layer_cfg=configs.model.struct_encoder.layer_cfg,
                          configs=configs)
-    # vqvae = VQVAE(
-    #     input_dim=configs.model.struct_encoder.node_h_dim[0],
-    #     latent_dim=configs.model.vqvae.vector_quantization.dim,
-    #     codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
-    #     decay=configs.model.vqvae.vector_quantization.decay,
-    #     configs=configs
-    # )
-    vqvae = VQVAE3DTransformer(
+
+    vqvae = VQVAETransformer(
+        latent_dim=configs.model.vqvae.vector_quantization.dim,
         codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
     )
-    gcpnet_vqvae = GCPNetVQVAE(gcpnet, vqvae, configs)
+    gcp_predictor = GCPNetPredictor(configs)
+
+    gcpnet_vqvae = GCPNetVQVAE(gcpnet, vqvae, gcp_predictor, configs)
 
     if accelerator.is_main_process:
         print_trainable_parameters(gcpnet_vqvae, logger, 'GCPNet-VQ-VAE')
@@ -458,14 +384,14 @@ if __name__ == '__main__':
     print("Model loaded successfully!")
 
     dataset = GCPNetDataset(test_configs.train_settings.data_path,
-                         seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
-                         use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
-                         use_foldseek=test_configs.model.struct_encoder.use_foldseek,
-                         use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
-                         top_k=test_configs.model.struct_encoder.top_k,
-                         num_rbf=test_configs.model.struct_encoder.num_rbf,
-                         num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
-                         configs=test_configs)
+                            seq_mode=test_configs.model.struct_encoder.use_seq.seq_embed_mode,
+                            use_rotary_embeddings=test_configs.model.struct_encoder.use_rotary_embeddings,
+                            use_foldseek=test_configs.model.struct_encoder.use_foldseek,
+                            use_foldseek_vector=test_configs.model.struct_encoder.use_foldseek_vector,
+                            top_k=test_configs.model.struct_encoder.top_k,
+                            num_rbf=test_configs.model.struct_encoder.num_rbf,
+                            num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
+                            configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size, num_workers=0, pin_memory=True,
                              collate_fn=custom_collate)
