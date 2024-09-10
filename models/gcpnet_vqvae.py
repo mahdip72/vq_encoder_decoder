@@ -127,6 +127,9 @@ class GCPNetPredictor(nn.Module):
         configs.model.struct_encoder.module_cfg.predict_node_rep = False
         configs.model.struct_encoder.model_cfg.num_layers = 1
 
+        # NOTE: To preserve roto-translation invariance, only a linear term must be used
+        self.output_project_init = nn.Linear(self.decoder_dim, 3 * 3, bias=False)
+
         output_projection_layers = []
 
         # Embedding layer
@@ -174,26 +177,25 @@ class GCPNetPredictor(nn.Module):
 
         self.output_projections = nn.ModuleList(output_projection_layers)
 
-    def construct_black_hole_graph_batch(self, feats, mask, batch_indices, x_slice_index):
+    def construct_learnable_initial_graph_batch(self, feats, mask, batch_indices, x_slice_index):
         batch_num_nodes = mask.sum().item()
-        device, dtype = feats.device, feats.dtype
+        device = feats.device
 
         h = feats[mask]
         mask = torch.ones((batch_num_nodes,), device=device, dtype=torch.bool)
 
-        x_bb = torch.randn((batch_num_nodes, 3, 3), device=device, dtype=dtype)
-        x = x_bb[:, 1]
+        x_bb = self.output_project_init(h).view(-1, 3, 3)
+        x = x_bb[:, 1, :]
 
         chi = batch_orientations(x, x_slice_index)
 
-        # Initialize the structural graph with scalar node feature topological information
         edge_index = torch_geometric.nn.knn_graph(
-            h,
+            x,
             self.top_k,
             batch=batch_indices,
             loop=False,
             flow="source_to_target",
-            cosine=True,
+            cosine=False,
         )
 
         e = torch.cat([h[edge_index[0]], h[edge_index[1]]], dim=-1)
@@ -250,7 +252,7 @@ class GCPNetPredictor(nn.Module):
 
     def forward(self, x, mask, batch_indices, x_slice_index):
         # Apply output projections in a sparse graph format
-        batch = self.construct_black_hole_graph_batch(x, mask, batch_indices, x_slice_index)
+        batch = self.construct_learnable_initial_graph_batch(x, mask, batch_indices, x_slice_index)
         _, batch.h, batch.x_bb = self.output_projections[0](batch)
 
         for proj in self.output_projections[1:]:
