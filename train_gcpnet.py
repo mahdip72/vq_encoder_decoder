@@ -71,6 +71,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
+            # Rescale the outputs and labels to the original scale
+            # outputs *= 10
+            # labels *= 10
+
             rec_loss, trans_pred_coords, trans_true_coords = calculate_aligned_mse_loss(
                 outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
