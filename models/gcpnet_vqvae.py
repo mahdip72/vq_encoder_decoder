@@ -86,13 +86,13 @@ class VQVAETransformer(nn.Module):
 
         x = self.encoder_head(x)
 
-        x = x.permute(0, 2, 1)
-        x, indices, commit_loss = self.vector_quantizer(x)
-        x = x.permute(0, 2, 1)
+        # x = x.permute(0, 2, 1)
+        # x, indices, commit_loss = self.vector_quantizer(x)
+        # x = x.permute(0, 2, 1)
 
-        if return_vq_only:
-            x = x.permute(0, 2, 1)
-            return x, indices, commit_loss
+        # if return_vq_only:
+        #     x = x.permute(0, 2, 1)
+        #     return x, indices, commit_loss
 
         # Apply positional encoding to decoder
         x = self.decoder_tail(x)
@@ -101,8 +101,8 @@ class VQVAETransformer(nn.Module):
         x = x + self.pos_embed_decoder
         x = self.decoder_blocks(x)
 
-        return x, indices, commit_loss
-        # return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        # return x, indices, commit_loss
+        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
 class GCPNetPredictor(nn.Module):
