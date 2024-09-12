@@ -36,6 +36,8 @@ model:
     edge_s_emb_dim: 32 # Dimension of the edge state embeddings
     edge_v_emb_dim: 4 # Dimension of the edge vector embeddings
 
+    pos_scale_factor: 10.0  # By how much to upscale `GCPNetPredictor`'s output positions
+
     # GCPNet module config #
     module_cfg:
       norm_pos_diff: true

@@ -122,6 +122,8 @@ class GCPNetPredictor(nn.Module):
         self.chi_init_dim = configs.model.vqvae.decoder.chi_init_dimension
         self.xi_init_dim = configs.model.vqvae.decoder.xi_init_dimension
 
+        self.pos_scale_factor = configs.model.struct_encoder.pos_scale_factor
+
         # GCPNet output (positions) projection #
         configs.model.struct_encoder.module_cfg.predict_backbone_positions = True
         configs.model.struct_encoder.module_cfg.predict_node_rep = False
@@ -187,10 +189,10 @@ class GCPNetPredictor(nn.Module):
         x_bb = self.output_project_init(h).view(-1, 3, 3)
         x = x_bb[:, 1, :]
 
-        chi = batch_orientations(x, x_slice_index)
+        chi = batch_orientations(x.detach(), x_slice_index)
 
         edge_index = torch_geometric.nn.knn_graph(
-            x,
+            x.detach(),
             self.top_k,
             batch=batch_indices,
             loop=False,
@@ -199,7 +201,7 @@ class GCPNetPredictor(nn.Module):
         )
 
         e = torch.cat([h[edge_index[0]], h[edge_index[1]]], dim=-1)
-        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2)
+        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2).detach()
 
         batch = torch_geometric.data.Batch(
             x=x,
@@ -220,10 +222,10 @@ class GCPNetPredictor(nn.Module):
     def construct_updated_graph_batch(self, batch):
         x = batch.x_bb[:, 1]
 
-        chi = batch_orientations(x, batch.x_slice_index)
+        chi = batch_orientations(x.detach(), batch.x_slice_index)
 
         edge_index = torch_geometric.nn.knn_graph(
-            x,
+            x.detach(),
             self.top_k,
             batch=batch.batch,
             loop=False,
@@ -232,7 +234,7 @@ class GCPNetPredictor(nn.Module):
         )
 
         e = torch.cat([batch.h[edge_index[0]], batch.h[edge_index[1]]], dim=-1)
-        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2)
+        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2).detach()
 
         new_batch = torch_geometric.data.Batch(
             x=x,
@@ -260,7 +262,7 @@ class GCPNetPredictor(nn.Module):
             _, batch.h, batch.x_bb = proj(batch)
 
         # Pad the output back into the original shape
-        x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9), batch.batch)
+        x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
         x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
 
         return x
