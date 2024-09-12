@@ -325,7 +325,12 @@ def main(dict_config, config_file_path):
 
     logging = get_logging(result_path)
 
+    from accelerate.utils import DistributedDataParallelKwargs
+
+    # Set find_unused_parameters to True
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(
+        kwargs_handlers=[ddp_kwargs],
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
