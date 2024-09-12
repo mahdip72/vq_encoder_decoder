@@ -1644,15 +1644,17 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
     #                           pin_memory=True,
     #                           collate_fn=custom_collate)
 
-    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size, num_workers=8,
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+                              num_workers=configs.train_settings.num_workers,
                               pin_memory=False,
                               collate_fn=custom_collate)
-    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size, num_workers=2,
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              num_workers=configs.valid_settings.num_workers,
                               pin_memory=False,
                               shuffle=False,
                               collate_fn=custom_collate)
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
-                                      num_workers=1,
+                                      num_workers=0,
                                       pin_memory=False,
                                       shuffle=False,
                                       collate_fn=custom_collate)
@@ -1686,7 +1688,7 @@ def prepare_vqvae_dataloaders(logging, accelerator, configs):
 
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
                                       shuffle=False,
-                                      num_workers=configs.visualization_settings.num_workers,
+                                      num_workers=0,
                                       pin_memory=True)
 
     return train_loader, valid_loader, visualization_loader
