@@ -645,7 +645,7 @@ class GCPNetDataset(Dataset):
 
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
         # coords_tensor = self.processor.normalize_coords(coords_tensor)
-        coords_tensor = coords_tensor / 10
+        # coords_tensor = coords_tensor / 10
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         # Merge the features and create a mask
