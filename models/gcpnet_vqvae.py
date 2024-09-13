@@ -39,19 +39,19 @@ class VQVAETransformer(nn.Module):
         )
 
         # Vector Quantizer layer
-        self.vector_quantizer = VectorQuantize(
-            dim=latent_dim,
-            codebook_size=codebook_size,
-            decay=decay,
-            commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+        # self.vector_quantizer = VectorQuantize(
+        #     dim=latent_dim,
+        #     codebook_size=codebook_size,
+        #     decay=decay,
+        #     commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
             # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
             # orthogonal_reg_max_codes=512,
             # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
             # orthogonal_reg_active_codes_only=False
             # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
-        )
+        # )
 
-        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.decoder_dim) * .02)
 
         self.decoder_tail = nn.Sequential(
             nn.Conv1d(latent_dim, self.decoder_dim, 1),
@@ -98,8 +98,8 @@ class VQVAETransformer(nn.Module):
         x = self.decoder_tail(x)
 
         x = x.permute(0, 2, 1)
-        x = x + self.pos_embed_decoder
-        x = self.decoder_blocks(x)
+        # x = x + self.pos_embed_decoder
+        # x = self.decoder_blocks(x)
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
@@ -335,7 +335,7 @@ class GCPNetVQVAE(nn.Module):
         x = self.separate_features(x, batch['graph'].batch)
         x, mask, batch_indices, x_slice_indices = self.merge_features(x, self.max_length)
 
-        # x, indices, commit_loss = self.vqvae(x, mask)
+        x, indices, commit_loss = self.vqvae(x, mask)
 
         x = self.gcp_predictor(x, mask, batch_indices, x_slice_indices)
 
