@@ -17,6 +17,7 @@ import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
 from models.gcpnet_vqvae import prepare_models_gcpnet_vqvae
+from utils.utils import ca_coords_to_pdb
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -84,6 +85,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
+
+            if epoch % 512 == 0 and epoch != 0:
+                ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'outputs_epoch_{epoch}_step_{i+1}'))
+                ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'labels_step_{i+1}'))
 
             # Compute the loss
             masked_outputs = trans_pred_coords[masks]
@@ -378,7 +383,7 @@ def main(dict_config, config_file_path):
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
                                            logging=logging, global_step=global_step,
-                                           writer=train_writer)
+                                           writer=train_writer, result_path=result_path)
         end_time = time.time()
         training_time = end_time - start_time
         if accelerator.is_main_process:
