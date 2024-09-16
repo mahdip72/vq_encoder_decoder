@@ -503,8 +503,7 @@ class GCPNetDataset(Dataset):
     """
 
     def __init__(self, data_path,
-                 num_positional_embeddings=16, top_k=30,
-                 seq_mode="embedding", **kwargs
+                 num_positional_embeddings=16, top_k=30, **kwargs
                  ):
         super(GCPNetDataset, self).__init__()
         self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[
@@ -1537,14 +1536,8 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
         logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
-    if hasattr(configs.model.struct_encoder, "use_seq") and configs.model.struct_encoder.use_seq.enable:
-        seq_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
-    else:
-        seq_mode = "embedding"
-
     train_dataset = GCPNetDataset(
         configs.train_settings.data_path,
-        seq_mode=seq_mode,
         top_k=configs.model.struct_encoder.top_k,
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
@@ -1552,7 +1545,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
 
     valid_dataset = GCPNetDataset(
         configs.valid_settings.data_path,
-        seq_mode=seq_mode,
         top_k=configs.model.struct_encoder.top_k,
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
