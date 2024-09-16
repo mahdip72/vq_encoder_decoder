@@ -504,29 +504,14 @@ class GCPNetDataset(Dataset):
 
     def __init__(self, data_path,
                  num_positional_embeddings=16, top_k=30,
-                 seq_mode="embedding", use_rotary_embeddings=False, rotary_mode=1,
-                 use_foldseek=False, use_foldseek_vector=False, **kwargs
+                 seq_mode="embedding", **kwargs
                  ):
         super(GCPNetDataset, self).__init__()
-        from gvp.rotary_embedding import RotaryEmbedding
-        if "cath_4_3_0" in data_path:
-            self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))
-        else:
-            self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[
-                              :kwargs['configs'].train_settings.max_task_samples]
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[
+                          :kwargs['configs'].train_settings.max_task_samples]
         self.top_k = top_k
         self.num_positional_embeddings = num_positional_embeddings
-        self.seq_mode = seq_mode
         # self.node_counts = [len(e['seq']) for e in data_list]
-        self.use_rotary_embeddings = use_rotary_embeddings
-        self.rotary_mode = rotary_mode
-        self.use_foldseek = use_foldseek
-        self.use_foldseek_vector = use_foldseek_vector
-        if self.use_rotary_embeddings:
-            if self.rotary_mode == 3:
-                self.rot_emb = RotaryEmbedding(dim=8)  # must be 5
-            else:
-                self.rot_emb = RotaryEmbedding(dim=2)  # must be 2
 
         self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
                               'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
@@ -699,19 +684,10 @@ class GCPNetDataset(Dataset):
             coords = torch.as_tensor(protein['coords'],
                                      # device=self.device,
                                      dtype=torch.float32)
-            # print(self.seq_mode)
-            if self.seq_mode == "PhysicsPCA":
-                seq = torch.as_tensor([self.letter_to_PhysicsPCA[a] for a in protein['seq']],
-                                      # device=self.device,
-                                      dtype=torch.long)
-            elif self.seq_mode == "Atchleyfactor":
-                seq = torch.as_tensor([self.letter_to_Atchleyfactor[a] for a in protein['seq']],
-                                      # device=self.device,
-                                      dtype=torch.long)
-            else:
-                seq = torch.as_tensor([self.letter_to_num[a] for a in protein['seq']],
-                                      # device=self.device,
-                                      dtype=torch.long)
+
+            seq = torch.as_tensor([self.letter_to_num[a] for a in protein['seq']],
+                                  # device=self.device,
+                                  dtype=torch.long)
 
             mask = torch.isfinite(coords.sum(dim=(1, 2)))
             coords[~mask] = np.inf
@@ -719,38 +695,14 @@ class GCPNetDataset(Dataset):
             X_ca = coords[:, 1]
             edge_index = torch_cluster.knn_graph(X_ca, k=self.top_k)
             E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]
-            if self.use_rotary_embeddings:
-                if self.rotary_mode == 1:  # first mode
-                    d1 = edge_index[0] - edge_index[1]
-                    d2 = edge_index[1] - edge_index[0]
-                    d = torch.cat((d1.unsqueeze(-1), d2.unsqueeze(-1)), dim=-1)  # [len,2]
-                    pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
-                if self.rotary_mode == 2:
-                    d = edge_index.transpose(0, 1)
-                    pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
-                if self.rotary_mode == 3:
-                    d = edge_index.transpose(0, 1)  # [len,2]
-                    d = torch.cat((d, E_vectors, -1 * E_vectors), dim=-1)  # [len,2+3]
-                    pos_embeddings = self.rot_emb(d.unsqueeze(0).unsqueeze(-2)).squeeze(0).squeeze(-2)
-            else:
-                pos_embeddings = self._positional_embeddings(edge_index)
+            pos_embeddings = self._positional_embeddings(edge_index)
 
             dihedrals = self._dihedrals(coords)  # only this one used O
             orientations = self._orientations(X_ca)
             sidechains = self._sidechains(coords)
-            if self.use_foldseek or self.use_foldseek_vector:
-                foldseek_features = self._foldseek(X_ca)
+            node_s = dihedrals
 
-            if self.use_foldseek:
-                node_s = torch.cat([dihedrals, foldseek_features[0]], dim=-1)  # add additional 10 features
-            else:
-                node_s = dihedrals
-
-            if self.use_foldseek_vector:
-                node_v = torch.cat([orientations, sidechains.unsqueeze(-2), foldseek_features[1]],
-                                   dim=-2)  # add additional 18 features
-            else:
-                node_v = torch.cat([orientations, sidechains.unsqueeze(-2)], dim=-2)
+            node_v = torch.cat([orientations, sidechains.unsqueeze(-2)], dim=-2)
 
             edge_s = pos_embeddings  # NOTE: radial basis functions will be computed during the forward pass
             edge_v = _normalize(E_vectors).unsqueeze(-2)
@@ -825,51 +777,6 @@ class GCPNetDataset(Dataset):
         vec = -bisector * math.sqrt(1 / 3) - perp * math.sqrt(2 / 3)
         # The specific weights used in the linear combination (math.sqrt(1 / 3) and math.sqrt(2 / 3)) are derived from the idealized tetrahedral geometry of the sidechain atoms around the C-alpha atom. However, in practice, these weights may be adjusted or learned from data to better capture the actual sidechain geometries observed in protein structures.
         return vec
-
-    @staticmethod
-    def _foldseek(x):
-        # From Fast and accurate protein structure search with Foldseek
-        # x is X_ca coordinates
-        import torch_cluster
-
-        x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
-        j, i = torch_cluster.knn_graph(x, k=1)
-        mask = torch.zeros_like(i, dtype=torch.bool)
-        first_unique = {}
-        for index, value in enumerate(i):
-            if value.item() not in first_unique:
-                first_unique[value.item()] = index
-                mask[index] = True
-            else:
-                mask[index] = False
-
-        i, j = i[mask], j[mask]
-        pad_x = F.pad(x, [0, 0, 1, 1])  # padding to the first and last
-        j = j + 1
-        i = i + 1
-        d = torch.norm(pad_x[i] - pad_x[j], dim=-1, keepdim=True)
-        abs_diff = torch.abs(i - j)
-        sign = torch.sign(i - j)
-        f1 = (sign * torch.minimum(abs_diff, torch.tensor(4))).unsqueeze(-1)
-        f2 = (sign * torch.log(abs_diff + 1)).unsqueeze(-1)
-
-        u1 = _normalize(pad_x[i] - pad_x[i - 1])
-        u2 = _normalize(pad_x[i + 1] - pad_x[i])
-        u3 = _normalize(pad_x[j] - pad_x[j - 1])
-        u4 = _normalize(pad_x[j + 1] - pad_x[j])
-        u5 = _normalize(pad_x[j] - pad_x[i])
-        cos_12 = torch.sum(u1 * u2, dim=-1, keepdim=True)
-        cos_34 = torch.sum(u3 * u4, dim=-1, keepdim=True)
-        cos_15 = torch.sum(u1 * u5, dim=-1, keepdim=True)
-        cos_35 = torch.sum(u3 * u5, dim=-1, keepdim=True)
-        cos_14 = torch.sum(u1 * u4, dim=-1, keepdim=True)
-        cos_23 = torch.sum(u2 * u3, dim=-1, keepdim=True)
-        cos_13 = torch.sum(u1 * u3, dim=-1, keepdim=True)
-        node_s_features = torch.cat([cos_12, cos_34, cos_15, cos_35, cos_14, cos_23, cos_13, d, f1, f2], dim=-1)
-        node_v_features = torch.cat([u1.unsqueeze(-2), u2.unsqueeze(-2), u3.unsqueeze(-2),
-                                     u4.unsqueeze(-2), u5.unsqueeze(-2), (pad_x[i] - pad_x[j]).unsqueeze(-2)],
-                                    dim=-2)  # add 6 additional features
-        return node_s_features, node_v_features
 
 
 class VQVAEDataset(Dataset):
@@ -1638,9 +1545,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
     train_dataset = GCPNetDataset(
         configs.train_settings.data_path,
         seq_mode=seq_mode,
-        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
-        use_foldseek=configs.model.struct_encoder.use_foldseek,
-        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
         top_k=configs.model.struct_encoder.top_k,
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
@@ -1649,9 +1553,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
     valid_dataset = GCPNetDataset(
         configs.valid_settings.data_path,
         seq_mode=seq_mode,
-        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
-        use_foldseek=configs.model.struct_encoder.use_foldseek,
-        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
         top_k=configs.model.struct_encoder.top_k,
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
@@ -1659,10 +1560,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
 
     visualization_dataset = GCPNetDataset(
         configs.visualization_settings.data_path,
-        seq_mode=seq_mode,
-        use_rotary_embeddings=configs.model.struct_encoder.use_rotary_embeddings,
-        use_foldseek=configs.model.struct_encoder.use_foldseek,
-        use_foldseek_vector=configs.model.struct_encoder.use_foldseek_vector,
         top_k=configs.model.struct_encoder.top_k,
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
