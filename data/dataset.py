@@ -1556,12 +1556,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
         num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
         configs=configs
     )
-    # train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
-    #                           shuffle=configs.train_settings.shuffle,
-    #                           num_workers=configs.train_settings.num_workers,
-    #                           multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
-    #                           pin_memory=True,
-    #                           collate_fn=custom_collate)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               num_workers=configs.train_settings.num_workers,
