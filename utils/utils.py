@@ -378,55 +378,6 @@ def load_configs_gcpnet(config):
     tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
     tree_config.optimizer.eps = float(tree_config.optimizer.eps)
 
-    # set configs value to default if doesn't have the attr
-    if not hasattr(tree_config.model.struct_encoder, "use_seq"):
-        tree_config.model.struct_encoder.use_seq = None
-        tree_config.model.struct_encoder.use_seq.enable = False
-        tree_config.model.struct_encoder.use_seq.seq_embed_mode = "embedding"
-        tree_config.model.struct_encoder.use_seq.seq_embed_dim = 20
-
-    if not hasattr(tree_config.model.struct_encoder, "top_k"):
-        tree_config.model.struct_encoder.top_k = 30  # default
-
-    if not hasattr(tree_config.model.struct_encoder.model_cfg, "num_layers"):
-        tree_config.model.struct_encoder.model_cfg.num_layers = 6  # default
-
-    if not hasattr(tree_config.model.struct_encoder,
-                   "use_rotary_embeddings"):  # configs also have num_rbf and num_positional_embeddings
-        tree_config.model.struct_encoder.use_rotary_embeddings = False
-
-    if not hasattr(tree_config.model.struct_encoder, "rotary_mode"):
-        tree_config.model.struct_encoder.rotary_mode = 1
-
-    if not hasattr(tree_config.model.struct_encoder,
-                   "use_foldseek"):  # configs also have num_rbf and num_positional_embeddings
-        tree_config.model.struct_encoder.use_foldseek = False
-
-    if not hasattr(tree_config.model.struct_encoder,
-                   "use_foldseek_vector"):  # configs also have num_rbf and num_positional_embeddings
-        tree_config.model.struct_encoder.use_foldseek_vector = False
-
-    if not hasattr(tree_config.model.struct_encoder, "num_positional_embeddings"):
-        tree_config.model.struct_encoder.num_positional_embeddings = 16  # default
-
-    if not hasattr(tree_config.model.struct_encoder.module_cfg, "r_max"):
-        tree_config.model.struct_encoder.module_cfg.r_max = 10.0  # default
-
-    if not hasattr(tree_config.model.struct_encoder.module_cfg, "num_rbf"):
-        tree_config.model.struct_encoder.module_cfg.num_rbf = 8  # default
-
-    if not hasattr(tree_config.model.struct_encoder.model_cfg, "h_hidden_dim"):
-        tree_config.model.struct_encoder.model_cfg.h_hidden_dim = 128  # default
-
-    if not hasattr(tree_config.model.struct_encoder.model_cfg, "chi_hidden_dim"):
-        tree_config.model.struct_encoder.model_cfg.chi_hidden_dim = 16  # default
-
-    if not hasattr(tree_config.model.struct_encoder.model_cfg, "e_hidden_dim"):
-        tree_config.model.struct_encoder.model_cfg.e_hidden_dim = 32  # default
-
-    if not hasattr(tree_config.model.struct_encoder.model_cfg, "xi_hidden_dim"):
-        tree_config.model.struct_encoder.model_cfg.xi_hidden_dim = 4  # default
-
     return tree_config
 
 

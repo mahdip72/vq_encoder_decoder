@@ -87,31 +87,31 @@ class GCPNetModel(torch.nn.Module):
         self.edge_dims = ScalarVector(model_cfg.e_hidden_dim, model_cfg.xi_hidden_dim)
         self.node_dims = ScalarVector(model_cfg.h_hidden_dim, model_cfg.chi_hidden_dim)
 
-        if configs.model.struct_encoder.use_rotary_embeddings:
-            if configs.model.struct_encoder.rotary_mode == 3:
-                edge_input_dims += (8, 0)  # 8+2+3+3 only for mode ==3 add 8D pos_embeddings
-            else:
-                edge_input_dims += (2, 0)  # 8+2
-        elif configs.model.struct_encoder.use_positional_embeddings:
+        # if configs.model.struct_encoder.use_rotary_embeddings:
+        #     if configs.model.struct_encoder.rotary_mode == 3:
+        #         edge_input_dims += (8, 0)  # 8+2+3+3 only for mode ==3 add 8D pos_embeddings
+        #     else:
+        #         edge_input_dims += (2, 0)  # 8+2
+        if configs.model.struct_encoder.use_positional_embeddings:
             edge_input_dims += (
                 configs.model.struct_encoder.num_positional_embeddings, 0
             )  # 8+num_positional_embeddings
 
-        if configs.model.struct_encoder.use_foldseek:
-            node_input_dims += (10, 0)  # foldseek has 10 more node scalar features
+        # if configs.model.struct_encoder.use_foldseek:
+        #     node_input_dims += (10, 0)  # foldseek has 10 more node scalar features
 
-        if configs.model.struct_encoder.use_foldseek_vector:
-            node_input_dims += (0, 6)  # foldseek_vector has 6 more node vector features
+        # if configs.model.struct_encoder.use_foldseek_vector:
+        #     node_input_dims += (0, 6)  # foldseek_vector has 6 more node vector features
 
         # Sequence options
-        self.use_seq = configs.model.struct_encoder.use_seq.enable
-        self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
-        self.seq_embed_dim = configs.model.struct_encoder.use_seq.seq_embed_dim
+        # self.use_seq = False
+        # self.seq_embed_mode = configs.model.struct_encoder.use_seq.seq_embed_mode
+        # self.seq_embed_dim = configs.model.struct_encoder.use_seq.seq_embed_dim
 
-        if self.use_seq:
-            node_input_dims += (self.seq_embed_dim, 0)
-            if self.seq_embed_mode == "embedding":
-                self.seq_embedding = nn.Embedding(20, self.seq_embed_dim)
+        # if self.use_seq:
+        #     node_input_dims += (self.seq_embed_dim, 0)
+        #     if self.seq_embed_mode == "embedding":
+        #         self.seq_embedding = nn.Embedding(20, self.seq_embed_dim)
 
         # Position-wise operations
         self.centralize = partial(centralize, key="x")
@@ -193,12 +193,12 @@ class GCPNetModel(torch.nn.Module):
         batch.f_ij = self.localize(batch.x, batch.edge_index)
 
         # Decide which sequence representation to use
-        if self.use_seq and self.seq_embed_mode != "ESM2":
-            seq = batch.seq
-        elif self.use_seq and self.seq_embed_mode == "ESM2":
-            seq = esm2_representation
-        else:
-            seq = None
+        # if self.use_seq and self.seq_embed_mode != "ESM2":
+        #     seq = batch.seq
+        # elif self.use_seq and self.seq_embed_mode == "ESM2":
+        #     seq = esm2_representation
+        # else:
+        seq = None
 
         if seq is not None:
             if len(seq.shape) == 1:

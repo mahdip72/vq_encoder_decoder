@@ -17,7 +17,7 @@ model:
   struct_encoder:
     top_k: 30 #default 30 The number of edges to draw per node (as destination node).
     num_positional_embeddings: 16  #default 16
-
+    use_positional_embeddings: True
     emb_dim: 128
     node_s_emb_dim: ${.emb_dim} # Dimension of the node state embeddings
     node_v_emb_dim: 16 # Dimension of the node vector embeddings
