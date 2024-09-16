@@ -1,8 +1,8 @@
 fix_seed: 0
 checkpoints_every: 1024
 tensorboard_log: True
-tqdm_progress_bar: False
-result_path: ./results/gcpnet_vqvae/test
+tqdm_progress_bar: True
+result_path: ./results/gcpnet_vqvae/hp_test
 normalizer_path: ./data/normalizer.pkl
 
 resume:
@@ -13,22 +13,10 @@ resume:
 model:
   architecture: gcpnet_vqvae
   compile_model: False
-  max_length: 128
+  max_length: 256
   struct_encoder:
-    enable: False
-    use_rotary_embeddings: False
-    use_positional_embeddings: True
-    use_foldseek: False
-    use_foldseek_vector: False
     top_k: 30 #default 30 The number of edges to draw per node (as destination node).
     num_positional_embeddings: 16  #default 16
-    use_seq:
-       enable: False
-       seq_embed_mode: "embedding" #"embedding","ESM2"
-       seq_embed_dim: 20 #1280 for ESM2
-    fine_tune:
-      enable: False
-      last_layers_trainable: 5
 
     emb_dim: 128
     node_s_emb_dim: ${.emb_dim} # Dimension of the node state embeddings
@@ -114,12 +102,12 @@ train_settings:
   num_epochs: 1024
   shuffle: True
   loss: crossentropy
-  sample_weight: True
+  sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 1
+  batch_size: 4
   num_workers: 2
   grad_accumulation: 1
-  max_task_samples: 1
+  max_task_samples: 2048
 
 valid_settings:
   data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
@@ -135,17 +123,17 @@ visualization_settings:
   num_workers: 4
 
 optimizer:
-  name: schedulerfree
-  lr: 8e-5
+  name: adam
+  lr: 5e-5
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
   beta_1: 0.9
-  beta_2: 0.999
+  beta_2: 0.95
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 128
+    warmup: 512
     min_lr: 1e-7
     gamma: 0.2
     num_restarts: 1
