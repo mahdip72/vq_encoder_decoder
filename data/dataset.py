@@ -626,19 +626,46 @@ class GCPNetDataset(Dataset):
     def __len__(self):
         return len(self.h5_samples)
 
+    @staticmethod
+    def recenter_coordinates(coordinates):
+        """
+        Recenters the 3D coordinates of a protein structure.
+
+        Parameters:
+        - coordinates: A PyTorch tensor of shape (num_amino_acids, 4, 3), representing
+          the 3D coordinates of the backbone atoms.
+
+        Returns:
+        - A tensor of the same shape, but recentered to the center of the coordinates.
+        """
+        # Flatten to shape (num_atoms, 3) to calculate the center of mass
+        num_amino_acids, num_atoms, _ = coordinates.shape
+        flattened_coordinates = coordinates.view(-1, 3)
+
+        # Compute the center of mass (mean of all coordinates)
+        center_of_mass = flattened_coordinates.mean(dim=0)
+
+        # Subtract the center of mass from each coordinate to recenter
+        recentered_coordinates = coordinates - center_of_mass
+
+        return recentered_coordinates
+
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
         basename = os.path.basename(sample_path)
         pid = basename.split('.h5')[0]
+
+        coords_list = self.recenter_coordinates(torch.tensor(sample[1].tolist())).tolist()
+        # coords_list = torch.tensor(sample[1].tolist())
         sample_dict = {'name': pid,
-                       'coords': sample[1].tolist(),
+                       'coords': coords_list,
                        'seq': sample[0].decode('utf-8')}
         feature = self._featurize_as_graph(sample_dict)
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
         raw_seqs = sample[0].decode('utf-8')
-        coords_list = sample[1].tolist()
+        coords_list = sample_dict['coords']
         coords_tensor = torch.Tensor(coords_list)
 
         coords_tensor = coords_tensor[:self.max_length, ...]
@@ -657,6 +684,9 @@ class GCPNetDataset(Dataset):
         coords = coords.squeeze(0)
         masks = masks.squeeze(0)
 
+        # find if nan values in the features print something
+        if i >= 30:
+            pass
         return [feature, raw_seqs, plddt_scores, pid, coords, masks]
 
     def _featurize_as_graph(self, protein):
