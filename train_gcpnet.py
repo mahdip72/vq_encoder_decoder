@@ -258,8 +258,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # Denormalize the outputs and labels
             # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
             # masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
-            masked_outputs = (masked_outputs*10).reshape(-1, 3)
-            masked_labels = (masked_labels*10).reshape(-1, 3)
+            masked_outputs = (masked_outputs).reshape(-1, 3)
+            masked_labels = (masked_labels).reshape(-1, 3)
 
             # Update the metrics
             mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
