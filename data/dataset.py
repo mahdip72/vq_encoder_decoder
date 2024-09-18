@@ -640,7 +640,7 @@ class GCPNetDataset(Dataset):
         basename = os.path.basename(sample_path)
         pid = basename.split('.h5')[0]
 
-        coords_list = self.recenter_coordinates(torch.tensor(sample[1].tolist())).tolist()
+        coords_list = self.recenter_coordinates(self.handle_nan_coordinates(torch.tensor(sample[1].tolist()))).tolist()
         # coords_list = torch.tensor(sample[1].tolist())
         sample_dict = {'name': pid,
                        'coords': coords_list,
@@ -654,7 +654,6 @@ class GCPNetDataset(Dataset):
 
         coords_tensor = coords_tensor[:self.max_length, ...]
 
-        coords_tensor = self.handle_nan_coordinates(coords_tensor)
         # coords_tensor = self.processor.normalize_coords(coords_tensor)
         # coords_tensor = coords_tensor / 10
 
