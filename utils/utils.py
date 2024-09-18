@@ -141,37 +141,9 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
     # If the 'resume' flag is True, load the saved models checkpoints.
     if configs.resume.resume:
         model_checkpoint = torch.load(configs.resume.resume_path, map_location='cpu')
-        # state_dict = model_checkpoint['model_state_dict']
-        # new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
         pretrained_state_dict = model_checkpoint['model_state_dict']
-        model_state_dict = net.state_dict()
+        loading_log = net.load_state_dict(pretrained_state_dict, strict=False)
 
-        if configs.resume.handle_shape_missmatch:
-            if accelerator.is_main_process:
-                logging.info(f'Consider handling shape miss match to reload the checkpoint.')
-
-        for name, param in pretrained_state_dict.items():
-            if name in model_state_dict:
-                if model_state_dict[name].size() == param.size():
-                    model_state_dict[name].copy_(param)
-                elif configs.resume.handle_shape_missmatch:
-                    # Copy only the overlapping parts of the tensor
-                    # Assumes the mismatch is in the first dimension
-                    if len(model_state_dict[name].size()) == 2:
-                        min_size = min(model_state_dict[name].size(0), param.size(0))
-                        model_state_dict[name][:min_size].copy_(param[:min_size])
-                    else:
-                        min_size = min(model_state_dict[name].size(1), param.size(1))
-                        model_state_dict[name][:, :min_size].copy_(param[:, :min_size])
-                    if accelerator.is_main_process:
-                        logging.info(
-                            f'Copied overlapping parts of this layer: {name}, Checkpoint shape: {param.size()}, Model shape: {model_state_dict[name].size()}')
-                else:
-                    if accelerator.is_main_process:
-                        logging.info(
-                            f'Ignore {name} layer, missmatch: Checkpoint shape: {param.size()}, Model shape: {model_state_dict[name].size()}')
-
-        loading_log = net.load_state_dict(model_state_dict, strict=False)
         if accelerator.is_main_process:
             logging.info(f'Loading checkpoint log: {loading_log}')
 
