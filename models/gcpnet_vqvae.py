@@ -19,7 +19,7 @@ class VQVAETransformer(nn.Module):
         self.encoder_dim = configs.model.vqvae.encoder.dimension
         self.decoder_dim = configs.model.vqvae.decoder.dimension
 
-        input_shape = 128
+        input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
 
         # Encoder
         self.encoder_tail = nn.Sequential(
@@ -44,14 +44,14 @@ class VQVAETransformer(nn.Module):
         #     codebook_size=codebook_size,
         #     decay=decay,
         #     commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
-            # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
-            # orthogonal_reg_max_codes=512,
-            # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
-            # orthogonal_reg_active_codes_only=False
-            # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
+        # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
+        # orthogonal_reg_max_codes=512,
+        # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+        # orthogonal_reg_active_codes_only=False
+        # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
         # )
 
-        self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.decoder_dim) * .02)
+        # self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.decoder_dim) * .02)
 
         self.decoder_tail = nn.Sequential(
             nn.Conv1d(latent_dim, self.decoder_dim, 1),
@@ -99,7 +99,11 @@ class VQVAETransformer(nn.Module):
 
         x = x.permute(0, 2, 1)
         # x = x + self.pos_embed_decoder
-        # x = self.decoder_blocks(x)
+        x = self.decoder_blocks(x)
+        # x = x.permute(0, 2, 1)
+
+        # x = self.decoder_head(x)*10
+        # x = x.permute(0, 2, 1)
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
