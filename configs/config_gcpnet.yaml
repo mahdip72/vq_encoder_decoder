@@ -111,7 +111,7 @@ train_settings:
   max_task_samples: 16
 
 valid_settings:
-  data_path: ../../datasets/vqvae/validation_set_1024_h5/
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   do_every: 256
   save_pdb_every: 256
   batch_size: 16
@@ -119,7 +119,7 @@ valid_settings:
 
 visualization_settings:
   data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
-  fasta_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
+  fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 4096
   batch_size: 1
   num_workers: 4

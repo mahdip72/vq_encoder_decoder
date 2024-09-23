@@ -208,9 +208,7 @@ def load_opt(model, config, logging):
         opt = optim.AdaBelief(model.parameters(), lr=config.optimizer.lr, eps=config.optimizer.eps,
                               decoupled_decay=True,
                               weight_decay=config.optimizer.weight_decay, rectify=False)
-    elif config.optimizer.name.lower() == 'adam':
-        # opt = eval('torch.optim.' + config.optimizer.name)(models.parameters(), lr=config.optimizer.lr, eps=eps,
-        #                                       weight_decay=config.optimizer.weight_decay)
+    elif config.optimizer.name.lower() == 'adam' and config.optimizer.weight_decouple:
         if config.optimizer.use_8bit_adam:
             import bitsandbytes
             logging.info('use 8-bit adamw')
@@ -227,6 +225,15 @@ def load_opt(model, config, logging):
                 weight_decay=float(config.optimizer.weight_decay),
                 eps=float(config.optimizer.eps)
             )
+    elif config.optimizer.name.lower() == 'adam':
+        opt = optim.Adam(model.parameters(), lr=config.optimizer.lr, weight_decay=config.optimizer.weight_decay,
+                         eps=config.optimizer.eps, betas=(config.optimizer.beta_1, config.optimizer.beta_2))
+
+    elif config.optimizer.name.lower() == 'sgd' and config.optimizer.weight_decouple:
+        raise ValueError('SGD with weight decouple is not supported yet')
+
+    elif config.optimizer.name.lower() == 'sgd':
+        opt = optim.SGD(model.parameters(), lr=config.optimizer.lr, weight_decay=config.optimizer.weight_decay)
 
     elif config.optimizer.name.lower() == 'schedulerfree':
         import schedulefree
