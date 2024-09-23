@@ -86,9 +86,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            if epoch % 512 == 0 and epoch != 0:
-                ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'outputs_epoch_{epoch}_step_{i+1}'))
-                ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'labels_step_{i+1}'))
+            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0:
+                ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'train_outputs_epoch_{epoch}_step_{i+1}'))
+                ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'train_labels_step_{i+1}'))
 
             # Compute the loss
             masked_outputs = trans_pred_coords[masks]
@@ -252,6 +252,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
+            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0:
+                ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'valid_outputs_epoch_{epoch}_step_{i+1}'))
+                ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'valid_labels_step_{i+1}'))
+
             masked_outputs = trans_pred_coords[masks]
             masked_labels = trans_true_coords[masks]
 
@@ -335,7 +339,7 @@ def main(dict_config, config_file_path):
     # Set find_unused_parameters to True
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(
-        kwargs_handlers=[ddp_kwargs],
+        # kwargs_handlers=[ddp_kwargs],
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
     )
@@ -420,7 +424,7 @@ def main(dict_config, config_file_path):
                                             optimizer=optimizer,
                                             scheduler=scheduler, configs=configs,
                                             logging=logging, global_step=global_step,
-                                            writer=valid_writer)
+                                            writer=valid_writer, result_path=result_path)
             end_time = time.time()
             valid_time = end_time - start_time
             if accelerator.is_main_process:
@@ -454,6 +458,7 @@ def main(dict_config, config_file_path):
                                 configs=configs)
                 if accelerator.is_main_process:
                     logging.info(f'\tsaving the best models in {model_path}')
+                    logging.info(f'\tbest valid gdtts: {best_valid_metrics["gdtts"]:.4f}')
 
         if epoch % configs.visualization_settings.do_every == 0:
             if accelerator.is_main_process:

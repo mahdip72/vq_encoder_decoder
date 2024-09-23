@@ -1,7 +1,7 @@
 fix_seed: 0
 checkpoints_every: 1024
 tensorboard_log: True
-tqdm_progress_bar: True
+tqdm_progress_bar: False
 result_path: ./results/gcpnet_vqvae/hp_test
 normalizer_path: ./data/normalizer.pkl
 
@@ -60,7 +60,7 @@ model:
       e_hidden_dim: 32
       xi_hidden_dim: 4
       num_layers: 6
-      num_bb_update_layers: 6
+      num_bb_update_layers: 2
       dropout: 0.0
     # GCPNet layer config #
     layer_cfg:
@@ -88,11 +88,11 @@ model:
       commitment_weight : 1.0
       alpha: 1.0
     encoder:
-      dimension: 128
-      num_blocks: 8
+      dimension: 256
+      num_blocks: 4
     decoder:
-      dimension: 128
-      num_blocks: 8
+      dimension: 256
+      num_blocks: 4
       chi_init_dimension: 2
       xi_init_dimension: 1
       activation_function: gelu
@@ -104,15 +104,17 @@ train_settings:
   loss: crossentropy
   sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 4
+  save_pdb_every: 256
+  batch_size: 16
   num_workers: 2
   grad_accumulation: 1
-  max_task_samples: 2048
+  max_task_samples: 16
 
 valid_settings:
-  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
-  do_every: 2048
-  batch_size: 8
+  data_path: ../../datasets/vqvae/validation_set_1024_h5/
+  do_every: 256
+  save_pdb_every: 256
+  batch_size: 16
   num_workers: 0
 
 visualization_settings:
@@ -124,7 +126,7 @@ visualization_settings:
 
 optimizer:
   name: adam
-  lr: 5e-5
+  lr: 1e-5
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -133,7 +135,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 512
+    warmup: 0
     min_lr: 1e-7
     gamma: 0.2
     num_restarts: 1
