@@ -186,7 +186,10 @@ class GCPNetPredictor(nn.Module):
         h = feats[mask]
         mask = torch.ones((batch_num_nodes,), device=device, dtype=torch.bool)
 
+        # Initialize the backbone positions in a translation-invariant manner by
+        # subtracting the mean of the Ca atom positions for each corresponding residue
         x_bb = self.output_project_init(h).view(-1, 3, 3)
+        x_bb = x_bb - x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
         x = x_bb[:, 1, :]
 
         chi = batch_orientations(x.detach(), x_slice_index)
@@ -258,10 +261,14 @@ class GCPNetPredictor(nn.Module):
         _, batch.h, batch.x_bb = self.output_projections[0](batch)
 
         for proj in self.output_projections[1:]:
+            # Update the backbone positions iteratively in a translation-invariant manner by
+            # subtracting the mean of the Ca atom positions for each corresponding residue
+            batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
             batch = self.construct_updated_graph_batch(batch)
             _, batch.h, batch.x_bb = proj(batch)
 
         # Pad the output back into the original shape
+        batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
         x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
         x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
 
