@@ -86,7 +86,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0:
+            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'train_outputs_epoch_{epoch}_step_{i+1}'))
                 ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'train_labels_step_{i+1}'))
 
@@ -252,7 +252,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0:
+            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'valid_outputs_epoch_{epoch}_step_{i+1}'))
                 ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks, os.path.join(kwargs['result_path'], f'valid_labels_step_{i+1}'))
 
