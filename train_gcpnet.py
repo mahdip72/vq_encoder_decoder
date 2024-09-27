@@ -116,6 +116,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
+                if global_step % 2 == 0:
+                    # Calculate the gradient norm every 2 steps
+                    grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None]), 2)
+                    writer.add_scalar('gradient norm', grad_norm.item(), global_step)
+
                 if optimizer_name != 'schedulerfree':
                     accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
 
