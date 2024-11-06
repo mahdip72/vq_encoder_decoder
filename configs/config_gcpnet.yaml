@@ -93,10 +93,16 @@ model:
       num_blocks: 4
     decoder:
       dimension: 256
-      num_blocks: 4
+      num_heads: 20
+      num_blocks: 30
       chi_init_dimension: 2
       xi_init_dimension: 1
       activation_function: gelu
+      special_tokens: {}
+      max_pae_bin: 31.0
+      pae_bins: 64
+      plddt_bins: 50
+      direction_loss_bins: 16
 
 train_settings:
   data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5

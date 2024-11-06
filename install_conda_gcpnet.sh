@@ -1,6 +1,6 @@
 #!/bin/bash
 
-mamba install --yes pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia
+mamba install --yes pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
 mamba install --yes cudatoolkit-dev -c senyan.dev
 mamba install --yes pandas
 mamba install --yes pytorch-scatter -c pyg

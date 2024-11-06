@@ -1,9 +1,13 @@
 import torch.nn as nn
 import torch
 import torch_geometric
-from vector_quantize_pytorch import VectorQuantize
+# from vector_quantize_pytorch import VectorQuantize
+from gcpnet.layers.structure_proj import Dim6RotStructureHead
+from gcpnet.layers.transformer_stack import TransformerStack
 from gcpnet.models import GCPNetModel
+# from gcpnet.models.vqvae import CategoricalMixture, PairwisePredictionHead, RegressionHead
 from gcpnet.utils import _normalize, batch_orientations
+# from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
 
 
@@ -283,170 +287,131 @@ class GeometricDecoder(nn.Module):
     def __init__(self, configs):
         super(GeometricDecoder, self).__init__()
 
-        self.max_length = configs.model.max_length
+        self.encoder_channels = configs.model.vqvae.encoder.dimension
+        self.decoder_channels = configs.model.vqvae.decoder.dimension
 
-        # Define the number of residual blocks for encoder and decoder
-        self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
-        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
-        self.encoder_dim = configs.model.vqvae.encoder.dimension
-        self.decoder_dim = configs.model.vqvae.decoder.dimension
+        self.num_heads = configs.model.vqvae.decoder.num_heads
+        self.num_layers = configs.model.vqvae.decoder.num_blocks
 
-        self.top_k = configs.model.struct_encoder.top_k
+        self.vqvae_codebook_size = configs.model.vqvae.vector_quantization.codebook_size
+        self.special_tokens = configs.model.vqvae.decoder.special_tokens
+        self.max_pae_bin = configs.model.vqvae.decoder.max_pae_bin
 
-        self.chi_init_dim = configs.model.vqvae.decoder.chi_init_dimension
-        self.xi_init_dim = configs.model.vqvae.decoder.xi_init_dimension
+        self.direction_loss_bins = configs.model.vqvae.decoder.direction_loss_bins
+        self.pae_bins = configs.model.vqvae.decoder.pae_bins
 
-        self.pos_scale_factor = configs.model.struct_encoder.pos_scale_factor
-
-        # GCPNet output (positions) projection #
-        configs.model.struct_encoder.module_cfg.predict_backbone_positions = True
-        configs.model.struct_encoder.module_cfg.predict_node_rep = False
-        configs.model.struct_encoder.model_cfg.num_layers = 1
-
-        # NOTE: To preserve roto-translation invariance, only a linear term must be used
-        self.output_project_init = nn.Linear(self.decoder_dim, 3 * 3, bias=False)
-
-        output_projection_layers = []
-
-        # Embedding layer
-        configs.model.struct_encoder.use_rotary_embeddings = False
-        configs.model.struct_encoder.use_positional_embeddings = False
-
-        configs.model.struct_encoder.use_foldseek = False
-        configs.model.struct_encoder.use_foldseek_vector = False
-
-        configs.model.struct_encoder.model_cfg.h_input_dim = self.decoder_dim
-        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
-        configs.model.struct_encoder.model_cfg.e_input_dim = self.decoder_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
-        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
-
-        output_projection_layers.append(
-            GCPNetModel(
-                module_cfg=configs.model.struct_encoder.module_cfg,
-                model_cfg=configs.model.struct_encoder.model_cfg,
-                layer_cfg=configs.model.struct_encoder.layer_cfg,
-                configs=configs,
-                backbone_key="x_bb",
-            )
+        # self.embed = nn.Embedding(
+        #     self.vqvae_codebook_size + len(self.special_tokens), self.decoder_channels
+        # )
+        self.embed = nn.Linear(
+            self.encoder_channels, self.decoder_channels, bias=False
+        )
+        self.decoder_stack = TransformerStack(
+            self.decoder_channels, self.num_heads, 1, self.num_layers, scale_residue=False, n_layers_geom=0
         )
 
-        # Output projection layers
-        configs.model.struct_encoder.model_cfg.h_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim
-        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
-        configs.model.struct_encoder.model_cfg.e_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
-        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
-
-        output_projection_layers.extend(
-            [
-                GCPNetModel(
-                    module_cfg=configs.model.struct_encoder.module_cfg,
-                    model_cfg=configs.model.struct_encoder.model_cfg,
-                    layer_cfg=configs.model.struct_encoder.layer_cfg,
-                    configs=configs,
-                    backbone_key="x_bb",
-                )
-                for _ in range(
-                configs.model.struct_encoder.model_cfg.num_bb_update_layers
-            )
-            ]
+        self.affine_output_projection = Dim6RotStructureHead(
+            self.decoder_channels,
+            trans_scale_factor=configs.model.struct_encoder.pos_scale_factor,
+            predict_torsion_angles=False,
         )
 
-        self.output_projections = nn.ModuleList(output_projection_layers)
+        # self.pairwise_bins = [
+        #     64,  # distogram
+        #     self.direction_loss_bins * 6,  # direction bins
+        #     self.pae_bins,  # predicted aligned error
+        # ]
+        # self.pairwise_classification_head = PairwisePredictionHead(
+        #     self.decoder_channels,
+        #     downproject_dim=128,
+        #     hidden_dim=128,
+        #     n_bins=sum(self.pairwise_bins),
+        #     bias=False,
+        # )
 
-    def construct_learnable_initial_graph_batch(self, feats, mask, batch_indices, x_slice_index):
-        batch_num_nodes = mask.sum().item()
-        device = feats.device
+        # self.plddt_head = RegressionHead(
+        #     embed_dim=self.decoder_channels,
+        #     output_dim=configs.model.vqvae.decoder.plddt_bins,
+        # )
 
-        h = feats[mask]
-        mask = torch.ones((batch_num_nodes,), device=device, dtype=torch.bool)
+    def forward(
+        self,
+        structure_tokens: torch.Tensor,
+        mask: torch.Tensor,  # NOTE: Currently unused
+        batch_indices: torch.Tensor,  # NOTE: Currently unused
+        x_slice_index: torch.Tensor,  # NOTE: Currently unused
+        attention_mask: torch.Tensor | None = None,
+        sequence_id: torch.Tensor | None = None,
+    ):
+        if attention_mask is None:
+            attention_mask = torch.ones_like(structure_tokens, dtype=torch.bool)
 
-        # Initialize the backbone positions in a translation-invariant manner by
-        # subtracting the mean of the Ca atom positions for each corresponding residue
-        x_bb = self.output_project_init(h).view(-1, 3, 3)
-        x_bb = x_bb - x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
-        x = x_bb[:, 1, :]
+        attention_mask = attention_mask.bool()
+        if sequence_id is None:
+            sequence_id = torch.zeros_like(structure_tokens, dtype=torch.int64)
+        # not supported for now
+        chain_id = torch.zeros_like(structure_tokens, dtype=torch.int64)
 
-        chi = batch_orientations(x.detach(), x_slice_index)
+        # # check that BOS and EOS are set correctly
+        # assert (
+        #     structure_tokens[:, 0].eq(self.special_tokens["BOS"]).all()
+        # ), "First token in structure_tokens must be BOS token"
+        # assert (
+        #     structure_tokens[
+        #         torch.arange(structure_tokens.shape[0]), attention_mask.sum(1) - 1
+        #     ]
+        #     .eq(self.special_tokens["EOS"])
+        #     .all()
+        # ), "Last token in structure_tokens must be EOS token"
+        # assert (
+        #     (structure_tokens < 0).sum() == 0
+        # ), "All structure tokens set to -1 should be replaced with BOS, EOS, PAD, or MASK tokens by now, but that isn't the case!"
 
-        edge_index = torch_geometric.nn.knn_graph(
-            x.detach(),
-            self.top_k,
-            batch=batch_indices,
-            loop=False,
-            flow="source_to_target",
-            cosine=False,
+        x = self.embed(structure_tokens)
+        # !!! NOTE: Attention mask is actually unused here so watch out
+        x, _ = self.decoder_stack.forward(
+            x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id
         )
 
-        e = torch.cat([h[edge_index[0]], h[edge_index[1]]], dim=-1)
-        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2).detach()
-
-        batch = torch_geometric.data.Batch(
-            x=x,
-            x_bb=x_bb,
-            seq=None,
-            h=h,
-            chi=chi,
-            e=e,
-            xi=xi,
-            edge_index=edge_index,
-            mask=mask,
-            batch=batch_indices,
-            x_slice_index=x_slice_index,
+        tensor7_affine, bb_pred = self.affine_output_projection(
+            x, affine=None, affine_mask=torch.zeros_like(attention_mask)
         )
 
-        return batch
+        # plddt_value, ptm, pae = None, None, None
+        # pairwise_logits = self.pairwise_classification_head(x)
+        # _, _, pae_logits = [
+        #     (o if o.numel() > 0 else None)
+        #     for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
+        # ]
 
-    def construct_updated_graph_batch(self, batch):
-        x = batch.x_bb[:, 1]
+        # special_tokens_mask = structure_tokens >= min(self.special_tokens.values())
+        # pae = compute_predicted_aligned_error(
+        #     pae_logits,  # type: ignore
+        #     aa_mask=~special_tokens_mask,
+        #     sequence_id=sequence_id,
+        #     max_bin=self.max_pae_bin,
+        # )
+        # # NOTE: This might be broken for chainbreak tokens? We might align to the chainbreak
+        # ptm = compute_tm(
+        #     pae_logits,  # type: ignore
+        #     aa_mask=~special_tokens_mask,
+        #     max_bin=self.max_pae_bin,
+        # )
 
-        chi = batch_orientations(x.detach(), batch.x_slice_index)
+        # plddt_logits = self.plddt_head(x)
+        # plddt_value = CategoricalMixture(
+        #     plddt_logits, bins=plddt_logits.shape[-1]
+        # ).mean()
 
-        edge_index = torch_geometric.nn.knn_graph(
-            x.detach(),
-            self.top_k,
-            batch=batch.batch,
-            loop=False,
-            flow="source_to_target",
-            cosine=False,
-        )
+        # return dict(
+        #     tensor7_affine=tensor7_affine,
+        #     bb_pred=bb_pred,
+        #     plddt=plddt_value,
+        #     ptm=ptm,
+        #     predicted_aligned_error=pae,
+        # )
 
-        e = torch.cat([batch.h[edge_index[0]], batch.h[edge_index[1]]], dim=-1)
-        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2).detach()
-
-        new_batch = torch_geometric.data.Batch(
-            x=x,
-            x_bb=batch.x_bb,
-            seq=None,
-            h=batch.h,
-            chi=chi,
-            e=e,
-            xi=xi,
-            edge_index=edge_index,
-            mask=batch.mask,
-            batch=batch.batch,
-            x_slice_index=batch.x_slice_index,
-        )
-
-        return new_batch
-
-    def forward(self, x, mask, batch_indices, x_slice_index):
-        # Apply output projections in a sparse graph format
-        batch = self.construct_learnable_initial_graph_batch(x, mask, batch_indices, x_slice_index)
-        _, batch.h, batch.x_bb = self.output_projections[0](batch)
-
-        for proj in self.output_projections[1:]:
-            # Update the backbone positions iteratively in a translation-invariant manner by
-            # subtracting the mean of the Ca atom positions for each corresponding residue
-            batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
-            batch = self.construct_updated_graph_batch(batch)
-            _, batch.h, batch.x_bb = proj(batch)
-
-        # Pad the output back into the original shape
-        batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
-        x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
-        x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
-
-        return x
+        return bb_pred
 
 
 class GCPNetVQVAE(nn.Module):
