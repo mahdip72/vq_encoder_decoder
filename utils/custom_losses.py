@@ -539,8 +539,6 @@ def test_radius_of_gyration_loss():
     print("Radius of Gyration Loss:", loss.item())
 
 
-import torch
-
 def calculate_aligned_mse_loss(x_predicted, x_true, masks):
     """
     Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
@@ -630,6 +628,14 @@ def kabsch_alignment(x_true, x_predicted, mask):
     x_tru_aligned[mask] = x_tru_aligned_masked
 
     return x_tru_aligned
+
+
+def calculate_decoder_loss(x_predicted, x_true, masks, seq):
+    kabsch_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
+
+    loss = kabsch_loss
+
+    return loss, x_pred_aligned, x_true_aligned
 
 
 if __name__ == '__main__':

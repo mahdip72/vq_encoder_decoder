@@ -3,7 +3,7 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.custom_losses import calculate_aligned_mse_loss
+from utils.custom_losses import calculate_decoder_loss
 from utils.utils import ca_coords_to_pdb, load_configs, load_checkpoints, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils.metrics import GDTTS
 from accelerate import Accelerator
@@ -12,7 +12,7 @@ from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.gcpnet_vqvae import prepare_models_gcpnet_vqvae
+from models.gcpnet_vqvae import GCPNetVQVAE, prepare_models_gcpnet_vqvae
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -64,17 +64,19 @@ def train_loop(net, train_loader, epoch, **kwargs):
         with accelerator.accumulate(net):
             labels = data['target_coords']
             masks = data['masks']
+
+            seq_list = GCPNetVQVAE.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
+
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
-            # Rescale the outputs and labels to the original scale
-            # outputs *= 10
-            # labels *= 10
-
-            rec_loss, trans_pred_coords, trans_true_coords = calculate_aligned_mse_loss(
+            # Compute the loss
+            rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
                 outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks.float(),
+                seq.squeeze(-1),
             )
 
             rec_loss = rec_loss.mean()
@@ -238,14 +240,19 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         with torch.inference_mode():
             labels = data['target_coords']
             masks = data['masks']
+
+            seq_list = GCPNetVQVAE.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
+
             optimizer.zero_grad()
             outputs, indices, commit_loss = net(data)
 
             # Compute the loss
-            rec_loss, trans_pred_coords, trans_true_coords = calculate_aligned_mse_loss(
+            rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
                 outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks.float(),
+                seq.squeeze(-1),
             )
 
             rec_loss = rec_loss.mean()

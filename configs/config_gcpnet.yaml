@@ -133,7 +133,7 @@ visualization_settings:
 
 optimizer:
   name: adam
-  lr: 1e-5
+  lr: 4e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -143,6 +143,6 @@ optimizer:
   grad_clip_norm: 1
   decay:
     warmup: 0
-    min_lr: 1e-7
+    min_lr: 4e-5
     gamma: 0.2
     num_restarts: 1
