@@ -12,6 +12,7 @@ resume:
 
 model:
   architecture: gcpnet_vqvae
+  decoder: geom_dec # NOTE: Must be one of `(gcpnet, geom_dec)`
   compile_model: False
   max_length: 256
   struct_encoder:
@@ -24,7 +25,7 @@ model:
     edge_s_emb_dim: 32 # Dimension of the edge state embeddings
     edge_v_emb_dim: 4 # Dimension of the edge vector embeddings
 
-    pos_scale_factor: 10.0  # By how much to upscale `GCPNetPredictor`'s output positions
+    pos_scale_factor: 10.0  # By how much to upscale the decoder's output positions
 
     # GCPNet module config #
     module_cfg:

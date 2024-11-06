@@ -109,9 +109,179 @@ class VQVAETransformer(nn.Module):
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
-class GCPNetPredictor(nn.Module):
+class GCPNetDecoder(nn.Module):
     def __init__(self, configs):
-        super(GCPNetPredictor, self).__init__()
+        super(GCPNetDecoder, self).__init__()
+
+        self.max_length = configs.model.max_length
+
+        # Define the number of residual blocks for encoder and decoder
+        self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
+        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
+        self.encoder_dim = configs.model.vqvae.encoder.dimension
+        self.decoder_dim = configs.model.vqvae.decoder.dimension
+
+        self.top_k = configs.model.struct_encoder.top_k
+
+        self.chi_init_dim = configs.model.vqvae.decoder.chi_init_dimension
+        self.xi_init_dim = configs.model.vqvae.decoder.xi_init_dimension
+
+        self.pos_scale_factor = configs.model.struct_encoder.pos_scale_factor
+
+        # GCPNet output (positions) projection #
+        configs.model.struct_encoder.module_cfg.predict_backbone_positions = True
+        configs.model.struct_encoder.module_cfg.predict_node_rep = False
+        configs.model.struct_encoder.model_cfg.num_layers = 1
+
+        # NOTE: To preserve roto-translation invariance, only a linear term must be used
+        self.output_project_init = nn.Linear(self.decoder_dim, 3 * 3, bias=False)
+
+        output_projection_layers = []
+
+        # Embedding layer
+        configs.model.struct_encoder.use_rotary_embeddings = False
+        configs.model.struct_encoder.use_positional_embeddings = False
+
+        configs.model.struct_encoder.use_foldseek = False
+        configs.model.struct_encoder.use_foldseek_vector = False
+
+        configs.model.struct_encoder.model_cfg.h_input_dim = self.decoder_dim
+        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
+        configs.model.struct_encoder.model_cfg.e_input_dim = self.decoder_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
+        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
+
+        output_projection_layers.append(
+            GCPNetModel(
+                module_cfg=configs.model.struct_encoder.module_cfg,
+                model_cfg=configs.model.struct_encoder.model_cfg,
+                layer_cfg=configs.model.struct_encoder.layer_cfg,
+                configs=configs,
+                backbone_key="x_bb",
+            )
+        )
+
+        # Output projection layers
+        configs.model.struct_encoder.model_cfg.h_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim
+        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
+        configs.model.struct_encoder.model_cfg.e_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
+        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
+
+        output_projection_layers.extend(
+            [
+                GCPNetModel(
+                    module_cfg=configs.model.struct_encoder.module_cfg,
+                    model_cfg=configs.model.struct_encoder.model_cfg,
+                    layer_cfg=configs.model.struct_encoder.layer_cfg,
+                    configs=configs,
+                    backbone_key="x_bb",
+                )
+                for _ in range(
+                configs.model.struct_encoder.model_cfg.num_bb_update_layers
+            )
+            ]
+        )
+
+        self.output_projections = nn.ModuleList(output_projection_layers)
+
+    def construct_learnable_initial_graph_batch(self, feats, mask, batch_indices, x_slice_index):
+        batch_num_nodes = mask.sum().item()
+        device = feats.device
+
+        h = feats[mask]
+        mask = torch.ones((batch_num_nodes,), device=device, dtype=torch.bool)
+
+        # Initialize the backbone positions in a translation-invariant manner by
+        # subtracting the mean of the Ca atom positions for each corresponding residue
+        x_bb = self.output_project_init(h).view(-1, 3, 3)
+        x_bb = x_bb - x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
+        x = x_bb[:, 1, :]
+
+        chi = batch_orientations(x.detach(), x_slice_index)
+
+        edge_index = torch_geometric.nn.knn_graph(
+            x.detach(),
+            self.top_k,
+            batch=batch_indices,
+            loop=False,
+            flow="source_to_target",
+            cosine=False,
+        )
+
+        e = torch.cat([h[edge_index[0]], h[edge_index[1]]], dim=-1)
+        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2).detach()
+
+        batch = torch_geometric.data.Batch(
+            x=x,
+            x_bb=x_bb,
+            seq=None,
+            h=h,
+            chi=chi,
+            e=e,
+            xi=xi,
+            edge_index=edge_index,
+            mask=mask,
+            batch=batch_indices,
+            x_slice_index=x_slice_index,
+        )
+
+        return batch
+
+    def construct_updated_graph_batch(self, batch):
+        x = batch.x_bb[:, 1]
+
+        chi = batch_orientations(x.detach(), batch.x_slice_index)
+
+        edge_index = torch_geometric.nn.knn_graph(
+            x.detach(),
+            self.top_k,
+            batch=batch.batch,
+            loop=False,
+            flow="source_to_target",
+            cosine=False,
+        )
+
+        e = torch.cat([batch.h[edge_index[0]], batch.h[edge_index[1]]], dim=-1)
+        xi = _normalize(x[edge_index[0]] - x[edge_index[1]]).unsqueeze(-2).detach()
+
+        new_batch = torch_geometric.data.Batch(
+            x=x,
+            x_bb=batch.x_bb,
+            seq=None,
+            h=batch.h,
+            chi=chi,
+            e=e,
+            xi=xi,
+            edge_index=edge_index,
+            mask=batch.mask,
+            batch=batch.batch,
+            x_slice_index=batch.x_slice_index,
+        )
+
+        return new_batch
+
+    def forward(self, x, mask, batch_indices, x_slice_index):
+        # Apply output projections in a sparse graph format
+        batch = self.construct_learnable_initial_graph_batch(x, mask, batch_indices, x_slice_index)
+        _, batch.h, batch.x_bb = self.output_projections[0](batch)
+
+        for proj in self.output_projections[1:]:
+            # Update the backbone positions iteratively in a translation-invariant manner by
+            # subtracting the mean of the Ca atom positions for each corresponding residue
+            batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
+            batch = self.construct_updated_graph_batch(batch)
+            _, batch.h, batch.x_bb = proj(batch)
+
+        # Pad the output back into the original shape
+        batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
+        x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
+        x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
+
+        return x
+    
+
+class GeometricDecoder(nn.Module):
+    def __init__(self, configs):
+        super(GeometricDecoder, self).__init__()
 
         self.max_length = configs.model.max_length
 
@@ -280,11 +450,11 @@ class GCPNetPredictor(nn.Module):
 
 
 class GCPNetVQVAE(nn.Module):
-    def __init__(self, gcpnet, vqvae, gcp_predictor, configs):
+    def __init__(self, encoder, vqvae, decoder, configs):
         super(GCPNetVQVAE, self).__init__()
-        self.gcpnet = gcpnet
+        self.encoder = encoder
         self.vqvae = vqvae
-        self.gcp_predictor = gcp_predictor
+        self.decoder = decoder
 
         self.configs = configs
         self.max_length = configs.model.max_length
@@ -341,21 +511,21 @@ class GCPNetVQVAE(nn.Module):
         return padded_features, mask, valid_batch_indices, slice_indices
 
     def forward(self, batch):
-        _, x, _ = self.gcpnet(batch=batch['graph'])
+        _, x, _ = self.encoder(batch=batch['graph'])
 
         x = self.separate_features(x, batch['graph'].batch)
         x, mask, batch_indices, x_slice_indices = self.merge_features(x, self.max_length)
 
         x, indices, commit_loss = self.vqvae(x, mask)
 
-        x = self.gcp_predictor(x, mask, batch_indices, x_slice_indices)
+        x = self.decoder(x, mask, batch_indices, x_slice_indices)
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
 def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
-    gcpnet = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
+    encoder = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
                          model_cfg=configs.model.struct_encoder.model_cfg,
                          layer_cfg=configs.model.struct_encoder.layer_cfg,
                          configs=configs)
@@ -366,9 +536,13 @@ def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
     )
-    gcp_predictor = GCPNetPredictor(configs)
 
-    gcpnet_vqvae = GCPNetVQVAE(gcpnet, vqvae, gcp_predictor, configs)
+    if configs.model.decoder == "gcpnet":
+        decoder = GCPNetDecoder(configs)
+    else:
+        decoder = GeometricDecoder(configs)
+
+    gcpnet_vqvae = GCPNetVQVAE(encoder, vqvae, decoder, configs)
 
     if accelerator.is_main_process:
         print_trainable_parameters(gcpnet_vqvae, logger, 'GCPNet-VQ-VAE')
@@ -379,7 +553,7 @@ def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils.utils import load_configs_gcpnet, get_dummy_logger
+    from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
     from data.dataset import custom_collate, GCPNetDataset
@@ -389,7 +563,7 @@ if __name__ == '__main__':
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    test_configs = load_configs_gcpnet(config_file)
+    test_configs = load_configs(config_file)
 
     test_logger = get_dummy_logger()
     accelerator = Accelerator()

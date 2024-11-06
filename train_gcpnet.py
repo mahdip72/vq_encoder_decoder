@@ -4,20 +4,15 @@ import yaml
 import os
 import torch
 from utils.custom_losses import calculate_aligned_mse_loss
-from utils.utils import load_configs, load_configs_gcpnet, prepare_saving_dir, get_logging, prepare_optimizer, \
-    prepare_tensorboard, \
-    save_checkpoint
-from utils.utils import load_checkpoints
+from utils.utils import ca_coords_to_pdb, load_configs, load_checkpoints, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils.metrics import GDTTS
 from accelerate import Accelerator
 from visualization.main import compute_visualization
-from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
 from models.gcpnet_vqvae import prepare_models_gcpnet_vqvae
-from utils.utils import ca_coords_to_pdb
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -325,10 +320,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
 
 def main(dict_config, config_file_path):
-    if dict_config["model"]["architecture"] == 'gcpnet_vqvae':
-        configs = load_configs_gcpnet(dict_config)
-    else:
-        configs = load_configs(dict_config)
+    configs = load_configs(dict_config)
 
     if isinstance(configs.fix_seed, int):
         torch.manual_seed(configs.fix_seed)
