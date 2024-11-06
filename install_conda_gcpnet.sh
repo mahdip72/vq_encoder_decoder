@@ -1,14 +1,13 @@
 #!/bin/bash
 
-mamba install --yes pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
-mamba install --yes cudatoolkit-dev -c senyan.dev
 mamba install --yes pandas
-mamba install --yes pytorch-scatter -c pyg
-mamba install --yes pytorch-cluster -c pyg
 mamba install --yes matplotlib
 mamba install --yes openpyxl
-pip install torchtext
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu118
 pip install torch_geometric
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu118.html
+pip install torch-cluster -f https://data.pyg.org/whl/torch-2.4.0+cu118.html
+pip install torchtext
 pip install torchmetrics
 pip install einops
 pip install accelerate
