@@ -24,9 +24,9 @@ from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch_geometric.data import Batch
 
-from gcpnet import radial
+from gcpnet.models import radial
 from gcpnet.wrappers import ScalarVector
-from gcpnet.utils import (
+from gcpnet.utils.misc import (
     get_activations,
     is_identity,
     safe_norm,

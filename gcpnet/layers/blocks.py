@@ -145,6 +145,7 @@ class UnifiedTransformerBlock(nn.Module):
             x = x + r1 / self.scaling_factor
 
         if self.use_geom_attn:
+            raise NotImplementedError("Geometric attention is not implemented yet.")
             r2 = self.geom_attn(x, frames, frames_mask, sequence_id, chain_id)
             x = x + r2 / self.scaling_factor
 

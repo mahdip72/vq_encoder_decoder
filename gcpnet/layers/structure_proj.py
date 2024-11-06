@@ -27,8 +27,7 @@ class Dim6RotStructureHead(nn.Module):
         self.ffn1 = nn.Linear(input_dim, input_dim)
         self.activation_fn = nn.GELU()
         self.norm = nn.LayerNorm(input_dim)
-        # self.proj = nn.Linear(input_dim, 9 + 7 * 2)
-        self.proj = nn.Linear(input_dim, 9)
+        self.proj = nn.Linear(input_dim, 9 + (7 * 2 if predict_torsion_angles else 0))
         self.trans_scale_factor = trans_scale_factor
         self.predict_torsion_angles = predict_torsion_angles
         self.bb_local_coords = torch.tensor(BB_COORDINATES).float()
@@ -49,8 +48,10 @@ class Dim6RotStructureHead(nn.Module):
         x = self.ffn1(x)
         x = self.activation_fn(x)
         x = self.norm(x)
-        # trans, x, y, angles = self.proj(x).split([3, 3, 3, 7 * 2], dim=-1)
-        trans, x, y = self.proj(x).split([3, 3, 3], dim=-1)
+        if self.predict_torsion_angles:
+            trans, x, y, angles = self.proj(x).split([3, 3, 3, 7 * 2], dim=-1)
+        else:
+            trans, x, y = self.proj(x).split([3, 3, 3], dim=-1)
         trans = trans * self.trans_scale_factor
         x = x / (x.norm(dim=-1, keepdim=True) + 1e-5)
         y = y / (y.norm(dim=-1, keepdim=True) + 1e-5)

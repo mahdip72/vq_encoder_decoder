@@ -14,7 +14,7 @@ model:
   architecture: gcpnet_vqvae
   decoder: geom_dec # NOTE: Must be one of `(gcpnet, geom_dec)`
   compile_model: False
-  max_length: 256
+  max_length: 512
   struct_encoder:
     top_k: 30 #default 30 The number of edges to draw per node (as destination node).
     num_positional_embeddings: 16  #default 16
@@ -93,7 +93,7 @@ model:
       num_blocks: 4
     decoder:
       dimension: 256
-      num_heads: 20
+      num_heads: 16
       num_blocks: 30
       chi_init_dimension: 2
       xi_init_dimension: 1

@@ -4,9 +4,9 @@ import torch_geometric
 # from vector_quantize_pytorch import VectorQuantize
 from gcpnet.layers.structure_proj import Dim6RotStructureHead
 from gcpnet.layers.transformer_stack import TransformerStack
-from gcpnet.models import GCPNetModel
+from gcpnet.models.gcpnet import GCPNetModel
 # from gcpnet.models.vqvae import CategoricalMixture, PairwisePredictionHead, RegressionHead
-from gcpnet.utils import _normalize, batch_orientations
+from gcpnet.utils.misc import _normalize, batch_orientations
 # from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
 
@@ -337,18 +337,12 @@ class GeometricDecoder(nn.Module):
     def forward(
         self,
         structure_tokens: torch.Tensor,
-        mask: torch.Tensor,  # NOTE: Currently unused
+        mask: torch.Tensor,
         batch_indices: torch.Tensor,  # NOTE: Currently unused
         x_slice_index: torch.Tensor,  # NOTE: Currently unused
-        attention_mask: torch.Tensor | None = None,
-        sequence_id: torch.Tensor | None = None,
     ):
-        if attention_mask is None:
-            attention_mask = torch.ones_like(structure_tokens, dtype=torch.bool)
+        sequence_id = mask.bool()
 
-        attention_mask = attention_mask.bool()
-        if sequence_id is None:
-            sequence_id = torch.zeros_like(structure_tokens, dtype=torch.int64)
         # not supported for now
         chain_id = torch.zeros_like(structure_tokens, dtype=torch.int64)
 
@@ -358,7 +352,7 @@ class GeometricDecoder(nn.Module):
         # ), "First token in structure_tokens must be BOS token"
         # assert (
         #     structure_tokens[
-        #         torch.arange(structure_tokens.shape[0]), attention_mask.sum(1) - 1
+        #         torch.arange(structure_tokens.shape[0]), mask.sum(1) - 1
         #     ]
         #     .eq(self.special_tokens["EOS"])
         #     .all()
@@ -374,7 +368,7 @@ class GeometricDecoder(nn.Module):
         )
 
         tensor7_affine, bb_pred = self.affine_output_projection(
-            x, affine=None, affine_mask=torch.zeros_like(attention_mask)
+            x, affine=None, affine_mask=torch.zeros_like(mask)
         )
 
         # plddt_value, ptm, pae = None, None, None
@@ -411,7 +405,7 @@ class GeometricDecoder(nn.Module):
         #     predicted_aligned_error=pae,
         # )
 
-        return bb_pred
+        return bb_pred.flatten(-2)
 
 
 class GCPNetVQVAE(nn.Module):
