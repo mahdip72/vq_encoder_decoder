@@ -6,6 +6,7 @@ from gcpnet.layers.structure_proj import Dim6RotStructureHead
 from gcpnet.layers.transformer_stack import TransformerStack
 from gcpnet.models.gcpnet import GCPNetModel
 # from gcpnet.models.vqvae import CategoricalMixture, PairwisePredictionHead, RegressionHead
+from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
 from gcpnet.utils.misc import _normalize, batch_orientations
 # from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
@@ -280,7 +281,7 @@ class GCPNetDecoder(nn.Module):
         x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
         x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
 
-        return x
+        return x, None, None, None
     
 
 class GeometricDecoder(nn.Module):
@@ -316,23 +317,28 @@ class GeometricDecoder(nn.Module):
             predict_torsion_angles=False,
         )
 
-        # self.pairwise_bins = [
-        #     64,  # distogram
-        #     self.direction_loss_bins * 6,  # direction bins
-        #     self.pae_bins,  # predicted aligned error
-        # ]
-        # self.pairwise_classification_head = PairwisePredictionHead(
-        #     self.decoder_channels,
-        #     downproject_dim=128,
-        #     hidden_dim=128,
-        #     n_bins=sum(self.pairwise_bins),
-        #     bias=False,
-        # )
+        self.pairwise_bins = [
+            64,  # distogram
+            self.direction_loss_bins * 6,  # direction bins
+            # self.pae_bins,  # predicted aligned error
+        ]
+        self.pairwise_classification_head = PairwisePredictionHead(
+            self.decoder_channels,
+            downproject_dim=128,
+            hidden_dim=128,
+            n_bins=sum(self.pairwise_bins),
+            bias=False,
+        )
 
         # self.plddt_head = RegressionHead(
         #     embed_dim=self.decoder_channels,
         #     output_dim=configs.model.vqvae.decoder.plddt_bins,
         # )
+
+        self.inverse_folding_head = RegressionHead(
+            embed_dim=self.decoder_channels,
+            output_dim=24,  # NOTE: 20 standard + 4 non-standard amino acid types, unknown type not included
+        )
 
     def forward(
         self,
@@ -372,11 +378,15 @@ class GeometricDecoder(nn.Module):
         )
 
         # plddt_value, ptm, pae = None, None, None
-        # pairwise_logits = self.pairwise_classification_head(x)
+        pairwise_logits = self.pairwise_classification_head(x)
         # _, _, pae_logits = [
         #     (o if o.numel() > 0 else None)
         #     for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
         # ]
+        dist_loss_logits, dir_loss_logits = [
+            (o if o.numel() > 0 else None)
+            for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
+        ]
 
         # special_tokens_mask = structure_tokens >= min(self.special_tokens.values())
         # pae = compute_predicted_aligned_error(
@@ -405,7 +415,9 @@ class GeometricDecoder(nn.Module):
         #     predicted_aligned_error=pae,
         # )
 
-        return bb_pred.flatten(-2)
+        seq_logits = self.inverse_folding_head(x)
+
+        return bb_pred.flatten(-2), dir_loss_logits, dist_loss_logits, seq_logits
 
 
 class GCPNetVQVAE(nn.Module):
@@ -480,7 +492,7 @@ class GCPNetVQVAE(nn.Module):
         x = self.decoder(x, mask, batch_indices, x_slice_indices)
 
         # return x, indices, commit_loss
-        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        return x, torch.Tensor([0]).to(x[0].device), torch.Tensor([0]).to(x[0].device)
 
 
 def prepare_models_gcpnet_vqvae(configs, logger, accelerator):

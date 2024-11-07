@@ -69,17 +69,20 @@ def train_loop(net, train_loader, epoch, **kwargs):
             seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
-            outputs, indices, commit_loss = net(data)
+            net_outputs, indices, commit_loss = net(data)
+
+            outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
             # Compute the loss
             rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
-                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                masks.float(),
-                seq.squeeze(-1),
+                x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+                masks=masks.float(),
+                seq=seq.long().squeeze(-1),
+                dir_loss_logits=dir_loss_logits,
+                dist_loss_logits=dist_loss_logits,
+                seq_logits=seq_logits,
             )
-
-            rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
 
@@ -245,17 +248,20 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
-            outputs, indices, commit_loss = net(data)
+            net_outputs, indices, commit_loss = net(data)
+
+            outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
             # Compute the loss
             rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
-                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                masks.float(),
-                seq.squeeze(-1),
+                x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+                masks=masks.float(),
+                seq=seq.long().squeeze(-1),
+                dir_loss_logits=dir_loss_logits,
+                dist_loss_logits=dist_loss_logits,
+                seq_logits=seq_logits,
             )
-
-            rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
 
