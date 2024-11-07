@@ -877,7 +877,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, seq, dir_loss_logits=None
     seq_loss = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else 0.0
 
     loss = (
-        # kabsch_loss.mean() +
+        kabsch_loss.mean() +
         backbone_dist_loss +
         backbone_dir_loss +
         binned_dir_class_loss +

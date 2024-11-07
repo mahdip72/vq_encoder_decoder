@@ -106,7 +106,7 @@ model:
 
 train_settings:
   data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
-  num_epochs: 1024
+  num_epochs: 4096
   shuffle: True
   loss: crossentropy
   sample_weight: False
@@ -133,7 +133,7 @@ visualization_settings:
 
 optimizer:
   name: adam
-  lr: 4e-4
+  lr: 1e-5
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -143,6 +143,6 @@ optimizer:
   grad_clip_norm: 1
   decay:
     warmup: 0
-    min_lr: 4e-5
+    min_lr: 1e-7
     gamma: 0.2
     num_restarts: 1
