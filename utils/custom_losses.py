@@ -539,8 +539,6 @@ def test_radius_of_gyration_loss():
     print("Radius of Gyration Loss:", loss.item())
 
 
-import torch
-
 def calculate_aligned_mse_loss(x_predicted, x_true, masks):
     """
     Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
@@ -630,6 +628,264 @@ def kabsch_alignment(x_true, x_predicted, mask):
     x_tru_aligned[mask] = x_tru_aligned_masked
 
     return x_tru_aligned
+
+
+def calculate_backbone_distance_loss(x_predicted, x_true, masks):
+    """
+    Calculates the backbone distance loss between x_predicted and x_true after applying masks.
+
+    Parameters:
+    x_predicted (torch.Tensor): Predicted coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+
+    Returns:
+    torch.Tensor: The computed backbone distance loss for each batch element.
+    """
+    batch_size = x_predicted.shape[0]
+    loss_list = []
+
+    for i in range(batch_size):
+        mask = masks[i].bool()  # Convert to boolean mask
+        x_pred = x_predicted[i][mask]  # [num_valid, num_atoms, 3]
+        x_tru = x_true[i][mask]
+
+        # Extract the backbone atoms (N, CA, C)
+        x_pred_backbone = x_pred[:, :3, :].reshape(-1, 3)
+        x_tru_backbone = x_tru[:, :3, :].reshape(-1, 3)
+
+        # Compute pairwise L2 distance matrices
+        D_pred = torch.cdist(x_pred_backbone, x_pred_backbone, p=2)
+        D_true = torch.cdist(x_tru_backbone, x_tru_backbone, p=2)
+
+        # Compute the squared differences
+        distance_diff = (D_pred - D_true) ** 2
+
+        # Clamp the maximum error to (5 Å)^2
+        clamped_diff = torch.clamp(distance_diff, max=5**2)
+
+        # Take the mean of the clamped differences
+        loss = clamped_diff.mean()
+        loss_list.append(loss)
+
+    return torch.stack(loss_list)
+
+
+def compute_vectors(coords):
+    """
+    Computes the six vectors described in the pseudocode.
+
+    Args:
+        coords (torch.Tensor): The input coordinates of shape (num_points, num_atoms, 3).
+
+    Returns:
+        torch.Tensor: The computed vectors of shape (6 * num_points, 3).
+    """
+    # Compute the vectors
+    N_to_CA = coords[:, 1, :] - coords[:, 0, :]
+    CA_to_C = coords[:, 2, :] - coords[:, 1, :]
+    C_to_Nnext = F.pad(
+        coords[1:, 0, :] - coords[:-1, 2, :],
+        (0, 0, 0, 1),
+        value=0.0
+    )
+
+    Cprev_to_N = F.pad(
+        coords[1:, 0, :] - coords[:-1, 2, :],
+        (0, 0, 1, 0),
+        value=0.0
+    )
+
+    # Compute the normal vectors
+    nCA = -torch.cross(N_to_CA, CA_to_C, dim=-1)
+    nN = torch.cross(Cprev_to_N, N_to_CA, dim=-1)
+    nC = torch.cross(CA_to_C, C_to_Nnext, dim=-1)
+
+    # Concatenate all vectors
+    vectors = torch.cat([N_to_CA, CA_to_C, C_to_Nnext, nCA, nN, nC], dim=0)
+
+    return vectors
+
+
+def calculate_backbone_direction_loss(x_predicted, x_true, masks):
+    """
+    Calculates the backbone direction loss between x_predicted and x_true after applying masks.
+
+    Parameters:
+    x_predicted (torch.Tensor): Predicted coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+
+    Returns:
+    torch.Tensor: The computed backbone direction loss for each batch element.
+    """
+    batch_size = x_predicted.shape[0]
+    loss_list = []
+
+    for i in range(batch_size):
+        mask = masks[i].bool()  # Convert to boolean mask
+        x_pred = x_predicted[i][mask]  # [num_valid, num_atoms, 3]
+        x_tru = x_true[i][mask]
+
+        # Compute vectors for predicted and true coordinates
+        V_pred = compute_vectors(x_pred)
+        V_true = compute_vectors(x_tru)
+
+        # Compute pairwise dot products
+        D_pred = torch.matmul(V_pred, V_pred.transpose(0, 1))
+        D_true = torch.matmul(V_true, V_true.transpose(0, 1))
+
+        # Compute squared differences
+        E = (D_pred - D_true) ** 2
+
+        # Clamp the maximum error to 20
+        E = torch.clamp(E, max=20)
+
+        # Take the mean of the clamped differences
+        loss = E.mean()
+        loss_list.append(loss)
+
+    return torch.stack(loss_list)
+
+
+def calculate_binned_direction_classification_loss(dir_loss_logits, x_true, masks):
+    """
+    Calculates the binned direction classification loss.
+
+    Parameters:
+    dir_loss_logits (torch.Tensor): Logits of shape [batch_size, seq_len, seq_len, 6, 16].
+    x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+
+    Returns:
+    torch.Tensor: The computed binned direction classification loss for each batch element.
+    """
+    batch_size, _, _, _ = x_true.shape
+    loss_list = []
+
+    for i in range(batch_size):
+        mask = masks[i].bool()  # Convert to boolean mask
+        x_tru = x_true[i][mask]  # [num_valid, num_atoms, 3]
+
+        # Compute vectors for true coordinates
+        CA_to_C = x_tru[:, 2, :] - x_tru[:, 1, :]
+        CA_to_N = x_tru[:, 0, :] - x_tru[:, 1, :]
+        nCA = torch.cross(CA_to_C, CA_to_N, dim=-1)
+
+        # Normalize vectors to unit length
+        CA_to_C = F.normalize(CA_to_C, dim=-1)
+        CA_to_N = F.normalize(CA_to_N, dim=-1)
+        nCA = F.normalize(nCA, dim=-1)
+
+        # Compute pairwise dot products
+        dot_products = torch.stack([
+            torch.matmul(CA_to_N, CA_to_N.transpose(0, 1)),
+            torch.matmul(CA_to_N, CA_to_C.transpose(0, 1)),
+            torch.matmul(CA_to_N, nCA.transpose(0, 1)),
+            torch.matmul(CA_to_C, CA_to_C.transpose(0, 1)),
+            torch.matmul(CA_to_C, nCA.transpose(0, 1)),
+            torch.matmul(nCA, nCA.transpose(0, 1))
+        ], dim=-1)  # Shape: [num_valid, num_valid, 6]
+
+        # Bin the dot products into 16 bins
+        bins = torch.linspace(-1, 1, 16, device=x_true.device)
+        labels = torch.bucketize(dot_products, bins) - 1  # Shape: [num_valid, num_valid, 6]
+
+        # Compute cross-entropy loss
+        logits = dir_loss_logits[i][mask][:, mask]  # Shape: [num_valid, num_valid, 6, 16]
+        loss = F.cross_entropy(logits.view(-1, 16), labels.view(-1), reduction='mean')
+        loss_list.append(loss)
+
+    return torch.stack(loss_list)
+
+
+def calculate_binned_distance_classification_loss(dist_loss_logits, x_true, masks):
+    """
+    Calculates the binned distance classification loss.
+
+    Parameters:
+    dist_loss_logits (torch.Tensor): Logits of shape [batch_size, seq_len, seq_len, 64].
+    x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+
+    Returns:
+    torch.Tensor: The computed binned distance classification loss for each batch element.
+    """
+    batch_size, _, _, _ = x_true.shape
+    loss_list = []
+
+    # Define the bin edges
+    bin_edges = torch.tensor([(2.3125 + 0.3075 * i) ** 2 for i in range(63)], device=x_true.device)
+
+    for i in range(batch_size):
+        mask = masks[i].bool()  # Convert to boolean mask
+        x_tru = x_true[i][mask]  # [num_valid, num_atoms, 3]
+
+        # Compute Cβ coordinates
+        N_to_CA = x_tru[:, 1, :] - x_tru[:, 0, :]
+        CA_to_C = x_tru[:, 2, :] - x_tru[:, 1, :]
+        n = torch.cross(N_to_CA, CA_to_C, dim=-1)
+
+        a = -0.58273431
+        b = 0.56802827
+        c = -0.54067466
+
+        C_beta = a * n + b * N_to_CA + c * CA_to_C + x_tru[:, 1, :]
+
+        # Compute pairwise distances
+        pairwise_distances = torch.cdist(C_beta, C_beta, p=2) ** 2
+
+        # Bin the distances into 64 bins
+        labels = torch.bucketize(pairwise_distances, bin_edges)  # Shape: [num_valid, num_valid]
+
+        # Compute cross-entropy loss
+        logits = dist_loss_logits[i][mask][:, mask]  # Shape: [num_valid, num_valid, 64]
+        loss = F.cross_entropy(logits.view(-1, 64), labels.view(-1), reduction='mean')
+        loss_list.append(loss)
+
+    return torch.stack(loss_list)
+
+
+def calculate_inverse_folding_loss(seq_logits, seq, masks):
+    """
+    Calculates the cross-entropy loss between seq_logits and seq after applying masks.
+
+    Parameters:
+    seq_logits (torch.Tensor): Logits of shape [batch_size, seq_len, num_classes].
+    seq (torch.Tensor): True sequence of shape [batch_size, seq_len].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+
+    Returns:
+    torch.Tensor: The computed cross-entropy loss for each batch element.
+    """
+    # Apply the mask to select only valid positions
+    seq_masked = seq[masks]  # Shape: [num_valid]
+    seq_logits_masked = seq_logits[masks]  # Shape: [num_valid, num_classes]
+
+    # Compute cross-entropy loss using the masked areas
+    loss = F.cross_entropy(seq_logits_masked, seq_masked, reduction='mean')
+    return loss
+
+
+def calculate_decoder_loss(x_predicted, x_true, masks, seq, dir_loss_logits=None, dist_loss_logits=None, seq_logits=None):
+    kabsch_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
+    backbone_dist_loss = calculate_backbone_distance_loss(x_predicted, x_true, masks).mean()
+    backbone_dir_loss = calculate_backbone_direction_loss(x_predicted, x_true, masks).mean()
+
+    binned_dir_class_loss = calculate_binned_direction_classification_loss(dir_loss_logits, x_true, masks).mean() if dir_loss_logits is not None else 0.0
+    binned_dist_class_loss = calculate_binned_distance_classification_loss(dist_loss_logits, x_true, masks).mean() if dist_loss_logits is not None else 0.0
+    seq_loss = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else 0.0
+
+    loss = (
+        kabsch_loss.mean() +
+        backbone_dist_loss +
+        backbone_dir_loss +
+        binned_dir_class_loss +
+        binned_dist_class_loss +
+        seq_loss
+    )
+
+    return loss, x_pred_aligned, x_true_aligned
 
 
 if __name__ == '__main__':

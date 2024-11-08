@@ -3,21 +3,16 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.custom_losses import calculate_aligned_mse_loss
-from utils.utils import load_configs, load_configs_gcpnet, prepare_saving_dir, get_logging, prepare_optimizer, \
-    prepare_tensorboard, \
-    save_checkpoint
-from utils.utils import load_checkpoints
+from utils.custom_losses import calculate_decoder_loss
+from utils.utils import ca_coords_to_pdb, load_configs, load_checkpoints, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
 from utils.metrics import GDTTS
 from accelerate import Accelerator
 from visualization.main import compute_visualization
-from data.normalizer import Protein3DProcessing
 from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.gcpnet_vqvae import prepare_models_gcpnet_vqvae
-from utils.utils import ca_coords_to_pdb
+from models.gcpnet_vqvae import GCPNetVQVAE, prepare_models_gcpnet_vqvae
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -69,20 +64,25 @@ def train_loop(net, train_loader, epoch, **kwargs):
         with accelerator.accumulate(net):
             labels = data['target_coords']
             masks = data['masks']
+
+            seq_list = GCPNetVQVAE.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
+
             optimizer.zero_grad()
-            outputs, indices, commit_loss = net(data)
+            net_outputs, indices, commit_loss = net(data)
 
-            # Rescale the outputs and labels to the original scale
-            # outputs *= 10
-            # labels *= 10
+            outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
-            rec_loss, trans_pred_coords, trans_true_coords = calculate_aligned_mse_loss(
-                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                masks.float(),
+            # Compute the loss
+            rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
+                x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+                masks=masks.float(),
+                seq=seq.long().squeeze(-1),
+                dir_loss_logits=dir_loss_logits,
+                dist_loss_logits=dist_loss_logits,
+                seq_logits=seq_logits,
             )
-
-            rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
 
@@ -243,17 +243,25 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         with torch.inference_mode():
             labels = data['target_coords']
             masks = data['masks']
+
+            seq_list = GCPNetVQVAE.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
+
             optimizer.zero_grad()
-            outputs, indices, commit_loss = net(data)
+            net_outputs, indices, commit_loss = net(data)
+
+            outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
             # Compute the loss
-            rec_loss, trans_pred_coords, trans_true_coords = calculate_aligned_mse_loss(
-                outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
-                labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                masks.float(),
+            rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
+                x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
+                masks=masks.float(),
+                seq=seq.long().squeeze(-1),
+                dir_loss_logits=dir_loss_logits,
+                dist_loss_logits=dist_loss_logits,
+                seq_logits=seq_logits,
             )
-
-            rec_loss = rec_loss.mean()
 
             loss = rec_loss + alpha * commit_loss
 
@@ -325,10 +333,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
 
 def main(dict_config, config_file_path):
-    if dict_config["model"]["architecture"] == 'gcpnet_vqvae':
-        configs = load_configs_gcpnet(dict_config)
-    else:
-        configs = load_configs(dict_config)
+    configs = load_configs(dict_config)
 
     if isinstance(configs.fix_seed, int):
         torch.manual_seed(configs.fix_seed)

@@ -8,8 +8,8 @@ from jaxtyping import jaxtyped
 from torch_geometric.data import Batch
 from typing import List, Optional, Tuple
 
-from gcpnet import gcp
-from gcpnet.utils import centralize, decentralize, get_aggregation, localize
+from gcpnet.models import gcp
+from gcpnet.utils.misc import centralize, decentralize, get_aggregation, localize
 from gcpnet.wrappers import ScalarVector
     
 

@@ -337,29 +337,6 @@ def load_configs_gvp(config):
     return tree_config
 
 
-def load_configs_gcpnet(config):
-    """
-        Load the configuration file and convert the necessary values to floats.
-
-        Args:
-            config (dict): The configuration dictionary.
-
-        Returns:
-            The updated configuration dictionary with float values.
-        """
-
-    # Convert the dictionary to a Box object for easier access to the values.
-    tree_config = Box(config)
-
-    # Convert the necessary values to floats.
-    tree_config.optimizer.lr = float(tree_config.optimizer.lr)
-    tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
-    tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
-    tree_config.optimizer.eps = float(tree_config.optimizer.eps)
-
-    return tree_config
-
-
 def prepare_saving_dir(configs, config_file_path):
     """
     Prepare a directory for saving a training results.

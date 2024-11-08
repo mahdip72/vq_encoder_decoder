@@ -1,9 +1,14 @@
 import torch.nn as nn
 import torch
 import torch_geometric
-from vector_quantize_pytorch import VectorQuantize
-from gcpnet.models import GCPNetModel
-from gcpnet.utils import _normalize, batch_orientations
+# from vector_quantize_pytorch import VectorQuantize
+from gcpnet.layers.structure_proj import Dim6RotStructureHead
+from gcpnet.layers.transformer_stack import TransformerStack
+from gcpnet.models.gcpnet import GCPNetModel
+# from gcpnet.models.vqvae import CategoricalMixture, PairwisePredictionHead, RegressionHead
+from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
+from gcpnet.utils.misc import _normalize, batch_orientations
+# from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
 
 
@@ -109,9 +114,9 @@ class VQVAETransformer(nn.Module):
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
 
 
-class GCPNetPredictor(nn.Module):
+class GCPNetDecoder(nn.Module):
     def __init__(self, configs):
-        super(GCPNetPredictor, self).__init__()
+        super(GCPNetDecoder, self).__init__()
 
         self.max_length = configs.model.max_length
 
@@ -276,15 +281,151 @@ class GCPNetPredictor(nn.Module):
         x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
         x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
 
-        return x
+        return x, None, None, None
+    
+
+class GeometricDecoder(nn.Module):
+    def __init__(self, configs):
+        super(GeometricDecoder, self).__init__()
+
+        self.encoder_channels = configs.model.vqvae.encoder.dimension
+        self.decoder_channels = configs.model.vqvae.decoder.dimension
+
+        self.num_heads = configs.model.vqvae.decoder.num_heads
+        self.num_layers = configs.model.vqvae.decoder.num_blocks
+
+        self.vqvae_codebook_size = configs.model.vqvae.vector_quantization.codebook_size
+        self.special_tokens = configs.model.vqvae.decoder.special_tokens
+        self.max_pae_bin = configs.model.vqvae.decoder.max_pae_bin
+
+        self.direction_loss_bins = configs.model.vqvae.decoder.direction_loss_bins
+        self.pae_bins = configs.model.vqvae.decoder.pae_bins
+
+        # self.embed = nn.Embedding(
+        #     self.vqvae_codebook_size + len(self.special_tokens), self.decoder_channels
+        # )
+        self.embed = nn.Linear(
+            self.encoder_channels, self.decoder_channels, bias=False
+        )
+        self.decoder_stack = TransformerStack(
+            self.decoder_channels, self.num_heads, 1, self.num_layers, scale_residue=False, n_layers_geom=0
+        )
+
+        self.affine_output_projection = Dim6RotStructureHead(
+            self.decoder_channels,
+            trans_scale_factor=configs.model.struct_encoder.pos_scale_factor,
+            predict_torsion_angles=False,
+        )
+
+        self.pairwise_bins = [
+            64,  # distogram
+            self.direction_loss_bins * 6,  # direction bins
+            # self.pae_bins,  # predicted aligned error
+        ]
+        self.pairwise_classification_head = PairwisePredictionHead(
+            self.decoder_channels,
+            downproject_dim=128,
+            hidden_dim=128,
+            n_bins=sum(self.pairwise_bins),
+            bias=False,
+        )
+
+        # self.plddt_head = RegressionHead(
+        #     embed_dim=self.decoder_channels,
+        #     output_dim=configs.model.vqvae.decoder.plddt_bins,
+        # )
+
+        self.inverse_folding_head = RegressionHead(
+            embed_dim=self.decoder_channels,
+            output_dim=24,  # NOTE: 20 standard + 4 non-standard amino acid types, unknown type not included
+        )
+
+    def forward(
+        self,
+        structure_tokens: torch.Tensor,
+        mask: torch.Tensor,
+        batch_indices: torch.Tensor,  # NOTE: Currently unused
+        x_slice_index: torch.Tensor,  # NOTE: Currently unused
+    ):
+        sequence_id = mask.bool()
+
+        # not supported for now
+        chain_id = torch.zeros_like(structure_tokens, dtype=torch.int64)
+
+        # # check that BOS and EOS are set correctly
+        # assert (
+        #     structure_tokens[:, 0].eq(self.special_tokens["BOS"]).all()
+        # ), "First token in structure_tokens must be BOS token"
+        # assert (
+        #     structure_tokens[
+        #         torch.arange(structure_tokens.shape[0]), mask.sum(1) - 1
+        #     ]
+        #     .eq(self.special_tokens["EOS"])
+        #     .all()
+        # ), "Last token in structure_tokens must be EOS token"
+        # assert (
+        #     (structure_tokens < 0).sum() == 0
+        # ), "All structure tokens set to -1 should be replaced with BOS, EOS, PAD, or MASK tokens by now, but that isn't the case!"
+
+        x = self.embed(structure_tokens)
+        # !!! NOTE: Attention mask is actually unused here so watch out
+        x, _ = self.decoder_stack.forward(
+            x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id
+        )
+
+        tensor7_affine, bb_pred = self.affine_output_projection(
+            x, affine=None, affine_mask=torch.zeros_like(mask)
+        )
+
+        # plddt_value, ptm, pae = None, None, None
+        pairwise_logits = self.pairwise_classification_head(x)
+        # _, _, pae_logits = [
+        #     (o if o.numel() > 0 else None)
+        #     for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
+        # ]
+        dist_loss_logits, dir_loss_logits = [
+            (o if o.numel() > 0 else None)
+            for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
+        ]
+
+        # special_tokens_mask = structure_tokens >= min(self.special_tokens.values())
+        # pae = compute_predicted_aligned_error(
+        #     pae_logits,  # type: ignore
+        #     aa_mask=~special_tokens_mask,
+        #     sequence_id=sequence_id,
+        #     max_bin=self.max_pae_bin,
+        # )
+        # # NOTE: This might be broken for chainbreak tokens? We might align to the chainbreak
+        # ptm = compute_tm(
+        #     pae_logits,  # type: ignore
+        #     aa_mask=~special_tokens_mask,
+        #     max_bin=self.max_pae_bin,
+        # )
+
+        # plddt_logits = self.plddt_head(x)
+        # plddt_value = CategoricalMixture(
+        #     plddt_logits, bins=plddt_logits.shape[-1]
+        # ).mean()
+
+        # return dict(
+        #     tensor7_affine=tensor7_affine,
+        #     bb_pred=bb_pred,
+        #     plddt=plddt_value,
+        #     ptm=ptm,
+        #     predicted_aligned_error=pae,
+        # )
+
+        seq_logits = self.inverse_folding_head(x)
+
+        return bb_pred.flatten(-2), dir_loss_logits, dist_loss_logits, seq_logits
 
 
 class GCPNetVQVAE(nn.Module):
-    def __init__(self, gcpnet, vqvae, gcp_predictor, configs):
+    def __init__(self, encoder, vqvae, decoder, configs):
         super(GCPNetVQVAE, self).__init__()
-        self.gcpnet = gcpnet
+        self.encoder = encoder
         self.vqvae = vqvae
-        self.gcp_predictor = gcp_predictor
+        self.decoder = decoder
 
         self.configs = configs
         self.max_length = configs.model.max_length
@@ -341,21 +482,21 @@ class GCPNetVQVAE(nn.Module):
         return padded_features, mask, valid_batch_indices, slice_indices
 
     def forward(self, batch):
-        _, x, _ = self.gcpnet(batch=batch['graph'])
+        _, x, _ = self.encoder(batch=batch['graph'])
 
         x = self.separate_features(x, batch['graph'].batch)
         x, mask, batch_indices, x_slice_indices = self.merge_features(x, self.max_length)
 
         x, indices, commit_loss = self.vqvae(x, mask)
 
-        x = self.gcp_predictor(x, mask, batch_indices, x_slice_indices)
+        x = self.decoder(x, mask, batch_indices, x_slice_indices)
 
         # return x, indices, commit_loss
-        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        return x, torch.Tensor([0]).to(x[0].device), torch.Tensor([0]).to(x[0].device)
 
 
 def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
-    gcpnet = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
+    encoder = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
                          model_cfg=configs.model.struct_encoder.model_cfg,
                          layer_cfg=configs.model.struct_encoder.layer_cfg,
                          configs=configs)
@@ -366,9 +507,13 @@ def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
         decay=configs.model.vqvae.vector_quantization.decay,
         configs=configs
     )
-    gcp_predictor = GCPNetPredictor(configs)
 
-    gcpnet_vqvae = GCPNetVQVAE(gcpnet, vqvae, gcp_predictor, configs)
+    if configs.model.decoder == "gcpnet":
+        decoder = GCPNetDecoder(configs)
+    else:
+        decoder = GeometricDecoder(configs)
+
+    gcpnet_vqvae = GCPNetVQVAE(encoder, vqvae, decoder, configs)
 
     if accelerator.is_main_process:
         print_trainable_parameters(gcpnet_vqvae, logger, 'GCPNet-VQ-VAE')
@@ -379,7 +524,7 @@ def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils.utils import load_configs_gcpnet, get_dummy_logger
+    from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
     from data.dataset import custom_collate, GCPNetDataset
@@ -389,7 +534,7 @@ if __name__ == '__main__':
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    test_configs = load_configs_gcpnet(config_file)
+    test_configs = load_configs(config_file)
 
     test_logger = get_dummy_logger()
     accelerator = Accelerator()
