@@ -789,7 +789,8 @@ def calculate_binned_direction_classification_loss(dir_loss_logits, x_true, mask
 
         # Bin the dot products into 16 bins
         bins = torch.linspace(-1, 1, 16, device=x_true.device)
-        labels = torch.bucketize(dot_products, bins) - 1  # Shape: [num_valid, num_valid, 6]
+        dot_products = torch.clamp(dot_products, min=-0.9999, max=0.9999)
+        labels = torch.bucketize(dot_products, bins)  # Shape: [num_valid, num_valid, 6]
 
         # Compute cross-entropy loss
         logits = dir_loss_logits[i][mask][:, mask]  # Shape: [num_valid, num_valid, 6, 16]
