@@ -1,0 +1,4 @@
+pre_trained: True
+finetune:
+  enable: True
+  last_layers_trainable: 1
