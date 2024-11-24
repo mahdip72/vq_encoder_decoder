@@ -1,0 +1,11 @@
+dimension: 512
+num_heads: 16
+num_blocks: 16
+chi_init_dimension: 2
+xi_init_dimension: 1
+activation_function: gelu
+special_tokens: {}
+max_pae_bin: 31.0
+pae_bins: 64
+plddt_bins: 50
+direction_loss_bins: 16
