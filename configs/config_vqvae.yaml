@@ -49,10 +49,10 @@ train_settings:
       weight: 0.1
     backbone_distance:
       enable: True
-      weight: 1.0
+      weight: 10.0
     backbone_direction:
       enable: True
-      weight: 1.0
+      weight: 10.0
     binned_distance_classification:
       enable: True
       weight: 10.0
