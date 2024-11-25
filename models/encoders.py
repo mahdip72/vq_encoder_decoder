@@ -11,7 +11,7 @@ class GVPTransformerEncoderWrapper(nn.Module):
         for param in self.encoder.parameters():
             param.requires_grad = False
         if finetune:
-            for param in self.encoder.layers.parameters():
+            for param in self.encoder.parameters():
                 param.requires_grad = True
 
             # for layer in self.encoder.layers[-last_layers_trainable:]:
