@@ -370,30 +370,30 @@ def prepare_saving_dir(configs, config_file_path):
 
 def load_encoder_decoder_configs(configs, result_path):
     if configs.model.encoder == 'gvp_transformer':
-        encoder_config_file_path = os.path.join(result_path, 'config_gvp_transformer_encoder.yaml')
+        encoder_config_file_path = os.path.join('configs', 'config_gvp_transformer_encoder.yaml')
     elif configs.model.encoder == 'gcpnet':
-        encoder_config_file_path = os.path.join(result_path, 'config_gcpnet_encoder.yaml')
+        encoder_config_file_path = os.path.join('configs', 'config_gcpnet_encoder.yaml')
     else:
         raise ValueError('Unknown encoder')
 
     with open(encoder_config_file_path) as file:
         encoder_config_file = yaml.full_load(file)
 
-    encoder_configs = load_configs(encoder_config_file)
+    encoder_configs = Box(encoder_config_file)
 
     shutil.copy(encoder_config_file_path, result_path)
 
     if configs.model.decoder == 'geometric_decoder':
-        decoder_config_file_path = os.path.join(result_path, 'config_geometric_decoder.yaml')
+        decoder_config_file_path = os.path.join('configs', 'config_geometric_decoder.yaml')
     elif configs.model.decoder == 'gcpnet':
-        decoder_config_file_path = os.path.join(result_path, 'config_gcpnet_decoder.yaml')
+        decoder_config_file_path = os.path.join('configs', 'config_gcpnet_decoder.yaml')
     else:
         raise ValueError('Unknown decoder')
 
     with open(decoder_config_file_path) as file:
         decoder_config_file = yaml.full_load(file)
 
-    decoder_configs = load_configs(decoder_config_file)
+    decoder_configs = Box(decoder_config_file)
 
     shutil.copy(decoder_config_file_path, result_path)
 

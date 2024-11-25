@@ -526,7 +526,7 @@ def main(dict_config, config_file_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a VQ-VAE models.")
     parser.add_argument("--config_path", "-c", help="The location of config file",
-                        default='./configs/config_gcpnet.yaml')
+                        default='./configs/config_vqvae.yaml')
     args = parser.parse_args()
     config_path = args.config_path
 
