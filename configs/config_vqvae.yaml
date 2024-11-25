@@ -1,74 +1,67 @@
 fix_seed: 0
-checkpoints_every: 128
+checkpoints_every: 1024
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/vqvae_transformer
-normalizer_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/normalizer.pkl
+result_path: ./results/gcpnet_vqvae/hp_test
+normalizer_path: ./data/normalizer.pkl
 
 resume:
   resume: False
-  resume_path: ./path/to/checkpoint.pth
+  resume_path: results/gcpnet_vqvae/hp_test/2024-11-19__19-40-07/checkpoints/best_valid.pth
   restart_optimizer: True
 
 model:
-  architecture: vqvae
+  architecture: gcpnet_vqvae
   compile_model: False
-  max_length: 1024
+  max_length: 128
+  encoder: gvp_transformer # gvp_transformer, gcpnet
+  decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
-    add_features:
-        enable: True
-#        rdf_bins: 5
-#        rdf_cutoff: 0.05
-#        k_neighbors: 3
     vector_quantization:
-      dim: 256
+      dim: 512
       decay: 0.8
-      codebook_size: 1024
-      commitment_weight : 1.0
+      codebook_size: 512
+      commitment_weight: 1.0
       alpha: 1.0
-    start_dimension: 64
-    pooling_layer_every: 16
-    residual_encoder:
-      dimension: 256
-      num_blocks: 8
-    residual_decoder:
-      dimension: 256
-      num_blocks: 8
+    encoder:
+      dimension: 512
+      num_heads: 16
+      num_blocks: 4
+    decoder:
+      dimension: 512
+      num_heads: 16
+      num_blocks: 16
 
 train_settings:
-  data_path: /home/mpngf/datasets/vqvae/swissprot_1024_h5/
-  num_epochs: 64
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/swissprot_1024_h5
+  num_epochs: 256
   shuffle: True
   loss: crossentropy
-  sample_weight: True
+  sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  batch_size: 128
-  num_workers: 2
-  grad_accumulation: 1
-  max_task_samples: 600000
-  rotate_randomly: 0.0
-  cutout:
-    enable: False
-    min_mask_size: 1
-    max_mask_size: 4
-    max_cuts: 7
+  save_pdb_every: 32
+  batch_size: 32
+  num_workers: 8
+  grad_accumulation: 4
+  max_task_samples: 16000
 
 valid_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
   do_every: 1
-  batch_size: 128
-  num_workers: 0
+  save_pdb_every: 256
+  batch_size: 16
+  num_workers: 2
 
 visualization_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/cath_4_3_0/
-  fasta_path: /mnt/hdd8/mehdi/projects/vq_encoder_decoder/visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 1
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
+  fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
+  do_every: 4096
   batch_size: 1
-  num_workers: 0
+  num_workers: 4
 
 optimizer:
-  name: schedulerfree
-  lr: 1e-4
+  name: adam
+  lr: 8e-5
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16
@@ -77,14 +70,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 128
-    min_lr: 5e-6
+    warmup: 1024
+    min_lr: 1e-7
     gamma: 0.2
     num_restarts: 1
-
-auxiliary_loss:
-  coefficient: 0.1
-  orientation: False
-  bond_angles: False
-  bond_lengths: False
-  distance_map: False

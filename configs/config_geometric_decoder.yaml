@@ -9,3 +9,4 @@ max_pae_bin: 31.0
 pae_bins: 64
 plddt_bins: 50
 direction_loss_bins: 16
+pos_scale_factor: 10.0
