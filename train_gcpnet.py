@@ -376,7 +376,7 @@ def main(dict_config, config_file_path):
     )
 
     train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(
-        logging, accelerator, configs
+        logging, accelerator, configs, encoder_configs=encoder_configs, decoder_configs=decoder_configs
     )
 
     logging.info('preparing dataloaders are done')
