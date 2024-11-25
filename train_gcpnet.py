@@ -379,18 +379,20 @@ def main(dict_config, config_file_path):
     train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(
         logging, accelerator, configs, encoder_configs=encoder_configs, decoder_configs=decoder_configs
     )
-
-    logging.info('preparing dataloaders are done')
+    if accelerator.is_main_process:
+        logging.info('preparing dataloaders are done')
 
     net = prepare_model_vqvae(
         configs, logging, accelerator,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs
     )
-    logging.info('preparing models is done')
+    if accelerator.is_main_process:
+        logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
-    logging.info('preparing optimizer is done')
+    if accelerator.is_main_process:
+        logging.info('preparing optimizer is done')
 
     net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
@@ -506,7 +508,8 @@ def main(dict_config, config_file_path):
             compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch,
                                   optimizer)
 
-    logging.info("Training is completed!\n")
+    if accelerator.is_main_process:
+        logging.info("Training is completed!\n")
 
     # log best valid gdtts
     if accelerator.is_main_process:
