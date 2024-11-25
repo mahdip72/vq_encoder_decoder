@@ -69,9 +69,11 @@ def custom_collate(one_batch):
     coords = torch.stack([item[4] for item in one_batch])
     masks = torch.stack([item[5] for item in one_batch])
 
+    input_coordinates = torch.stack([item[6] for item in one_batch])
+
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'target_coords': coords, 'masks': masks}
+                    'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates}
     return batched_data
 
 
@@ -661,6 +663,7 @@ class GCPNetDataset(Dataset):
         # Merge the features and create a mask
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
 
+        input_coordinates = coords.clone()
         coords = coords[..., :9] # only use N, CA, C atoms
 
         # squeeze coords and masks to return them to 2D
@@ -670,7 +673,7 @@ class GCPNetDataset(Dataset):
         # find if nan values in the features print something
         if i >= 30:
             pass
-        return [feature, raw_seqs, plddt_scores, pid, coords, masks]
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates]
 
     def _featurize_as_graph(self, protein):
         import torch_cluster
@@ -1529,7 +1532,7 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
 
 
 
-def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
+def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
@@ -1537,22 +1540,22 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs):
 
     train_dataset = GCPNetDataset(
         configs.train_settings.data_path,
-        top_k=configs.model.struct_encoder.top_k,
-        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        top_k=kwargs["encoder_configs"].top_k,
+        num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs
     )
 
     valid_dataset = GCPNetDataset(
         configs.valid_settings.data_path,
-        top_k=configs.model.struct_encoder.top_k,
-        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        top_k=kwargs["encoder_configs"].top_k,
+        num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs
     )
 
     visualization_dataset = GCPNetDataset(
         configs.visualization_settings.data_path,
-        top_k=configs.model.struct_encoder.top_k,
-        num_positional_embeddings=configs.model.struct_encoder.num_positional_embeddings,
+        top_k=kwargs["encoder_configs"].top_k,
+        num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs
     )
 
