@@ -3,7 +3,6 @@ import numpy as np
 import yaml
 import os
 import torch
-import torch.nn as nn
 from utils.custom_losses import calculate_decoder_loss
 from utils.utils import (
     ca_coords_to_pdb,
