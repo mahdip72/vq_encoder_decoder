@@ -21,7 +21,7 @@ from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.super_model import SuperModel, prepare_model_vqvae
+from models.super_model import prepare_model_vqvae
 from models.utils import merge_features, separate_features
 
 
@@ -258,8 +258,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
 
-            seq_list = SuperModel.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            seq, *_ = SuperModel.merge_features(seq_list, configs.model.max_length)
+            seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
