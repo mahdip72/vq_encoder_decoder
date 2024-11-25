@@ -44,6 +44,25 @@ train_settings:
   num_workers: 8
   grad_accumulation: 4
   max_task_samples: 16000
+  losses:
+    kabsch:
+      enable: True
+      weight: 1.0
+    backbone_distance:
+      enable: True
+      weight: 1.0
+    backbone_direction:
+      enable: True
+      weight: 1.0
+    binned_distance_classification:
+      enable: True
+      weight: 1.0
+    binned_direction_classification:
+      enable: True
+      weight: 1.0
+    inverse_folding:
+      enable: False
+      weight: 1.0
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
@@ -60,7 +79,7 @@ visualization_settings:
   num_workers: 4
 
 optimizer:
-  name: adam
+  name: schedulerfree
   lr: 8e-5
   weight_decouple: True
   weight_decay: 1e-2

@@ -75,8 +75,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
 
-            seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            seq, *_ = merge_features(seq_list, configs.model.max_length)
+            # seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            # seq, *_ = merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
@@ -88,7 +88,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks=masks.float(),
-                seq=seq.long().squeeze(-1),
+                configs=configs,
+                seq=None,
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
                 seq_logits=seq_logits,
@@ -258,8 +259,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
 
-            seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            seq, *_ = merge_features(seq_list, configs.model.max_length)
+            # seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            # seq, *_ = merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
@@ -271,7 +272,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks=masks.float(),
-                seq=seq.long().squeeze(-1),
+                configs=configs,
+                seq=None,
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
                 seq_logits=seq_logits,
