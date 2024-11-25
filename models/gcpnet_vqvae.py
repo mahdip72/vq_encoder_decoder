@@ -10,6 +10,7 @@ from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
 from gcpnet.utils.misc import _normalize, batch_orientations
 # from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
+from models.gvp_transformer import GVPTransformerEncoderWrapper
 
 
 class VQVAETransformer(nn.Module):
@@ -24,7 +25,8 @@ class VQVAETransformer(nn.Module):
         self.encoder_dim = configs.model.vqvae.encoder.dimension
         self.decoder_dim = configs.model.vqvae.decoder.dimension
 
-        input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
+        # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
+        input_shape = 512
 
         # Encoder
         self.encoder_tail = nn.Sequential(
@@ -115,28 +117,27 @@ class VQVAETransformer(nn.Module):
 
 
 class GCPNetDecoder(nn.Module):
-    def __init__(self, configs):
+    def __init__(self, configs, decoder_configs):
         super(GCPNetDecoder, self).__init__()
-
         self.max_length = configs.model.max_length
 
         # Define the number of residual blocks for encoder and decoder
-        self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
-        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
-        self.encoder_dim = configs.model.vqvae.encoder.dimension
-        self.decoder_dim = configs.model.vqvae.decoder.dimension
+        # self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
+        self.num_decoder_blocks = decoder_configs.num_blocks
+        # self.encoder_dim = configs.model.vqvae.encoder.dimension
+        self.decoder_dim = decoder_configs.dimension
 
-        self.top_k = configs.model.struct_encoder.top_k
+        self.top_k = decoder_configs.top_k
 
-        self.chi_init_dim = configs.model.vqvae.decoder.chi_init_dimension
-        self.xi_init_dim = configs.model.vqvae.decoder.xi_init_dimension
+        self.chi_init_dim = decoder_configs.chi_init_dimension
+        self.xi_init_dim = decoder_configs.xi_init_dimension
 
-        self.pos_scale_factor = configs.model.struct_encoder.pos_scale_factor
+        self.pos_scale_factor = decoder_configs.pos_scale_factor
 
         # GCPNet output (positions) projection #
-        configs.model.struct_encoder.module_cfg.predict_backbone_positions = True
-        configs.model.struct_encoder.module_cfg.predict_node_rep = False
-        configs.model.struct_encoder.model_cfg.num_layers = 1
+        decoder_configs.module_cfg.predict_backbone_positions = True
+        decoder_configs.module_cfg.predict_node_rep = False
+        decoder_configs.model_cfg.num_layers = 1
 
         # NOTE: To preserve roto-translation invariance, only a linear term must be used
         self.output_project_init = nn.Linear(self.decoder_dim, 3 * 3, bias=False)
@@ -144,44 +145,44 @@ class GCPNetDecoder(nn.Module):
         output_projection_layers = []
 
         # Embedding layer
-        configs.model.struct_encoder.use_rotary_embeddings = False
-        configs.model.struct_encoder.use_positional_embeddings = False
+        decoder_configs.use_rotary_embeddings = False
+        decoder_configs.use_positional_embeddings = False
 
-        configs.model.struct_encoder.use_foldseek = False
-        configs.model.struct_encoder.use_foldseek_vector = False
+        decoder_configs.use_foldseek = False
+        decoder_configs.use_foldseek_vector = False
 
-        configs.model.struct_encoder.model_cfg.h_input_dim = self.decoder_dim
-        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
-        configs.model.struct_encoder.model_cfg.e_input_dim = self.decoder_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
-        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
+        decoder_configs.model_cfg.h_input_dim = self.decoder_dim
+        decoder_configs.model_cfg.chi_input_dim = self.chi_init_dim
+        decoder_configs.model_cfg.e_input_dim = self.decoder_dim * 2 + decoder_configs.module_cfg.num_rbf
+        decoder_configs.model_cfg.xi_input_dim = self.xi_init_dim
 
         output_projection_layers.append(
             GCPNetModel(
-                module_cfg=configs.model.struct_encoder.module_cfg,
-                model_cfg=configs.model.struct_encoder.model_cfg,
-                layer_cfg=configs.model.struct_encoder.layer_cfg,
+                module_cfg=decoder_configs.module_cfg,
+                model_cfg=decoder_configs.model_cfg,
+                layer_cfg=decoder_configs.layer_cfg,
                 configs=configs,
                 backbone_key="x_bb",
             )
         )
 
         # Output projection layers
-        configs.model.struct_encoder.model_cfg.h_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim
-        configs.model.struct_encoder.model_cfg.chi_input_dim = self.chi_init_dim
-        configs.model.struct_encoder.model_cfg.e_input_dim = configs.model.struct_encoder.model_cfg.h_hidden_dim * 2 + configs.model.struct_encoder.module_cfg.num_rbf
-        configs.model.struct_encoder.model_cfg.xi_input_dim = self.xi_init_dim
+        decoder_configs.model_cfg.h_input_dim = decoder_configs.model_cfg.h_hidden_dim
+        decoder_configs.model_cfg.chi_input_dim = self.chi_init_dim
+        decoder_configs.model_cfg.e_input_dim = decoder_configs.model_cfg.h_hidden_dim * 2 + decoder_configs.module_cfg.num_rbf
+        decoder_configs.model_cfg.xi_input_dim = self.xi_init_dim
 
         output_projection_layers.extend(
             [
                 GCPNetModel(
-                    module_cfg=configs.model.struct_encoder.module_cfg,
-                    model_cfg=configs.model.struct_encoder.model_cfg,
-                    layer_cfg=configs.model.struct_encoder.layer_cfg,
+                    module_cfg=decoder_configs.module_cfg,
+                    model_cfg=decoder_configs.model_cfg,
+                    layer_cfg=decoder_configs.layer_cfg,
                     configs=configs,
                     backbone_key="x_bb",
                 )
                 for _ in range(
-                configs.model.struct_encoder.model_cfg.num_bb_update_layers
+                decoder_configs.model_cfg.num_bb_update_layers
             )
             ]
         )
@@ -278,34 +279,30 @@ class GCPNetDecoder(nn.Module):
 
         # Pad the output back into the original shape
         batch.x_bb = batch.x_bb - batch.x_bb[:, 1:2, :].mean(dim=0, keepdim=True)
-        x_list = GCPNetVQVAE.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
-        x, *_ = GCPNetVQVAE.merge_features(x_list, self.max_length)
+        x_list = SuperModel.separate_features(batch.x_bb.view(-1, 9) * self.pos_scale_factor, batch.batch)
+        x, *_ = SuperModel.merge_features(x_list, self.max_length)
 
         return x, None, None, None
-    
+
 
 class GeometricDecoder(nn.Module):
-    def __init__(self, configs):
+    def __init__(self, configs, decoder_configs):
         super(GeometricDecoder, self).__init__()
 
-        self.encoder_channels = configs.model.vqvae.encoder.dimension
-        self.decoder_channels = configs.model.vqvae.decoder.dimension
+        self.vqvae_decoder_channels = configs.model.vqvae.decoder.dimension
+        self.decoder_channels = decoder_configs.dimension
 
-        self.num_heads = configs.model.vqvae.decoder.num_heads
-        self.num_layers = configs.model.vqvae.decoder.num_blocks
+        self.num_heads = decoder_configs.num_heads
+        self.num_layers = int(decoder_configs.num_blocks / 2)
 
-        self.vqvae_codebook_size = configs.model.vqvae.vector_quantization.codebook_size
-        self.special_tokens = configs.model.vqvae.decoder.special_tokens
-        self.max_pae_bin = configs.model.vqvae.decoder.max_pae_bin
+        self.special_tokens = decoder_configs.special_tokens
+        self.max_pae_bin = decoder_configs.max_pae_bin
 
-        self.direction_loss_bins = configs.model.vqvae.decoder.direction_loss_bins
-        self.pae_bins = configs.model.vqvae.decoder.pae_bins
+        self.direction_loss_bins = decoder_configs.direction_loss_bins
+        self.pae_bins = decoder_configs.pae_bins
 
-        # self.embed = nn.Embedding(
-        #     self.vqvae_codebook_size + len(self.special_tokens), self.decoder_channels
-        # )
         self.embed = nn.Linear(
-            self.encoder_channels, self.decoder_channels, bias=False
+            self.vqvae_decoder_channels, self.decoder_channels, bias=False
         )
         self.decoder_stack = TransformerStack(
             self.decoder_channels, self.num_heads, 1, self.num_layers, scale_residue=False, n_layers_geom=0
@@ -313,7 +310,8 @@ class GeometricDecoder(nn.Module):
 
         self.affine_output_projection = Dim6RotStructureHead(
             self.decoder_channels,
-            trans_scale_factor=configs.model.struct_encoder.pos_scale_factor,
+            # trans_scale_factor=configs.model.struct_encoder.pos_scale_factor,
+            trans_scale_factor=decoder_configs.pos_scale_factor,
             predict_torsion_angles=False,
         )
 
@@ -341,11 +339,11 @@ class GeometricDecoder(nn.Module):
         )
 
     def forward(
-        self,
-        structure_tokens: torch.Tensor,
-        mask: torch.Tensor,
-        batch_indices: torch.Tensor,  # NOTE: Currently unused
-        x_slice_index: torch.Tensor,  # NOTE: Currently unused
+            self,
+            structure_tokens: torch.Tensor,
+            mask: torch.Tensor,
+            batch_indices: torch.Tensor,  # NOTE: Currently unused
+            x_slice_index: torch.Tensor,  # NOTE: Currently unused
     ):
         sequence_id = mask.bool()
 
@@ -420,9 +418,9 @@ class GeometricDecoder(nn.Module):
         return bb_pred.flatten(-2), dir_loss_logits, dist_loss_logits, seq_logits
 
 
-class GCPNetVQVAE(nn.Module):
+class SuperModel(nn.Module):
     def __init__(self, encoder, vqvae, decoder, configs):
-        super(GCPNetVQVAE, self).__init__()
+        super(SuperModel, self).__init__()
         self.encoder = encoder
         self.vqvae = vqvae
         self.decoder = decoder
@@ -482,9 +480,9 @@ class GCPNetVQVAE(nn.Module):
         return padded_features, mask, valid_batch_indices, slice_indices
 
     def forward(self, batch):
-        _, x, _ = self.encoder(batch=batch['graph'])
+        x = self.encoder(batch, output_logits=False)
 
-        x = self.separate_features(x, batch['graph'].batch)
+        # x = self.separate_features(x, batch['graph'].batch)
         x, mask, batch_indices, x_slice_indices = self.merge_features(x, self.max_length)
 
         x, indices, commit_loss = self.vqvae(x, mask)
@@ -495,11 +493,17 @@ class GCPNetVQVAE(nn.Module):
         return x, torch.Tensor([0]).to(x[0].device), torch.Tensor([0]).to(x[0].device)
 
 
-def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
-    encoder = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
-                         model_cfg=configs.model.struct_encoder.model_cfg,
-                         layer_cfg=configs.model.struct_encoder.layer_cfg,
-                         configs=configs)
+def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
+
+    if configs.model.encoder == "gcpnet":
+        encoder = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
+                              model_cfg=configs.model.struct_encoder.model_cfg,
+                              layer_cfg=configs.model.struct_encoder.layer_cfg,
+                              configs=configs)
+    elif configs.model.encoder == "gvp_transformer":
+        encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
+    else:
+        raise ValueError("Invalid encoder model specified!")
 
     vqvae = VQVAETransformer(
         latent_dim=configs.model.vqvae.vector_quantization.dim,
@@ -509,16 +513,20 @@ def prepare_models_gcpnet_vqvae(configs, logger, accelerator):
     )
 
     if configs.model.decoder == "gcpnet":
-        decoder = GCPNetDecoder(configs)
+        decoder = GCPNetDecoder(configs, decoder_configs=kwargs["decoder_configs"])
+    elif configs.model.decoder == "geometric_decoder":
+        decoder = GeometricDecoder(configs, decoder_configs=kwargs["decoder_configs"])
     else:
-        decoder = GeometricDecoder(configs)
+        raise ValueError("Invalid decoder model specified!")
 
-    gcpnet_vqvae = GCPNetVQVAE(encoder, vqvae, decoder, configs)
+    vqvae = SuperModel(encoder, vqvae, decoder, configs)
+
+    vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
 
     if accelerator.is_main_process:
-        print_trainable_parameters(gcpnet_vqvae, logger, 'GCPNet-VQ-VAE')
+        print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
 
-    return gcpnet_vqvae
+    return vqvae
 
 
 if __name__ == '__main__':
@@ -537,10 +545,10 @@ if __name__ == '__main__':
     test_configs = load_configs(config_file)
 
     test_logger = get_dummy_logger()
-    accelerator = Accelerator()
+    test_accelerator = Accelerator()
 
-    test_model = prepare_models_gcpnet_vqvae(test_configs, test_logger, accelerator)
-    # print(test_model)
+    test_model = prepare_model_vqvae(test_configs, test_logger, test_accelerator)
+
     print("Model loaded successfully!")
 
     dataset = GCPNetDataset(test_configs.train_settings.data_path,
