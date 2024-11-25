@@ -70,10 +70,12 @@ def custom_collate(one_batch):
     masks = torch.stack([item[5] for item in one_batch])
 
     input_coordinates = torch.stack([item[6] for item in one_batch])
+    inverse_folding_labels = torch.stack([item[7] for item in one_batch])
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates}
+                    'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates,
+                    "inverse_folding_labels": inverse_folding_labels}
     return batched_data
 
 
@@ -478,6 +480,36 @@ class GVPDataset(Dataset):
         return node_s_features, node_v_features
 
 
+def amino_acid_to_tensor(sequence, max_length):
+    """
+    Converts a single amino acid sequence to a categorical PyTorch tensor with padding or trimming.
+
+    Args:
+        sequence (str): The amino acid sequence (e.g., "ACDEFGHIKLMNPQRSTVWY").
+        max_length (int): The desired fixed length for the sequence.
+
+    Returns:
+        torch.Tensor: A tensor of shape (1, max_length) representing the sequence.
+    """
+    # Define the amino acid vocabulary (20 standard + 4 non-standard types)
+    amino_acids = "ACDEFGHIKLMNPQRSTVWYBZJX"  # B, Z, J, X are non-standard
+    aa_to_index = {aa: i + 1 for i, aa in enumerate(amino_acids)}  # Map each AA to a unique index
+    pad_index = 0  # padding index (0 for padding)
+
+    # Convert the sequence to indices
+    encoded = [aa_to_index.get(aa, pad_index) for aa in sequence]
+
+    # Pad or trim the sequence to the desired length
+    if len(encoded) < max_length:
+        encoded = encoded + [pad_index] * (max_length - len(encoded))  # padding
+    else:
+        encoded = encoded[:max_length]  # trimming
+
+    # Convert to a PyTorch tensor of shape (1, max_length)
+    tensor = torch.tensor(encoded, dtype=torch.long)
+    return tensor
+
+
 class GCPNetDataset(Dataset):
     """
     This class is a subclass of `torch.utils.data.Dataset` and is used to transform JSON/dictionary-style
@@ -647,6 +679,8 @@ class GCPNetDataset(Dataset):
         sample_dict = {'name': pid,
                        'coords': coords_list,
                        'seq': sample[0].decode('utf-8')}
+        inverse_folding_labels = amino_acid_to_tensor(sample[0].decode('utf-8'), self.max_length)
+
         feature = self._featurize_as_graph(sample_dict)
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
@@ -673,7 +707,7 @@ class GCPNetDataset(Dataset):
         # find if nan values in the features print something
         if i >= 30:
             pass
-        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates]
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels]
 
     def _featurize_as_graph(self, protein):
         import torch_cluster

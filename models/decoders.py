@@ -229,7 +229,7 @@ class GeometricDecoder(nn.Module):
 
         self.inverse_folding_head = RegressionHead(
             embed_dim=self.decoder_channels,
-            output_dim=24,  # NOTE: 20 standard + 4 non-standard amino acid types, unknown type not included
+            output_dim=24,  # NOTE: 20 standard + 4 non-standard amino acid types + 1 padding
         )
 
     def forward(
