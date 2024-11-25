@@ -3,16 +3,26 @@ import numpy as np
 import yaml
 import os
 import torch
+import torch.nn as nn
 from utils.custom_losses import calculate_decoder_loss
-from utils.utils import ca_coords_to_pdb, load_configs, load_checkpoints, prepare_saving_dir, get_logging, prepare_optimizer, prepare_tensorboard, save_checkpoint
+from utils.utils import (
+    ca_coords_to_pdb,
+    load_configs,
+    load_checkpoints,
+    prepare_saving_dir,
+    get_logging,
+    prepare_optimizer,
+    prepare_tensorboard,
+    save_checkpoint,
+    load_encoder_decoder_configs)
 from utils.metrics import GDTTS
-from accelerate import Accelerator
+from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
 from visualization.main import compute_visualization
 from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.gcpnet_vqvae import GCPNetVQVAE, prepare_models_gcpnet_vqvae
+from models.gcpnet_vqvae import SuperModel, prepare_model_vqvae
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -65,8 +75,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
 
-            seq_list = GCPNetVQVAE.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
+            seq_list = SuperModel.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = SuperModel.merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
@@ -244,8 +254,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
 
-            seq_list = GCPNetVQVAE.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            seq, *_ = GCPNetVQVAE.merge_features(seq_list, configs.model.max_length)
+            seq_list = SuperModel.separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
+            seq, *_ = SuperModel.merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
@@ -334,32 +344,43 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
 def main(dict_config, config_file_path):
     configs = load_configs(dict_config)
-
     if isinstance(configs.fix_seed, int):
         torch.manual_seed(configs.fix_seed)
         torch.random.manual_seed(configs.fix_seed)
         np.random.seed(configs.fix_seed)
 
     result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
+    encoder_configs, decoder_configs = load_encoder_decoder_configs(configs, result_path)
 
     logging = get_logging(result_path)
 
-    from accelerate.utils import DistributedDataParallelKwargs
-
     # Set find_unused_parameters to True
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=False)
+    dataloader_config = DataLoaderConfiguration(
+        dispatch_batches=False,
+        even_batches=True,
+        non_blocking=False,
+        split_batches=False,
+        # use_stateful_dataloader=True
+    )
     accelerator = Accelerator(
-        # kwargs_handlers=[ddp_kwargs],
+        kwargs_handlers=[ddp_kwargs],
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
+        dataloader_config=dataloader_config
     )
 
-    train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(logging, accelerator,
-                                                                                             configs)
+    train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(
+        logging, accelerator, configs
+    )
 
     logging.info('preparing dataloaders are done')
 
-    net = prepare_models_gcpnet_vqvae(configs, logging, accelerator)
+    net = prepare_model_vqvae(
+        configs, logging, accelerator,
+        encoder_configs=encoder_configs,
+        decoder_configs=decoder_configs
+    )
     logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
