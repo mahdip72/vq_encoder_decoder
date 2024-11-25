@@ -11,7 +11,6 @@ resume:
   restart_optimizer: True
 
 model:
-  architecture: gcpnet_vqvae
   compile_model: False
   max_length: 128
   encoder: gvp_transformer # gvp_transformer, gcpnet
@@ -42,12 +41,12 @@ train_settings:
   save_pdb_every: 32
   batch_size: 32
   num_workers: 8
-  grad_accumulation: 4
-  max_task_samples: 16000
+  grad_accumulation: 1
+  max_task_samples: 4096
   losses:
     kabsch:
       enable: True
-      weight: 1.0
+      weight: 0.1
     backbone_distance:
       enable: True
       weight: 1.0
@@ -56,12 +55,12 @@ train_settings:
       weight: 1.0
     binned_distance_classification:
       enable: True
-      weight: 1.0
+      weight: 10.0
     binned_direction_classification:
       enable: True
-      weight: 1.0
+      weight: 10.0
     inverse_folding:
-      enable: False
+      enable: True
       weight: 1.0
 
 valid_settings:
