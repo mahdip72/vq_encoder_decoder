@@ -21,7 +21,16 @@ class SuperModel(nn.Module):
         self.configs = configs
         self.max_length = configs.model.max_length
 
+    @staticmethod
+    def preprocessing_function(batch):
+        # todo: add preprocessing code for the pre-trained gcpnet
+        return batch
+
     def forward(self, batch):
+
+        if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
+            batch = self.preprocessing_function(batch)
+
         x = self.encoder(batch, output_logits=False)
 
         # x = separate_features(x, batch['graph'].batch)
