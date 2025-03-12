@@ -1,0 +1,243 @@
+env:
+  paths:
+    root_dir: ${oc.env:ROOT_DIR}
+    data: ${oc.env:DATA_PATH}
+    output_dir: ${hydra:runtime.output_dir}
+    work_dir: ${hydra:runtime.cwd}
+    log_dir: ${oc.env:RUNS_PATH}
+    runs: ${oc.env:RUNS_PATH}
+    run_dir: ${env.paths.runs}/${name}/${env.init_time}
+  python:
+    version: ${python_version:micro}
+  init_time: ${now:%y-%m-%d_%H:%M:%S}
+dataset:
+  datamodule:
+    _target_: graphein.ml.datasets.foldcomp_dataset.FoldCompLightningDataModule
+    data_dir: ${env.paths.data}/afdb_swissprot_v4/
+    database: afdb_swissprot_v4
+    batch_size: 32
+    num_workers: 32
+    train_split: 0.8
+    val_split: 0.1
+    test_split: 0.1
+    pin_memory: true
+    use_graphein: true
+    transform: ${transforms}
+  dataset_name: afdb_swissprot_v4
+  num_classes: null
+features:
+  _target_: proteinworkshop.features.factory.ProteinFeaturiser
+  representation: CA
+  scalar_node_features:
+  - amino_acid_one_hot
+  - sequence_positional_encoding
+  - alpha
+  - kappa
+  - dihedrals
+  vector_node_features:
+  - orientation
+  edge_types:
+  - knn_16
+  scalar_edge_features:
+  - edge_distance
+  vector_edge_features:
+  - edge_vectors
+encoder:
+  _target_: proteinworkshop.models.graph_encoders.gcpnet.GCPNetModel
+  features:
+    vector_node_features:
+    - orientation
+    vector_edge_features:
+    - edge_vectors
+  num_layers: 6
+  emb_dim: 128
+  node_s_emb_dim: ${.emb_dim}
+  node_v_emb_dim: 16
+  edge_s_emb_dim: 32
+  edge_v_emb_dim: 4
+  r_max: 10.0
+  num_rbf: 8
+  activation: silu
+  pool: sum
+  module_cfg:
+    norm_pos_diff: true
+    scalar_gate: 0
+    vector_gate: true
+    scalar_nonlinearity: ${..activation}
+    vector_nonlinearity: ${..activation}
+    nonlinearities:
+    - ${..scalar_nonlinearity}
+    - ${..vector_nonlinearity}
+    r_max: ${..r_max}
+    num_rbf: ${..num_rbf}
+    bottleneck: 4
+    vector_linear: true
+    vector_identity: true
+    default_bottleneck: 4
+    predict_node_positions: false
+    predict_node_rep: true
+    node_positions_weight: 1.0
+    update_positions_with_vector_sum: false
+    enable_e3_equivariance: false
+    pool: ${..pool}
+  model_cfg:
+    h_input_dim: ${resolve_feature_config_dim:${features},scalar_node_features,${task},true}
+    chi_input_dim: ${resolve_feature_config_dim:${features},vector_node_features,${task},false}
+    e_input_dim: ${plus:${resolve_feature_config_dim:${features},scalar_edge_features,${task},true},${..num_rbf}}
+    xi_input_dim: ${resolve_feature_config_dim:${features},vector_edge_features,${task},false}
+    h_hidden_dim: ${..node_s_emb_dim}
+    chi_hidden_dim: ${..node_v_emb_dim}
+    e_hidden_dim: ${..edge_s_emb_dim}
+    xi_hidden_dim: ${..edge_v_emb_dim}
+    num_layers: ${..num_layers}
+    dropout: 0.0
+  layer_cfg:
+    pre_norm: false
+    use_gcp_norm: true
+    use_gcp_dropout: true
+    use_scalar_message_attention: true
+    num_feedforward_layers: 2
+    dropout: 0.0
+    nonlinearity_slope: 0.01
+    mp_cfg:
+      edge_encoder: false
+      edge_gate: false
+      num_message_layers: 4
+      message_residual: 0
+      message_ff_multiplier: 1
+      self_message: true
+decoder:
+  pos:
+    _target_: proteinworkshop.models.decoders.mlp_decoder.PositionDecoder
+    num_message_layers: 2
+    message_hidden_dim: 128
+    message_activation: relu
+    message_dropout: 0.0
+    message_skip: false
+    num_distance_layers: 1
+    distance_hidden_dim: 128
+    distance_activation: relu
+    distance_dropout: 0.0
+    distance_skip: false
+transforms:
+  remove_missing_ca:
+    _target_: proteinworkshop.tasks.remove_missing_ca.RemoveMissingCa
+    fill_value: 1.0e-05
+    ca_idx: 1
+  structure_denoising:
+    _target_: proteinworkshop.tasks.structural_denoising.StructuralNoiseTransform
+    corruption_rate: 0.1
+    corruption_strategy: gaussian
+callbacks:
+  model_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${env.paths.output_dir}/checkpoints
+    filename: epoch_{epoch:03d}
+    monitor: val/loss/pos
+    verbose: true
+    save_last: true
+    save_top_k: 1
+    mode: min
+    auto_insert_metric_name: false
+    save_weights_only: false
+    every_n_train_steps: null
+    train_time_interval: null
+    every_n_epochs: null
+    save_on_train_epoch_end: null
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: val/loss/pos
+    min_delta: 0.0
+    patience: 10
+    verbose: true
+    mode: min
+    strict: true
+    check_finite: true
+    stopping_threshold: null
+    divergence_threshold: null
+    check_on_train_epoch_end: false
+  model_summary:
+    _target_: lightning.pytorch.callbacks.RichModelSummary
+    max_depth: -1
+  rich_progress_bar:
+    _target_: lightning.pytorch.callbacks.RichProgressBar
+  learning_rate_monitor:
+    _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  stop_on_nan:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: train/loss/total
+    min_delta: 0.0
+    patience: 10000000
+    verbose: true
+    mode: min
+    strict: true
+    check_finite: true
+    stopping_threshold: null
+    divergence_threshold: null
+    check_on_train_epoch_end: null
+optimiser:
+  optimizer:
+    _target_: torch.optim.Adam
+    _partial_: true
+    lr: 0.001
+    weight_decay: 0.0
+scheduler: {}
+trainer:
+  _target_: lightning.pytorch.trainer.Trainer
+  default_root_dir: ${env.paths.output_dir}
+  min_epochs: 1
+  max_epochs: 10
+  accelerator: gpu
+  check_val_every_n_epoch: 1
+  deterministic: false
+  num_sanity_val_steps: 2
+  devices: 1
+extras:
+  ignore_warnings: true
+  enforce_tags: false
+  print_config: true
+metrics:
+  rmse:
+    _target_: torchmetrics.MeanSquaredError
+    squared: false
+task:
+  task: structure_denoising
+  losses:
+    pos: mse_loss
+  label_smoothing: 0.0
+  output:
+  - pos
+  supervise_on:
+  - pos
+logger:
+  wandb:
+    _target_: lightning.pytorch.loggers.wandb.WandbLogger
+    name: ${name}
+    save_dir: ${env.paths.output_dir}
+    offline: false
+    id: null
+    anonymous: null
+    entity: ${oc.env:WANDB_ENTITY}
+    project: ${oc.env:WANDB_PROJECT}
+    log_model: false
+    prefix: ''
+    group: ''
+    tags: []
+    job_type: ''
+finetune:
+  encoder:
+    load_weights: true
+    freeze: false
+  decoder:
+    load_weights: false
+    freeze: false
+hparams:
+  hparams:
+    lr: 0.0003
+    decoder_dropout: 0.5
+name: ''
+seed: 52
+num_workers: 16
+task_name: finetune
+compile: false
+ckpt_path: null
