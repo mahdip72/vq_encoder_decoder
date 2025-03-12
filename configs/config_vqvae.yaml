@@ -17,7 +17,7 @@ model:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
       enabled: True
-      config_path: ./configs/structure_denoising_pretrained_config.yaml
+      config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
