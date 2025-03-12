@@ -31,9 +31,13 @@ class SuperModel(nn.Module):
         if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
             batch = self.preprocessing_function(batch)
 
-        x = self.encoder(batch, output_logits=False)
+        if self.configs.model.encoder.name == "gcpnet":
+            _, x, _ = self.encoder(batch['graph'])
+            x = separate_features(x, batch['graph'].batch)
 
-        # x = separate_features(x, batch['graph'].batch)
+        else:
+            x = self.encoder(batch, output_logits=False)
+
         x, mask, batch_indices, x_slice_indices = merge_features(x, self.max_length)
 
         x, indices, commit_loss = self.vqvae(x, mask)
