@@ -53,6 +53,7 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
             pretrained_config = OmegaConf.load(configs.model.encoder.pretrained.config_path)
             encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
                                                           cfg=pretrained_config)
+            # todo: only load encoder part of the model and remove the decoder head
 
     elif configs.model.encoder.name == "gvp_transformer":
         encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
