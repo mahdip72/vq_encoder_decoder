@@ -92,15 +92,15 @@ class GCPNetModel(torch.nn.Module):
         #         edge_input_dims += (8, 0)  # 8+2+3+3 only for mode ==3 add 8D pos_embeddings
         #     else:
         #         edge_input_dims += (2, 0)  # 8+2
-        if configs.model.struct_encoder.use_positional_embeddings:
+        if configs.use_positional_embeddings:
             edge_input_dims += (
-                configs.model.struct_encoder.num_positional_embeddings, 0
+                configs.num_positional_embeddings, 0
             )  # 8+num_positional_embeddings
 
-        # if configs.model.struct_encoder.use_foldseek:
+        # if configs.use_foldseek:
         #     node_input_dims += (10, 0)  # foldseek has 10 more node scalar features
 
-        # if configs.model.struct_encoder.use_foldseek_vector:
+        # if configs.use_foldseek_vector:
         #     node_input_dims += (0, 6)  # foldseek_vector has 6 more node vector features
 
         # Sequence options

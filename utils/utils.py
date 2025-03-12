@@ -15,6 +15,24 @@ from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 import yaml
 import h5py
 from io import StringIO
+from hydra import compose, initialize
+
+
+def load_all_configs():
+    # Initialize Hydra
+    config_path = "configs"  # Path to your config directory
+
+    with initialize(version_base=None, config_path="."):
+        # Compose the configuration
+        cfg = compose(
+            config_name="config_vqvae",  # Main config
+            overrides=[
+                "+encoder=config_gcpnet_encoder",  # Load encoder config
+                "+decoder=config_geometric_decoder",  # Load decoder config
+            ]
+        )
+
+    return cfg
 
 
 def get_nb_trainable_parameters(model):
@@ -369,9 +387,9 @@ def prepare_saving_dir(configs, config_file_path):
 
 
 def load_encoder_decoder_configs(configs, result_path):
-    if configs.model.encoder == 'gvp_transformer':
+    if configs.model.encoder.name == 'gvp_transformer':
         encoder_config_file_path = os.path.join('configs', 'config_gvp_transformer_encoder.yaml')
-    elif configs.model.encoder == 'gcpnet':
+    elif configs.model.encoder.name == 'gcpnet':
         encoder_config_file_path = os.path.join('configs', 'config_gcpnet_encoder.yaml')
     else:
         raise ValueError('Unknown encoder')

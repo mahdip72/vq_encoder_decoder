@@ -21,7 +21,6 @@ class SuperModel(nn.Module):
         self.configs = configs
         self.max_length = configs.model.max_length
 
-
     def forward(self, batch):
         x = self.encoder(batch, output_logits=False)
 
@@ -37,13 +36,25 @@ class SuperModel(nn.Module):
 
 
 def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
+    if configs.model.encoder.name == "gcpnet":
+        if not configs.model.encoder.pretrained.enabled:
+            encoder = GCPNetModel(module_cfg=kwargs["encoder_configs"].module_cfg,
+                                  model_cfg=kwargs["encoder_configs"].model_cfg,
+                                  layer_cfg=kwargs["encoder_configs"].layer_cfg,
+                                  configs=kwargs["encoder_configs"])
 
-    if configs.model.encoder == "gcpnet":
-        encoder = GCPNetModel(module_cfg=configs.model.struct_encoder.module_cfg,
-                              model_cfg=configs.model.struct_encoder.model_cfg,
-                              layer_cfg=configs.model.struct_encoder.layer_cfg,
-                              configs=configs)
-    elif configs.model.encoder == "gvp_transformer":
+        else:
+            from proteinworkshop import register_custom_omegaconf_resolvers
+            from omegaconf import OmegaConf
+            from proteinworkshop.models.base import BenchMarkModel
+
+            register_custom_omegaconf_resolvers()
+
+            pretrained_config = OmegaConf.load(configs.model.encoder.pretrained.config_path)
+            encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
+                                                          cfg=pretrained_config)
+
+    elif configs.model.encoder.name == "gvp_transformer":
         encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
     else:
         raise ValueError("Invalid encoder model specified!")
