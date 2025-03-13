@@ -64,7 +64,9 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
             register_custom_omegaconf_resolvers()
 
             pretrained_config = OmegaConf.load(configs.model.encoder.pretrained.config_path)
+            pretrained_config.decoder.disable = True
             encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
+                                                          strict=False,
                                                           cfg=pretrained_config)
             # todo: only load encoder part of the model and remove the decoder head
 
