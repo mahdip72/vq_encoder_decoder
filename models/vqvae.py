@@ -17,7 +17,7 @@ class VQVAETransformer(nn.Module):
         self.decoder_dim = configs.model.vqvae.decoder.dimension
 
         # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
-        input_shape = 512
+        input_shape = 128
 
         # Encoder
         self.encoder_tail = nn.Sequential(
