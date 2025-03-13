@@ -12,9 +12,27 @@ import torch.optim as optim
 import numpy as np
 from accelerate import Accelerator
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
-import math
+import yaml
 import h5py
 from io import StringIO
+from hydra import compose, initialize
+
+
+def load_all_configs():
+    # Initialize Hydra
+    config_path = "configs"  # Path to your config directory
+
+    with initialize(version_base=None, config_path="."):
+        # Compose the configuration
+        cfg = compose(
+            config_name="config_vqvae",  # Main config
+            overrides=[
+                "+encoder=config_gcpnet_encoder",  # Load encoder config
+                "+decoder=config_geometric_decoder",  # Load decoder config
+            ]
+        )
+
+    return cfg
 
 
 def get_nb_trainable_parameters(model):
@@ -337,29 +355,6 @@ def load_configs_gvp(config):
     return tree_config
 
 
-def load_configs_gcpnet(config):
-    """
-        Load the configuration file and convert the necessary values to floats.
-
-        Args:
-            config (dict): The configuration dictionary.
-
-        Returns:
-            The updated configuration dictionary with float values.
-        """
-
-    # Convert the dictionary to a Box object for easier access to the values.
-    tree_config = Box(config)
-
-    # Convert the necessary values to floats.
-    tree_config.optimizer.lr = float(tree_config.optimizer.lr)
-    tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
-    tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
-    tree_config.optimizer.eps = float(tree_config.optimizer.eps)
-
-    return tree_config
-
-
 def prepare_saving_dir(configs, config_file_path):
     """
     Prepare a directory for saving a training results.
@@ -389,6 +384,38 @@ def prepare_saving_dir(configs, config_file_path):
 
     # Return the path to the result directory.
     return result_path, checkpoint_path
+
+
+def load_encoder_decoder_configs(configs, result_path):
+    if configs.model.encoder.name == 'gvp_transformer':
+        encoder_config_file_path = os.path.join('configs', 'config_gvp_transformer_encoder.yaml')
+    elif configs.model.encoder.name == 'gcpnet':
+        encoder_config_file_path = os.path.join('configs', 'config_gcpnet_encoder.yaml')
+    else:
+        raise ValueError('Unknown encoder')
+
+    with open(encoder_config_file_path) as file:
+        encoder_config_file = yaml.full_load(file)
+
+    encoder_configs = Box(encoder_config_file)
+
+    shutil.copy(encoder_config_file_path, result_path)
+
+    if configs.model.decoder == 'geometric_decoder':
+        decoder_config_file_path = os.path.join('configs', 'config_geometric_decoder.yaml')
+    elif configs.model.decoder == 'gcpnet':
+        decoder_config_file_path = os.path.join('configs', 'config_gcpnet_decoder.yaml')
+    else:
+        raise ValueError('Unknown decoder')
+
+    with open(decoder_config_file_path) as file:
+        decoder_config_file = yaml.full_load(file)
+
+    decoder_configs = Box(decoder_config_file)
+
+    shutil.copy(decoder_config_file_path, result_path)
+
+    return encoder_configs, decoder_configs
 
 
 def load_h5_file(file_path):

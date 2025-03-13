@@ -8,7 +8,7 @@ import yaml
 import h5py
 from utils.utils import load_configs, get_dummy_logger
 from accelerate import Accelerator
-from models.vqvae import prepare_models_vqvae
+from models.super_model import prepare_model_vqvae
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import joblib
@@ -407,7 +407,7 @@ def main():
         mixed_precision="fp16",
     )
 
-    net = prepare_models_vqvae(test_configs, test_logger, accelerator)
+    net = prepare_model_vqvae(test_configs, test_logger, accelerator)
 
     net = load_checkpoints(net, checkpoint_path)
 

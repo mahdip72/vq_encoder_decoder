@@ -38,11 +38,11 @@ Then, run the following command to install the required packages inside the cond
 bash install_conda.sh
 ```
 
-A separate sh file is created for the installation of the gvp model. You can run the following command to install the
-required packages for the gvp model:
+A separate sh file is created for the installation of the GCPNet model. You can run the following command to install the
+required packages for the GCPNet model:
 
 ```commandline
-bash install_conda_gvp.sh
+bash install_conda_gcpnet.sh
 ```
 
 ## Training EGNN model
@@ -87,5 +87,5 @@ this [link](https://mailmissouri-my.sharepoint.com/:f:/r/personal/mpngf_umsystem
 - [x] Create the main VQ model with the GVP encoder and a decoder
 - [x] Add contact map dataloader to the project
 - [x] Add other features of accelerate training to the project
+- [x] Add GCPNet model as an encoder and decoder via the GCPNet-VQVAE model
 - [ ] Add and test the LFQ model as an option
-- [ ] Add GCPNet model as the decoder of EGNN-VQVAE model
