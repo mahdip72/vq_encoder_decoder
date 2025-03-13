@@ -1572,6 +1572,16 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
         logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
+        assert os.path.exists(configs.train_settings.data_path), (
+            f"Data path {configs.train_settings.data_path} does not exist"
+        )
+        assert os.path.exists(configs.valid_settings.data_path), (
+            f"Data path {configs.valid_settings.data_path} does not exist"
+        )
+        assert os.path.exists(configs.visualization_settings.data_path), (
+            f"Data path {configs.visualization_settings.data_path} does not exist"
+        )
+
     train_dataset = GCPNetDataset(
         configs.train_settings.data_path,
         top_k=kwargs["encoder_configs"].top_k,
