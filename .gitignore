@@ -162,4 +162,5 @@ cython_debug/
 # vq_encoder_decoder
 .vscode/
 data/validation/
+models/checkpoints/
 results/
