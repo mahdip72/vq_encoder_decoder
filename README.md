@@ -17,7 +17,7 @@ To use this project, follow the install.sh file to install the dependencies.
 First, create a conda environment by running the following command:
 
 ```commandline
-conda create --name vqvae python=3.11
+conda create --name vqvae python=3.10
 ```
 
 and activate the conda environment by running the following command:

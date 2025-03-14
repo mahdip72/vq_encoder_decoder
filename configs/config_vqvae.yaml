@@ -16,7 +16,7 @@ model:
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
-      enabled: False
+      enabled: True
       config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
@@ -83,7 +83,7 @@ visualization_settings:
   num_workers: 4
 
 optimizer:
-  name: adam
+  name: schedulerfree
   lr: 8e-5
   weight_decouple: True
   weight_decay: 1e-2
