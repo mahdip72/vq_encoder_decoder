@@ -428,8 +428,11 @@ def main(dict_config, config_file_path):
         net = torch.compile(net)
         logging.info('compile models is done')
 
-    # Initialize train and valid TensorBoards
-    train_writer, valid_writer = prepare_tensorboard(result_path)
+    if accelerator.is_main_process:
+        # initialize tensorboards
+        train_writer, valid_writer = prepare_tensorboard(result_path)
+    else:
+        train_writer, valid_writer = None, None
 
     if accelerator.is_main_process:
         train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
@@ -468,11 +471,12 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
 
-            # Set the path to save the models checkpoint.
-            model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
-            save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
-                            configs=configs)
-            logging.info(f'\tcheckpoint models in {model_path}')
+            if accelerator.is_main_process:
+                # Set the path to save the models checkpoint.
+                model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
+                save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
+                                configs=configs)
+                logging.info(f'\tcheckpoint models in {model_path}')
 
         if epoch % configs.valid_settings.do_every == 0:
             start_time = time.time()
@@ -532,13 +536,15 @@ def main(dict_config, config_file_path):
     logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
     logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
-    train_writer.close()
-    valid_writer.close()
+    if accelerator.is_main_process:
+        train_writer.close()
+        valid_writer.close()
 
     accelerator.wait_for_everyone()
     accelerator.free_memory()
     accelerator.end_training()
     torch.cuda.empty_cache()
+    exit()
 
 
 if __name__ == '__main__':
