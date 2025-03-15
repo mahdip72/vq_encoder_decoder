@@ -100,12 +100,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for training data in epoch {epoch}")
-                start_time = time.time()
                 ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks,
                                  os.path.join(kwargs['result_path'], f'train_outputs_epoch_{epoch}_step_{i + 1}'))
                 ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks,
                                  os.path.join(kwargs['result_path'], f'train_labels_step_{i + 1}'))
-                logging.info(f"PDB saving completed in {time.time() - start_time:.2f} seconds")
 
             # Compute the loss
             masked_outputs = trans_pred_coords[masks]
@@ -287,9 +285,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
+            if accelerator.is_main_process and epoch % configs.valid_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for validation data in epoch {epoch}")
-                start_time = time.time()
                 ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks,
                                  os.path.join(kwargs['result_path'], f'valid_outputs_epoch_{epoch}_step_{i + 1}'))
                 ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks,
@@ -476,6 +473,7 @@ def main(dict_config, config_file_path):
                                             writer=valid_writer, result_path=result_path)
             end_time = time.time()
             valid_time = end_time - start_time
+            accelerator.wait_for_everyone()
             if accelerator.is_main_process:
                 logging.info(
                     f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
