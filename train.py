@@ -364,11 +364,6 @@ def main(dict_config, config_file_path):
         torch.random.manual_seed(configs.fix_seed)
         np.random.seed(configs.fix_seed)
 
-    result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
-    encoder_configs, decoder_configs = load_encoder_decoder_configs(configs, result_path)
-
-    logging = get_logging(result_path)
-
     # Set find_unused_parameters to True
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     dataloader_config = DataLoaderConfiguration(
@@ -385,23 +380,40 @@ def main(dict_config, config_file_path):
         dataloader_config=dataloader_config
     )
 
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
+        paths = [result_path, checkpoint_path]
+    else:
+        # Initialize with placeholders.
+        paths = [None, None]
+
+    if accelerator.num_processes > 1:
+        import torch.distributed as dist
+        # Broadcast the list of strings from the main process (src=0) to all others.
+        dist.broadcast_object_list(paths, src=0)
+
+        # Now every process has the shared values.
+        result_path, checkpoint_path = paths
+
+    encoder_configs, decoder_configs = load_encoder_decoder_configs(configs, result_path)
+
+    logging = get_logging(result_path, configs)
+
     train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(
         logging, accelerator, configs, encoder_configs=encoder_configs, decoder_configs=decoder_configs
     )
-    if accelerator.is_main_process:
-        logging.info('preparing dataloaders are done')
+    logging.info('preparing dataloaders are done')
 
     net = prepare_model_vqvae(
         configs, logging, accelerator,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs
     )
-    if accelerator.is_main_process:
-        logging.info('preparing models is done')
+    logging.info('preparing models is done')
 
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
-    if accelerator.is_main_process:
-        logging.info('preparing optimizer is done')
+    logging.info('preparing optimizer is done')
 
     net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
@@ -414,8 +426,7 @@ def main(dict_config, config_file_path):
     # compile models to train faster and efficiently
     if configs.model.compile_model:
         net = torch.compile(net)
-        if accelerator.is_main_process:
-            logging.info('compile models is done')
+        logging.info('compile models is done')
 
     # Initialize train and valid TensorBoards
     train_writer, valid_writer = prepare_tensorboard(result_path)
@@ -438,15 +449,14 @@ def main(dict_config, config_file_path):
                                            writer=train_writer, result_path=result_path)
         end_time = time.time()
         training_time = end_time - start_time
-        if accelerator.is_main_process:
-            logging.info(
-                f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
-                f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
-                f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
-                f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
-                f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                f'gdtts {training_loop_reports["gdtts"]:.4f}, '
-                f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
+        logging.info(
+            f'epoch {epoch} ({training_loop_reports["counter"]} steps) - time {np.round(training_time, 2)}s, '
+            f'global steps {training_loop_reports["global_step"]}, loss {training_loop_reports["loss"]:.4f}, '
+            f'rec loss {training_loop_reports["rec_loss"]:.4f}, '
+            f'denormalized rec mae {training_loop_reports["denormalized_rec_mae"]:.4f}, '
+            f'denormalized rec rmse {training_loop_reports["denormalized_rec_rmse"]:.4f}, '
+            f'gdtts {training_loop_reports["gdtts"]:.4f}, '
+            f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
 
@@ -462,8 +472,7 @@ def main(dict_config, config_file_path):
             model_path = os.path.join(checkpoint_path, f'epoch_{epoch}.pth')
             save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
                             configs=configs)
-            if accelerator.is_main_process:
-                logging.info(f'\tcheckpoint models in {model_path}')
+            logging.info(f'\tcheckpoint models in {model_path}')
 
         if epoch % configs.valid_settings.do_every == 0:
             start_time = time.time()
@@ -476,16 +485,15 @@ def main(dict_config, config_file_path):
             end_time = time.time()
             valid_time = end_time - start_time
             accelerator.wait_for_everyone()
-            if accelerator.is_main_process:
-                logging.info(
-                    f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
-                    f'loss {valid_loop_reports["loss"]:.4f}, '
-                    f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
-                    f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
-                    f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
-                    f'gdtts {valid_loop_reports["gdtts"]:.4f}'
-                    # f'lddt {valid_loop_reports["lddt"]:.4f}'
-                )
+            logging.info(
+                f'validation epoch {epoch} ({valid_loop_reports["counter"]} steps) - time {np.round(valid_time, 2)}s, '
+                f'loss {valid_loop_reports["loss"]:.4f}, '
+                f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
+                f'denormalized rec mae {valid_loop_reports["denormalized_rec_mae"]:.4f}, '
+                f'denormalized rec rmse {valid_loop_reports["denormalized_rec_rmse"]:.4f}, '
+                f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                # f'lddt {valid_loop_reports["lddt"]:.4f}'
+            )
 
             # Check valid metric to save the best model
             if valid_loop_reports["gdtts"] > best_valid_metrics['gdtts']:
@@ -505,28 +513,24 @@ def main(dict_config, config_file_path):
                 model_path = os.path.join(checkpoint_path, f'best_valid.pth')
                 save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
                                 configs=configs)
-                if accelerator.is_main_process:
-                    logging.info(f'\tsaving the best models in {model_path}')
-                    logging.info(f'\tbest valid gdtts: {best_valid_metrics["gdtts"]:.4f}')
+                logging.info(f'\tsaving the best models in {model_path}')
+                logging.info(f'\tbest valid gdtts: {best_valid_metrics["gdtts"]:.4f}')
 
         if epoch % configs.visualization_settings.do_every == 0:
-            if accelerator.is_main_process:
-                logging.info(f'\tstart visualization at epoch {epoch}')
+            logging.info(f'\tstart visualization at epoch {epoch}')
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
             compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch,
                                   optimizer)
 
-    if accelerator.is_main_process:
-        logging.info("Training is completed!\n")
+    logging.info("Training is completed!\n")
 
     # log best valid gdtts
-    if accelerator.is_main_process:
-        logging.info(f"best valid gdtts: {best_valid_metrics['gdtts']:.4f}")
-        logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
-        logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
-        logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
+    logging.info(f"best valid gdtts: {best_valid_metrics['gdtts']:.4f}")
+    logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
+    logging.info(f"best valid rmse: {best_valid_metrics['rmse']:.4f}")
+    logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
     train_writer.close()
     valid_writer.close()

@@ -11,6 +11,8 @@ import torch
 import torch.optim as optim
 import numpy as np
 from accelerate import Accelerator
+from accelerate.logging import get_logger
+import sys
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 import yaml
 import h5py
@@ -70,17 +72,31 @@ def print_trainable_parameters(model, logging, description=""):
     )
 
 
-def get_logging(result_path):
-    logger = log.getLogger(result_path)
-    logger.setLevel(log.INFO)
+def get_logging(result_path, configs):
+    # logger = log.getLogger(result_path)
+    # logger.setLevel(log.INFO)
 
-    fh = log.FileHandler(os.path.join(result_path, "logs.txt"))
-    formatter = log.Formatter('%(asctime)s - %(message)s')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    logger = get_logger(__name__, log_level="INFO")
 
-    sh = log.StreamHandler()
-    logger.addHandler(sh)
+    log_file_path = os.path.join(result_path, "logs.txt")
+
+    # Create a file handler (logs will be saved to 'training.log')
+    file_handler = log.FileHandler(log_file_path, mode="w")
+    file_handler.setLevel(log.INFO)
+
+    # Define a log message format
+    formatter = log.Formatter("%(asctime)s - %(message)s")
+    file_handler.setFormatter(formatter)
+
+    # Attach the file handler to the underlying logger
+    logger.logger.addHandler(file_handler)
+
+    # Stream handler (prints logs to the console)
+    stream_handler = log.StreamHandler(sys.stdout)
+    stream_handler.setLevel(log.INFO)
+    stream_formatter = log.Formatter("%(asctime)s - %(message)s")
+    stream_handler.setFormatter(stream_formatter)
+    logger.logger.addHandler(stream_handler)
 
     return logger
 
