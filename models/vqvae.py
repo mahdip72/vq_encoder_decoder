@@ -25,7 +25,7 @@ class VQVAETransformer(nn.Module):
         )
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.encoder_dim, nhead=8, dim_feedforward=self.encoder_dim * 4, activation='gelu', dropout=0.0,
+            d_model=self.encoder_dim, nhead=configs.model.vqvae.encoder.num_heads, dim_feedforward=self.encoder_dim * 4, activation='gelu', dropout=0.0,
             batch_first=True
         )
         self.encoder_blocks = nn.TransformerEncoder(encoder_layer, num_layers=self.num_encoder_blocks)
@@ -57,7 +57,7 @@ class VQVAETransformer(nn.Module):
 
         # Decoder
         decoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.decoder_dim, nhead=8, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
+            d_model=self.decoder_dim, nhead=configs.model.vqvae.decoder.num_heads, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
             batch_first=True
         )
         self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
