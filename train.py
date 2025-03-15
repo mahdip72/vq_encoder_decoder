@@ -229,27 +229,20 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     logging = kwargs.pop('logging')
     alpha = configs.model.vqvae.vector_quantization.alpha
 
-    # Prepare metrics to evaluation
-    rmse = torchmetrics.MeanSquaredError(squared=False)
-    mae = torchmetrics.MeanAbsoluteError()
-    gdtts = GDTTS()
-    # lddt = LDDT()
-
-    rmse.to(accelerator.device)
-    mae.to(accelerator.device)
-    gdtts.to(accelerator.device)
-    # lddt.to(accelerator.device)
-
-    # Prepare the normalizer for denormalization
-    # processor = Protein3DProcessing()
-    # processor.load_normalizer(configs.normalizer_path)
-
-    optimizer.zero_grad()
+    # Initialize local accumulators for metrics
+    sum_mae = 0.0
+    count_mae = 0
+    sum_rmse = 0.0
+    count_rmse = 0
+    gdtts_sum = 0.0
+    gdtts_count = 0
 
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
     counter = 0
+
+    optimizer.zero_grad()
 
     # Initialize the progress bar using tqdm
     progress_bar = tqdm(range(0, int(len(valid_loader))),
@@ -263,9 +256,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         with torch.inference_mode():
             labels = data['target_coords']
             masks = data['masks']
-
-            # seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            # seq, *_ = merge_features(seq_list, configs.model.max_length)
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
@@ -294,25 +284,32 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                                  os.path.join(kwargs['result_path'], 'pdb_files', f'valid_labels_step_{i + 1}'))
                 logging.info("PDB files are built")
 
-            masked_outputs = trans_pred_coords[masks]
-            masked_labels = trans_true_coords[masks]
+            # Extract masked coordinates
+            masked_outputs = trans_pred_coords[masks].reshape(-1, 3)
+            masked_labels = trans_true_coords[masks].reshape(-1, 3)
 
-            # Denormalize the outputs and labels
-            # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
-            # masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
-            masked_outputs = (masked_outputs).reshape(-1, 3)
-            masked_labels = (masked_labels).reshape(-1, 3)
+            # Compute local metrics
+            errors = torch.abs(masked_outputs - masked_labels)
+            sum_mae += torch.sum(errors).item()
+            count_mae += errors.numel()  # Total number of coordinates
+            sum_rmse += torch.sum(errors ** 2).item()
+            count_rmse += errors.numel()
 
-            # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            # lddt.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            # GDTTS: Compute per protein and accumulate (assuming GDTTS is per protein)
+            batch_size = trans_pred_coords.shape[0]
+            for b in range(batch_size):
+                protein_pred = trans_pred_coords[b][masks[b]]
+                protein_true = trans_true_coords[b][masks[b]]
+                # Assuming GDTTS class can handle single protein coords
+                gdtts_metric = GDTTS().to(accelerator.device)
+                gdtts_metric.update(protein_pred.detach(), protein_true.detach())
+                gdtts_score = gdtts_metric.compute().item()
+                gdtts_sum += gdtts_score
+                gdtts_count += 1
 
         progress_bar.update(1)
         counter += 1
 
-        # Keep track of total combined loss, total reconstruction loss, and total commit loss
         total_loss += loss.item()
         total_rec_loss += rec_loss.item()
         total_cmt_loss += commit_loss.item()
@@ -322,28 +319,32 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                                      + f"rec loss: {total_rec_loss / counter:.3f}, "
                                      + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
-    # Compute average losses and metrics
+        # Compute average losses
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmse = rmse.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
-    # lddt_score = lddt.compute().cpu().item()
+    avg_cmt_loss = total_cmt_loss / counter
 
-    # Log the metrics to TensorBoard
+    # Synchronize metric sums and counts across ranks
+    global_sum_mae = accelerator.reduce(torch.tensor(sum_mae, device=accelerator.device), reduction='sum').item()
+    global_count_mae = accelerator.reduce(torch.tensor(count_mae, device=accelerator.device), reduction='sum').item()
+    denormalized_rec_mae = global_sum_mae / global_count_mae if global_count_mae > 0 else 0
+
+    global_sum_rmse = accelerator.reduce(torch.tensor(sum_rmse, device=accelerator.device), reduction='sum').item()
+    global_count_rmse = accelerator.reduce(torch.tensor(count_rmse, device=accelerator.device), reduction='sum').item()
+    denormalized_rec_rmse = (global_sum_rmse / global_count_rmse) ** 0.5 if global_count_rmse > 0 else 0
+
+    global_gdtts_sum = accelerator.reduce(torch.tensor(gdtts_sum, device=accelerator.device), reduction='sum').item()
+    global_gdtts_count = accelerator.reduce(torch.tensor(gdtts_count, device=accelerator.device),
+                                            reduction='sum').item()
+    gdtts_score = global_gdtts_sum / global_gdtts_count if global_gdtts_count > 0 else 0
+
+    # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
         writer.add_scalar('real_rmse', denormalized_rec_rmse, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
-        # writer.add_scalar('val_lddt', lddt_score, epoch)
-
-    # Reset the metrics for the next epoch
-    mae.reset()
-    rmse.reset()
-    gdtts.reset()
-    # lddt.reset()
 
     return_dict = {
         "loss": avg_loss,
@@ -351,7 +352,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "denormalized_rec_mae": denormalized_rec_mae,
         "denormalized_rec_rmse": denormalized_rec_rmse,
         "gdtts": gdtts_score,
-        # "lddt": lddt_score,
         "counter": counter,
     }
     return return_dict
