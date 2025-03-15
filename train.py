@@ -32,6 +32,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     configs = kwargs.pop('configs')
     optimizer_name = configs.optimizer.name
     writer = kwargs.pop('writer')
+    logging = kwargs.pop('logging')
     alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
@@ -97,11 +98,14 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
+            if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
+                logging.info(f"Building PDB files for training data in epoch {epoch}")
+                start_time = time.time()
                 ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks,
                                  os.path.join(kwargs['result_path'], f'train_outputs_epoch_{epoch}_step_{i + 1}'))
                 ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks,
                                  os.path.join(kwargs['result_path'], f'train_labels_step_{i + 1}'))
+                logging.info(f"PDB saving completed in {time.time() - start_time:.2f} seconds")
 
             # Compute the loss
             masked_outputs = trans_pred_coords[masks]
@@ -134,7 +138,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
                     grad_norm = torch.norm(
                         torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None]),
                         2)
-                    writer.add_scalar('gradient norm', grad_norm.item(), global_step)
+                    if accelerator.is_main_process and configs.tensorboard_log:
+                        writer.add_scalar('gradient norm', grad_norm.item(), global_step)
 
                 if optimizer_name != 'schedulerfree':
                     accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
@@ -160,7 +165,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             train_rec_loss = 0.0
             train_cmt_loss = 0.0
 
-            if configs.tensorboard_log:
+            if accelerator.is_main_process and configs.tensorboard_log:
                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
 
             progress_bar.set_description(f"epoch {epoch} "
@@ -189,7 +194,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_activation = total_activation / counter
 
     # Log the metrics to TensorBoard
-    if configs.tensorboard_log:
+    if accelerator.is_main_process and configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
@@ -222,6 +227,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     optimizer_name = configs.optimizer.name
     accelerator = kwargs.pop('accelerator')
     writer = kwargs.pop('writer')
+    logging = kwargs.pop('logging')
     alpha = configs.model.vqvae.vector_quantization.alpha
 
     # Prepare metrics to evaluation
@@ -281,7 +287,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             loss = rec_loss + alpha * commit_loss
 
-            if epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
+            if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
+                logging.info(f"Building PDB files for validation data in epoch {epoch}")
+                start_time = time.time()
                 ca_coords_to_pdb(trans_pred_coords[..., 1, :].squeeze(), masks,
                                  os.path.join(kwargs['result_path'], f'valid_outputs_epoch_{epoch}_step_{i + 1}'))
                 ca_coords_to_pdb(trans_true_coords[..., 1, :].squeeze(), masks,
@@ -324,7 +332,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     # lddt_score = lddt.compute().cpu().item()
 
     # Log the metrics to TensorBoard
-    if configs.tensorboard_log:
+    if accelerator.is_main_process and configs.tensorboard_log:
         writer.add_scalar('loss', avg_loss, epoch)
         writer.add_scalar('rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('real_mae', denormalized_rec_mae, epoch)
@@ -363,7 +371,7 @@ def main(dict_config, config_file_path):
     logging = get_logging(result_path)
 
     # Set find_unused_parameters to True
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=False)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     dataloader_config = DataLoaderConfiguration(
         dispatch_batches=False,
         even_batches=True,
