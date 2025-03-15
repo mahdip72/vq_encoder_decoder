@@ -434,6 +434,9 @@ def ca_coords_to_pdb(ca_coords, masks, save_path):
     :param masks: (torch.Tensor[batch_size, n_residues]) Masks corresponding to each residue.
     :param save_path: (str) Path to save the PDB file.
     """
+    # check if the save path exists
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
     for i in range(ca_coords.shape[0]):  # Loop over batch
         with open(save_path + f'_{i}.pdb', 'w') as pdb_file:
             atom_index = 1
