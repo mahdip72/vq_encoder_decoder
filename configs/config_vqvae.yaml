@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 1024
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/gcpnet_vqvae/hp_test
+result_path: ./results/gcpnet_vqvae/
 normalizer_path: ./data/normalizer.pkl
 
 resume:
@@ -12,7 +12,7 @@ resume:
 
 model:
   compile_model: False
-  max_length: 256
+  max_length: 128
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
@@ -22,47 +22,47 @@ model:
   decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
     vector_quantization:
-      dim: 128
+      dim: 768
       decay: 0.8
       codebook_size: 256
       commitment_weight: 1.0
       alpha: 1.0
     encoder:
-      dimension: 128
-      num_heads: 16
-      num_blocks: 4
-    decoder:
-      dimension: 128
+      dimension: 768
       num_heads: 16
       num_blocks: 8
+    decoder:
+      dimension: 768
+      num_heads: 16
+      num_blocks: 4
 
 train_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/swissprot_1024_h5
-  num_epochs: 256
+  num_epochs: 4096
   shuffle: True
   loss: crossentropy
   sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  save_pdb_every: 32
+  save_pdb_every: 256
   batch_size: 32
   num_workers: 8
-  grad_accumulation: 4
-  max_task_samples: 16000
+  grad_accumulation: 1
+  max_task_samples: 2048
   losses:
     kabsch:
       enable: True
-      weight: 0.05
+      weight: 0.2
     backbone_distance:
-      enable: True
+      enable: False
       weight: 10.0
     backbone_direction:
-      enable: True
+      enable: False
       weight: 10.0
     binned_distance_classification:
-      enable: True
+      enable: False
       weight: 10.0
     binned_direction_classification:
-      enable: True
+      enable: False
       weight: 10.0
     inverse_folding:
       enable: False
@@ -70,7 +70,7 @@ train_settings:
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
-  do_every: 1
+  do_every: 256
   save_pdb_every: 256
   batch_size: 16
   num_workers: 2
@@ -78,7 +78,7 @@ valid_settings:
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
   fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 4096
+  do_every: 8192
   batch_size: 1
   num_workers: 4
 
