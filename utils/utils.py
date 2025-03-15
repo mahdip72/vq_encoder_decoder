@@ -377,6 +377,7 @@ def prepare_saving_dir(configs, config_file_path):
     result_path = os.path.abspath(os.path.join(configs.result_path, run_id))
     checkpoint_path = os.path.join(result_path, 'checkpoints')
     Path(result_path).mkdir(parents=True, exist_ok=True)
+    Path(os.path.join(result_path, 'pdb_files')).mkdir(parents=True, exist_ok=True)
     Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
 
     # Copy the config file to the result directory.
@@ -435,8 +436,6 @@ def ca_coords_to_pdb(ca_coords, masks, save_path):
     :param save_path: (str) Path to save the PDB file.
     """
     # check if the save path exists
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
     for i in range(ca_coords.shape[0]):  # Loop over batch
         with open(save_path + f'_{i}.pdb', 'w') as pdb_file:
             atom_index = 1
