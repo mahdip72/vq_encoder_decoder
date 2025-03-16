@@ -174,20 +174,20 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
 
     # If the 'resume' flag is True, load the saved models checkpoints.
     if configs.resume.resume:
-        model_checkpoint = torch.load(configs.resume.resume_path, map_location='cpu')
+        model_checkpoint = torch.load(configs.resume.resume_path, map_location='cpu', weights_only=False)
         pretrained_state_dict = model_checkpoint['model_state_dict']
+        pretrained_state_dict = {k.replace('_orig_mod.', ''): v for k, v in pretrained_state_dict.items()}
+
         loading_log = net.load_state_dict(pretrained_state_dict, strict=False)
 
-        if accelerator.is_main_process:
-            logging.info(f'Loading checkpoint log: {loading_log}')
+        logging.info(f'Loading checkpoint log: {loading_log}')
 
         # If the saved checkpoint contains the optimizer and scheduler states and the epoch number,
         # resume training from the last saved epoch.
         if 'optimizer_state_dict' in model_checkpoint and 'scheduler_state_dict' in model_checkpoint and 'epoch' in model_checkpoint:
             if not configs.resume.restart_optimizer:
                 optimizer.load_state_dict(model_checkpoint['optimizer_state_dict'])
-                if accelerator.is_main_process:
-                    logging.info('Optimizer is loaded to resume training!')
+                logging.info('Optimizer is loaded to resume training!')
 
                 # scheduler.load_state_dict(model_checkpoint['scheduler_state_dict'])
                 # if accelerator.main_process:
@@ -195,8 +195,7 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
 
             # start_epoch = model_checkpoint['epoch'] + 1
             start_epoch = 1
-        if accelerator.is_main_process:
-            logging.info('Model is loaded to resume training!')
+        logging.info('Model is loaded to resume training!')
     return net, start_epoch
 
 
