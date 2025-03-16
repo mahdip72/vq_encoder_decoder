@@ -1666,7 +1666,7 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         configs=configs
     )
 
-    condition_met = configs.model.encoder.pretrained.enabled  # Your condition here
+    condition_met = configs.model.encoder.pretrained.enabled and configs.model.encoder.name == "gcpnet"
     selected_collate = custom_collate_pretrained_gcp if condition_met else custom_collate
 
     if condition_met:
