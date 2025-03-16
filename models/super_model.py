@@ -21,41 +21,8 @@ class SuperModel(nn.Module):
         self.configs = configs
         self.max_length = configs.model.max_length
 
-    def pretrained_batch_preprocessing(self, batch, fill_value: float = 1e-5):
-        # Example ProteinWorkshopBatch(fill_value=[32], atom_list=[32], id=[32], residue_id=[32], residue_type=[10606], residues=[32], chains=[10606], coords=[10606, 37, 3], x=[10606], seq_pos=[10606, 1], batch=[10606], ptr=[33]):
-        # fill_value: tensor([1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05])
-        # atom_list: ['N', 'CA', 'C', 'O', 'CB', 'OG', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OD1', 'ND2', 'CG1', 'CG2', 'CD', 'CE', 'NZ', 'OD2', 'OE1', 'NE2', 'OE2', 'OH', 'NE', 'NH1', 'NH2', 'OG1', 'SD', 'ND1', 'SG', 'NE1', 'CE3', 'CZ2', 'CZ3', 'CH2', 'OXT']
-        # id: ['1a0q', '3eiy', '1hcn', '4hhb', '1hcn', '4hhb', '1hcn', '4hhb', '1a0q', '1a0q', '1hcn', '3eiy', '1a0q', '1hcn', '1a0q', '1a0q', '1a0q', '4hhb', '1a0q', '3eiy', '4hhb', '1a0q', '4hhb', '3eiy', '3eiy', '3eiy', '3eiy', '4hhb', '3eiy', '3eiy', '3eiy', '3eiy']
-        # residue_id: ['A:SER:2', 'A:PHE:3', 'A:SER:4', 'A:ASN:5', 'A:VAL:6', 'A:PRO:7', 'A:ALA:8', 'A:GLY:9', 'A:LYS:10', 'A:ASP:11', 'A:LEU:12', 'A:PRO:13', 'A:GLN:14', 'A:ASP:15', 'A:PHE:16', 'A:ASN:17', 'A:VAL:18', 'A:ILE:19', 'A:ILE:20', 'A:GLU:21', 'A:ILE:22', 'A:PRO:23', 'A:ALA:24', 'A:GLN:25', 'A:SER:26', 'A:GLU:27', 'A:PRO:28', 'A:VAL:29', 'A:LYS:30', 'A:TYR:31', 'A:GLU:32', 'A:ALA:33', 'A:ASP:34', 'A:LYS:35', 'A:ALA:36', 'A:LEU:37', 'A:GLY:38', 'A:LEU:39', 'A:LEU:40', 'A:VAL:41', 'A:VAL:42', 'A:ASP:43', 'A:ARG:44', 'A:PHE:45', 'A:ILE:46', 'A:GLY:47', 'A:THR:48', 'A:GLY:49', 'A:MET:50', 'A:ARG:51', 'A:TYR:52', 'A:PRO:53', 'A:VAL:54', 'A:ASN:55', 'A:TYR:56', 'A:GLY:57', 'A:PHE:58', 'A:ILE:59', 'A:PRO:60', ...]
-        # residue_type: tensor([19, 15, 11,  ...,  5, 10, 10])
-        # residues: ['SER', 'PHE', 'SER', 'ASN', 'VAL', 'PRO', 'ALA', 'GLY', 'LYS', 'ASP', 'LEU', 'PRO', 'GLN', 'ASP', 'PHE', 'ASN', 'VAL', 'ILE', 'ILE', 'GLU', 'ILE', 'PRO', 'ALA', 'GLN', 'SER', 'GLU', 'PRO', 'VAL', 'LYS', 'TYR', 'GLU', 'ALA', 'ASP', 'LYS', 'ALA', 'LEU', 'GLY', 'LEU', 'LEU', 'VAL', 'VAL', 'ASP', 'ARG', 'PHE', 'ILE', 'GLY', 'THR', 'GLY', 'MET', 'ARG', 'TYR', 'PRO', 'VAL', 'ASN', 'TYR', 'GLY', 'PHE', 'ILE', 'PRO', ...]
-        # chains: tensor([0, 0, 0,  ..., 0, 0, 0])
-        # coords: [ 1.0000e-05,  1.0000e-05,  1.0000e-05], [ 1.0000e-05,  1.0000e-05,  1.0000e-05], [ 1.0451e+01,  3.5432e+01, -1.0086e+01]]])
-        # seq_pos: [[  0], [  1], [  2], ..., [171], [172], [173]])
-        # batch: tensor([ 0,  0,  0,  ..., 31, 31, 31])
-        # ptr: tensor([    0,   411,   585,   780,  1354,  1549,  2123,  2318,  2892,  3303, 3714,  3909,  4083,  4494,  4689,  5100,  5511,  5922,  6496,  6907, 7081,  7655,  8066,  8640,  8814,  8988,  9162,  9336,  9910, 10084, 10258, 10432, 10606])
-
-        # build input graph batch to be featurized
-        device = batch["graph"].x.device
-
-        batch["graph"].fill_value = torch.full((batch["graph"].num_graphs,), fill_value, device=device)
-
-        batch["graph"].atom_list = [PROTEIN_ATOMS for _ in range(batch["graph"].num_graphs)]
-        batch["graph"].id = batch["pid"]
-
-        batch["graph"].residue_id = [[f"A:{STANDARD_AMINO_ACID_MAPPING_1_TO_3[res]}:{res_index}" for res_index, res in enumerate(seq, start=1)] for seq in batch["seq"]]  # NOTE: this assumes all input graphs represent single-chain proteins
-        batch["graph"].residue_type = torch.cat([torch.tensor([STANDARD_AMINO_ACIDS.index(res) for res in seq], device=device) for seq in batch["seq"]])
-
-        batch["graph"].residues = [[STANDARD_AMINO_ACID_MAPPING_1_TO_3[res] for res in seq] for seq in batch["seq"]]
-        batch["graph"].chains = torch.zeros_like(batch["graph"].batch, device=device)  # NOTE: this assumes all input graphs represent single-chain proteins
-
-        batch["graph"].coords = torch.full((batch["graph"].num_nodes, len(PROTEIN_ATOMS), 3), fill_value, device=device, dtype=torch.float32)
-        batch["graph"].coords[:, :3, :] = batch["graph"].x_bb.float()  # NOTE: only the N, CA, and C atoms are referenced in the pretrained encoder, which requires float32 precision
-        batch["graph"]._slice_dict["coords"] = batch["graph"]._slice_dict["x_bb"]
-
-        batch["graph"].seq_pos = torch.cat([torch.arange(len(seq), device=device).unsqueeze(1) for seq in batch["seq"]])  # NOTE: this assumes all input graphs represent single-chain proteins
-
-        return self.encoder.featurise(batch["graph"])
+    def pretrained_gcpnet_batch_preprocessing(self, one_batch):
+        return self.encoder.featurise(one_batch["graph"])
 
     def forward(self, batch):
         dtype = batch["graph"].x_bb.dtype
@@ -63,7 +30,7 @@ class SuperModel(nn.Module):
         batch_index = batch['graph'].batch
 
         if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-            batch = self.pretrained_batch_preprocessing(batch)
+            batch = self.pretrained_gcpnet_batch_preprocessing(batch)
 
         if self.configs.model.encoder.name == "gcpnet":
             if self.configs.model.encoder.pretrained.enabled:

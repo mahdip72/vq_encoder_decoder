@@ -12,6 +12,8 @@ from utils.custom_losses import rigid_from_3_points_batch
 from sklearn.decomposition import PCA
 from data.normalizer import Protein3DProcessing
 from scipy.spatial import KDTree
+from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
+from torch_geometric.data import Batch
 
 
 def create_distance_map(coords):
@@ -55,8 +57,6 @@ def merge_features_and_create_mask(features_list, max_length=512):
 
 
 def custom_collate(one_batch):
-    from torch_geometric.data import Batch
-
     # Unpack the batch
     torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
 
@@ -77,6 +77,70 @@ def custom_collate(one_batch):
                     'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates,
                     "inverse_folding_labels": inverse_folding_labels}
     return batched_data
+
+
+def custom_collate_pretrained_gcp(one_batch, fill_value: float = 1e-5):
+    # Unpack the batch
+    torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
+
+    # Create a Batch object
+    torch_geometric_batch = Batch.from_data_list(torch_geometric_feature)
+    raw_seqs = [item[1] for item in one_batch]
+    plddt_scores = [item[2] for item in one_batch]
+    pids = [item[3] for item in one_batch]
+
+    coords = torch.stack([item[4] for item in one_batch])
+    masks = torch.stack([item[5] for item in one_batch])
+
+    input_coordinates = torch.stack([item[6] for item in one_batch])
+    inverse_folding_labels = torch.stack([item[7] for item in one_batch])
+
+    plddt_scores = torch.cat(plddt_scores, dim=0)
+    one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
+                 'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates,
+                 "inverse_folding_labels": inverse_folding_labels}
+
+    # Example ProteinWorkshopBatch(fill_value=[32], atom_list=[32], id=[32], residue_id=[32], residue_type=[10606], residues=[32], chains=[10606], coords=[10606, 37, 3], x=[10606], seq_pos=[10606, 1], one_batch=[10606], ptr=[33]):
+    # fill_value: tensor([1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05])
+    # atom_list: ['N', 'CA', 'C', 'O', 'CB', 'OG', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OD1', 'ND2', 'CG1', 'CG2', 'CD', 'CE', 'NZ', 'OD2', 'OE1', 'NE2', 'OE2', 'OH', 'NE', 'NH1', 'NH2', 'OG1', 'SD', 'ND1', 'SG', 'NE1', 'CE3', 'CZ2', 'CZ3', 'CH2', 'OXT']
+    # id: ['1a0q', '3eiy', '1hcn', '4hhb', '1hcn', '4hhb', '1hcn', '4hhb', '1a0q', '1a0q', '1hcn', '3eiy', '1a0q', '1hcn', '1a0q', '1a0q', '1a0q', '4hhb', '1a0q', '3eiy', '4hhb', '1a0q', '4hhb', '3eiy', '3eiy', '3eiy', '3eiy', '4hhb', '3eiy', '3eiy', '3eiy', '3eiy']
+    # residue_id: ['A:SER:2', 'A:PHE:3', 'A:SER:4', 'A:ASN:5', 'A:VAL:6', 'A:PRO:7', 'A:ALA:8', 'A:GLY:9', 'A:LYS:10', 'A:ASP:11', 'A:LEU:12', 'A:PRO:13', 'A:GLN:14', 'A:ASP:15', 'A:PHE:16', 'A:ASN:17', 'A:VAL:18', 'A:ILE:19', 'A:ILE:20', 'A:GLU:21', 'A:ILE:22', 'A:PRO:23', 'A:ALA:24', 'A:GLN:25', 'A:SER:26', 'A:GLU:27', 'A:PRO:28', 'A:VAL:29', 'A:LYS:30', 'A:TYR:31', 'A:GLU:32', 'A:ALA:33', 'A:ASP:34', 'A:LYS:35', 'A:ALA:36', 'A:LEU:37', 'A:GLY:38', 'A:LEU:39', 'A:LEU:40', 'A:VAL:41', 'A:VAL:42', 'A:ASP:43', 'A:ARG:44', 'A:PHE:45', 'A:ILE:46', 'A:GLY:47', 'A:THR:48', 'A:GLY:49', 'A:MET:50', 'A:ARG:51', 'A:TYR:52', 'A:PRO:53', 'A:VAL:54', 'A:ASN:55', 'A:TYR:56', 'A:GLY:57', 'A:PHE:58', 'A:ILE:59', 'A:PRO:60', ...]
+    # residue_type: tensor([19, 15, 11,  ...,  5, 10, 10])
+    # residues: ['SER', 'PHE', 'SER', 'ASN', 'VAL', 'PRO', 'ALA', 'GLY', 'LYS', 'ASP', 'LEU', 'PRO', 'GLN', 'ASP', 'PHE', 'ASN', 'VAL', 'ILE', 'ILE', 'GLU', 'ILE', 'PRO', 'ALA', 'GLN', 'SER', 'GLU', 'PRO', 'VAL', 'LYS', 'TYR', 'GLU', 'ALA', 'ASP', 'LYS', 'ALA', 'LEU', 'GLY', 'LEU', 'LEU', 'VAL', 'VAL', 'ASP', 'ARG', 'PHE', 'ILE', 'GLY', 'THR', 'GLY', 'MET', 'ARG', 'TYR', 'PRO', 'VAL', 'ASN', 'TYR', 'GLY', 'PHE', 'ILE', 'PRO', ...]
+    # chains: tensor([0, 0, 0,  ..., 0, 0, 0])
+    # coords: [ 1.0000e-05,  1.0000e-05,  1.0000e-05], [ 1.0000e-05,  1.0000e-05,  1.0000e-05], [ 1.0451e+01,  3.5432e+01, -1.0086e+01]]])
+    # seq_pos: [[  0], [  1], [  2], ..., [171], [172], [173]])
+    # one_batch: tensor([ 0,  0,  0,  ..., 31, 31, 31])
+    # ptr: tensor([    0,   411,   585,   780,  1354,  1549,  2123,  2318,  2892,  3303, 3714,  3909,  4083,  4494,  4689,  5100,  5511,  5922,  6496,  6907, 7081,  7655,  8066,  8640,  8814,  8988,  9162,  9336,  9910, 10084, 10258, 10432, 10606])
+
+    # build input graph one_batch to be featurized
+    device = one_batch["graph"].x.device
+
+    one_batch["graph"].fill_value = torch.full((one_batch["graph"].num_graphs,), fill_value, device=device)
+
+    one_batch["graph"].atom_list = [PROTEIN_ATOMS for _ in range(one_batch["graph"].num_graphs)]
+    one_batch["graph"].id = one_batch["pid"]
+
+    one_batch["graph"].residue_id = [
+        [f"A:{STANDARD_AMINO_ACID_MAPPING_1_TO_3[res]}:{res_index}" for res_index, res in enumerate(seq, start=1)] for
+        seq in one_batch["seq"]]  # NOTE: this assumes all input graphs represent single-chain proteins
+    one_batch["graph"].residue_type = torch.cat(
+        [torch.tensor([STANDARD_AMINO_ACIDS.index(res) for res in seq], device=device) for seq in one_batch["seq"]])
+
+    one_batch["graph"].residues = [[STANDARD_AMINO_ACID_MAPPING_1_TO_3[res] for res in seq] for seq in one_batch["seq"]]
+    one_batch["graph"].chains = torch.zeros_like(one_batch["graph"].batch,
+                                                 device=device)  # NOTE: this assumes all input graphs represent single-chain proteins
+
+    one_batch["graph"].coords = torch.full((one_batch["graph"].num_nodes, len(PROTEIN_ATOMS), 3), fill_value,
+                                           device=device, dtype=torch.float32)
+    one_batch["graph"].coords[:, :3, :] = one_batch[
+        "graph"].x_bb.float()  # NOTE: only the N, CA, and C atoms are referenced in the pretrained encoder, which requires float32 precision
+    one_batch["graph"]._slice_dict["coords"] = one_batch["graph"]._slice_dict["x_bb"]
+
+    one_batch["graph"].seq_pos = torch.cat([torch.arange(len(seq), device=device).unsqueeze(1) for seq in one_batch[
+        "seq"]])  # NOTE: this assumes all input graphs represent single-chain proteins
+
+    return one_batch
 
 
 def _normalize(tensor, dim=-1):
@@ -285,7 +349,7 @@ class GVPDataset(Dataset):
         # Merge the features and create a mask
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
 
-        coords = coords[..., :9] # only use N, CA, C atoms
+        coords = coords[..., :9]  # only use N, CA, C atoms
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
@@ -698,7 +762,7 @@ class GCPNetDataset(Dataset):
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
 
         input_coordinates = coords.clone()
-        coords = coords[..., :9] # only use N, CA, C atoms
+        coords = coords[..., :9]  # only use N, CA, C atoms
 
         # squeeze coords and masks to return them to 2D
         coords = coords.squeeze(0)
@@ -1490,8 +1554,8 @@ class DistanceMapVQVAEDataset(Dataset):
         # coords = coords.reshape(-1, 12)
 
         # expand the first dimension of distance maps
-        input_distance_map = input_distance_map.unsqueeze(0)/100
-        target_distance_map = target_distance_map.unsqueeze(0)/100
+        input_distance_map = input_distance_map.unsqueeze(0) / 100
+        target_distance_map = target_distance_map.unsqueeze(0) / 100
         return {'pid': pid, 'seq': sequence, 'input_coords': input_coords_tensor.squeeze(0),
                 'input_distance_map': input_distance_map, 'target_coords': coords_tensor.squeeze(0),
                 'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
@@ -1565,7 +1629,6 @@ def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
     return train_loader, valid_loader, visualization_loader
 
 
-
 def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
@@ -1603,20 +1666,28 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         configs=configs
     )
 
+    condition_met = configs.model.encoder.pretrained.enabled  # Your condition here
+    selected_collate = custom_collate_pretrained_gcp if condition_met else custom_collate
+
+    if condition_met:
+        logging.info("Using custom collate function for GCPNet with pretrained encoder")
+    else:
+        logging.info("Using default collate function for GCPNet")
+
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               num_workers=configs.train_settings.num_workers,
                               pin_memory=False,
-                              collate_fn=custom_collate)
+                              collate_fn=selected_collate)
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
                               num_workers=configs.valid_settings.num_workers,
                               pin_memory=False,
                               shuffle=False,
-                              collate_fn=custom_collate)
+                              collate_fn=selected_collate)
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
                                       num_workers=0,
                                       pin_memory=False,
                                       shuffle=False,
-                                      collate_fn=custom_collate)
+                                      collate_fn=selected_collate)
     return train_loader, valid_loader, visualization_loader
 
 
@@ -1660,15 +1731,15 @@ def prepare_egnn_vqvae_dataloaders(logging, accelerator, configs):
         logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
     train_dataset = EGNNVQVAEDataset(configs.train_settings.data_path, train_mode=True,
-                                    rotate_randomly=configs.train_settings.rotate_randomly,
-                                    max_samples=configs.train_settings.max_task_samples,
-                                    configs=configs)
+                                     rotate_randomly=configs.train_settings.rotate_randomly,
+                                     max_samples=configs.train_settings.max_task_samples,
+                                     configs=configs)
     valid_dataset = EGNNVQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False,
-                                    max_samples=configs.train_settings.max_task_samples,
-                                    configs=configs)
+                                     max_samples=configs.train_settings.max_task_samples,
+                                     configs=configs)
     visualization_dataset = EGNNVQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
-                                            max_samples=configs.train_settings.max_task_samples,
-                                            configs=configs)
+                                             max_samples=configs.train_settings.max_task_samples,
+                                             configs=configs)
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               shuffle=configs.train_settings.shuffle,
@@ -1867,8 +1938,8 @@ if __name__ == '__main__':
     #                      configs=test_configs)
 
     dataset = EGNNVQVAEDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
-                              max_samples=test_configs.train_settings.max_task_samples,
-                              configs=test_configs)
+                               max_samples=test_configs.train_settings.max_task_samples,
+                               configs=test_configs)
 
     test_loader = DataLoader(dataset, batch_size=32, num_workers=4,
                              pin_memory=False,
