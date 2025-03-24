@@ -874,20 +874,21 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
     losses = []
     if configs.train_settings.losses.kabsch.enable:
         losses.append(kabsch_loss.mean()*configs.train_settings.losses.kabsch.weight)
+
     if configs.train_settings.losses.backbone_distance.enable:
-        backbone_dist_loss = calculate_backbone_distance_loss(x_predicted, x_true, masks).mean()
+        backbone_dist_loss = calculate_backbone_distance_loss(x_pred_aligned, x_true_aligned, masks).mean()
         losses.append(backbone_dist_loss*configs.train_settings.losses.backbone_distance.weight)
 
     if configs.train_settings.losses.backbone_direction.enable:
-        backbone_dir_loss = calculate_backbone_direction_loss(x_predicted, x_true, masks).mean()
+        backbone_dir_loss = calculate_backbone_direction_loss(x_pred_aligned, x_true_aligned, masks).mean()
         losses.append(backbone_dir_loss*configs.train_settings.losses.backbone_direction.weight)
 
     if configs.train_settings.losses.binned_direction_classification.enable:
-        binned_dir_class_loss = calculate_binned_direction_classification_loss(dir_loss_logits, x_true, masks).mean() if dir_loss_logits is not None else 0.0
+        binned_dir_class_loss = calculate_binned_direction_classification_loss(dir_loss_logits, x_true_aligned, masks).mean() if dir_loss_logits is not None else 0.0
         losses.append(binned_dir_class_loss*configs.train_settings.losses.binned_direction_classification.weight)
 
     if configs.train_settings.losses.binned_distance_classification.enable:
-        binned_dist_class_loss = calculate_binned_distance_classification_loss(dist_loss_logits, x_true, masks).mean() if dist_loss_logits is not None else 0.0
+        binned_dist_class_loss = calculate_binned_distance_classification_loss(dist_loss_logits, x_true_aligned, masks).mean() if dist_loss_logits is not None else 0.0
         losses.append(binned_dist_class_loss*configs.train_settings.losses.binned_distance_classification.weight)
 
     if configs.train_settings.losses.inverse_folding.enable:
