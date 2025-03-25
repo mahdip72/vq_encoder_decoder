@@ -3,6 +3,9 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
+from graphein.protein.tensor.geometry import kabsch, quaternion_to_matrix
+from scipy.spatial.transform import Rotation
+
 
 def rigid_from_3_points_batch(x1, x2, x3):
     """
@@ -50,6 +53,17 @@ def transform_predicted_points(R, t, x):
     x_transformed += rotated_center
 
     return x_transformed
+
+
+def generate_random_rotation_matrix(batch_size: int) -> torch.Tensor:
+    """
+    Generate a random 3D rotation matrix using SciPy.
+    
+    :param batch_size: Number of rotation matrices to generate.
+    :return: (torch.Tensor[3, 3]) Random 3D rotation matrix.
+    """
+    R = Rotation.random(batch_size).as_matrix()  # NOTE: Generates a random SO(3) matrix
+    return torch.tensor(R, dtype=torch.float32)
 
 
 def fape_loss(x_predicted, x_true, Z=100.0, d_clamp=100.0, epsilon=1e-4):
@@ -277,23 +291,23 @@ def compute_distance_map(coordinates):
     return distance_map
 
 
-def distance_map_loss(predicted_coords, real_distance_map):
+def distance_map_loss(predicted_coords, real_coords):
     """
     Compute the distance map loss between the predicted and real coordinates.
 
     Args:
         predicted_coords (torch.Tensor): A tensor of shape (N, 3) representing the predicted coordinates.
-        real_distance_map (torch.Tensor): A tensor of shape (N, N) representing the real distance map.
+        real_coords (torch.Tensor): A tensor of shape (N, 3) representing the real coordinates.
 
     Returns:
         torch.Tensor: The computed distance map loss.
     """
     # Compute the distance maps
     predicted_distance_map = compute_distance_map(predicted_coords)
-    # real_distance_map = compute_distance_map(real_coords)
+    real_distance_map = compute_distance_map(real_coords)
 
     # Define the loss as the L2 difference between the distance maps
-    loss = torch.nn.functional.mse_loss(predicted_distance_map, real_distance_map.squeeze(1))
+    loss = torch.nn.functional.mse_loss(predicted_distance_map, real_distance_map)
     return loss
 
 
@@ -539,6 +553,31 @@ def test_radius_of_gyration_loss():
     print("Radius of Gyration Loss:", loss.item())
 
 
+def test_aligned_mse_loss():
+    # Example usage
+    batch_size = 2  # Number of batches
+    seq_len = 10  # Sequence length
+    num_atoms = 3  # Number of atoms per amino acid
+    num_coordinates = 3  # Number of coordinates (x, y, z)
+
+    # Generate random predicted and true coordinates
+    x_true = torch.randn(batch_size, seq_len, num_atoms, num_coordinates)
+    masks = torch.randint(0, 2, (batch_size, seq_len))
+
+    # Randomly rotate and translate the true coordinates
+    quat = torch.rand(batch_size, 4)
+    rot = quaternion_to_matrix(quat)
+
+    x_scale_factor = 4
+    x_true_perturbed = rot.bmm(x_true.flatten(1, 2).mT).mT.reshape_as(x_true) + torch.rand(batch_size, 1, 1, 1) * x_scale_factor
+
+    # Calculate the aligned MSE loss
+    loss, x_true_perturbed_aligned, x_true_aligned = calculate_aligned_mse_loss(x_true_perturbed, x_true, masks)
+    rmsd = (x_true_perturbed_aligned - x_true_aligned).square().mean((-1, -2, -3)).sqrt()
+
+    print(f"Aligned MSE Loss: {loss.mean().item()} (RMSD: {rmsd.mean().item()})")
+
+
 def calculate_aligned_mse_loss(x_predicted, x_true, masks):
     """
     Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
@@ -564,70 +603,15 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks):
         x_tru = x_true[i]
 
         # Perform Kabsch alignment, keeping the same shape as the input
-        x_true_aligned = kabsch_alignment(x_tru, x_pred, mask).detach()
-        x_true_aligned_list.append(x_true_aligned)
+        with torch.no_grad():
+            x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1)).detach().reshape_as(x_tru)
+            x_true_aligned_list.append(x_true_aligned)
 
         # Compute MSE loss using the masked areas
         loss = torch.mean(((x_pred[mask] - x_true_aligned[mask]) ** 2))
         loss_list.append(loss)
 
     return torch.stack(loss_list), x_predicted, torch.stack(x_true_aligned_list)
-
-
-@torch.no_grad()
-def kabsch_alignment(x_true, x_predicted, mask):
-    """
-    Performs Kabsch alignment of x_true to x_predicted, with masked coordinates.
-
-    Parameters:
-    x_true (torch.Tensor): True coordinates of shape [seq_len, num_atoms, 3].
-    x_predicted (torch.Tensor): Predicted coordinates of shape [seq_len, num_atoms, 3].
-    mask (torch.Tensor): Boolean mask of shape [seq_len], where True indicates valid positions.
-
-    Returns:
-    torch.Tensor: The aligned x_true coordinates, with the same shape as the input.
-    """
-    # Apply the mask to select only valid positions
-    x_tru_masked = x_true[mask]  # Shape: [num_valid, num_atoms, 3]
-    x_pred_masked = x_predicted[mask]  # Shape: [num_valid, num_atoms, 3]
-
-    # Reshape to [N, 3] where N = num_valid * num_atoms
-    x_tru_flat = x_tru_masked.reshape(-1, 3)
-    x_pred_flat = x_pred_masked.reshape(-1, 3)
-
-    # Subtract centroids from masked coordinates
-    centroid_true = x_tru_flat.mean(dim=0)
-    centroid_pred = x_pred_flat.mean(dim=0)
-    x_true_centered = x_tru_flat - centroid_true
-    x_pred_centered = x_pred_flat - centroid_pred
-
-    # Compute covariance matrix
-    H = x_true_centered.T @ x_pred_centered
-
-    # Singular Value Decomposition
-    U, S, Vt = torch.linalg.svd(H)
-
-    # Compute rotation matrix
-    d = torch.det(Vt.T @ U.T)
-    D = torch.diag(torch.tensor([1.0, 1.0, d], device=x_true.device))
-    R = Vt.T @ D @ U.T
-
-    # Apply rotation to the masked true coordinates
-    x_true_rotated = x_true_centered @ R
-
-    # Translate back to the predicted centroid
-    x_tru_aligned_flat = x_true_rotated + centroid_pred
-
-    # Reshape aligned flat coordinates back to the original masked shape
-    x_tru_aligned_masked = x_tru_aligned_flat.view_as(x_tru_masked)
-
-    # Create a tensor to store the aligned true coordinates (same shape as input)
-    x_tru_aligned = torch.zeros_like(x_true)
-    
-    # Place the aligned values back into their original positions
-    x_tru_aligned[mask] = x_tru_aligned_masked
-
-    return x_tru_aligned
 
 
 def calculate_backbone_distance_loss(x_predicted, x_true, masks):
@@ -907,3 +891,4 @@ if __name__ == '__main__':
     test_orientation_loss()
     test_bond_lengths_loss()
     test_bond_angles_loss()
+    test_aligned_mse_loss()
