@@ -116,10 +116,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
             masked_outputs = (masked_outputs).reshape(-1, 3)
             masked_labels = (masked_labels).reshape(-1, 3)
 
-            # Update the metrics
-            mae.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            rmse.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
-            gdtts.update(accelerator.gather(masked_outputs).detach(), accelerator.gather(masked_labels).detach())
+            if masked_outputs.numel() > 0:
+                # --->>> UPDATE WITH LOCAL TENSORS <<<---
+                # Pass the tensors directly from the current GPU.
+                # torchmetrics + accelerate handle the sync later.
+                mae.update(masked_outputs.detach(), masked_labels.detach())
+                rmse.update(masked_outputs.detach(), masked_labels.detach())
+                gdtts.update(masked_outputs.detach(), masked_labels.detach())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
