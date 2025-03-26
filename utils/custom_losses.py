@@ -604,7 +604,7 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks):
 
         # Perform Kabsch alignment, keeping the same shape as the input
         with torch.no_grad():
-            x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1)).detach().reshape_as(x_tru)
+            x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1), allow_reflections=True).detach().reshape_as(x_tru)
             x_true_aligned_list.append(x_true_aligned)
 
         # Compute MSE loss using the masked areas
