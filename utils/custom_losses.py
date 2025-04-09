@@ -612,9 +612,7 @@ def quaternion_align(P, Q, weights=None):
     q_centered = Q - q_center
 
     # Compute weighted covariance matrix
-    C = torch.zeros(batch_size, 3, 3, device=device)
-    for b in range(batch_size):
-        C[b] = (p_centered[b].transpose(-2, -1) @ (q_centered[b] * weights_expanded[b]))
+    C = torch.bmm(p_centered.transpose(1, 2), q_centered * weights_expanded)
 
     # Construct the quaternion matrix
     K = torch.zeros(batch_size, 4, 4, device=device)
