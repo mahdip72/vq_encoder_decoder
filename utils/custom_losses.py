@@ -1022,7 +1022,7 @@ def kabsch_alignment(x_true, x_predicted, mask):
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
                            seq_logits=None, alignment_strategy='kabsch'):
     mse_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks,
-                                                                             alignment_strategy=alignment_strategy)
+                                                                          alignment_strategy=alignment_strategy)
 
     losses = []
     if configs.train_settings.losses.mse.enable:
@@ -1049,7 +1049,6 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
 
     loss = sum(losses)
-    _, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
 
     return loss, x_pred_aligned, x_true_aligned
 
