@@ -7,7 +7,7 @@ normalizer_path: ./data/normalizer.pkl
 
 resume:
   resume: False
-  resume_path: results/gcpnet_vqvae/hp_test/2024-11-19__19-40-07/checkpoints/best_valid.pth
+  resume_path: results/gcpnet_vqvae/2025-03-15__02-07-15/checkpoints/epoch_1024.pth
   restart_optimizer: True
 
 model:
@@ -38,40 +38,41 @@ model:
 
 train_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/swissprot_1024_h5
-  num_epochs: 4096
+  num_epochs: 1024
   shuffle: True
   loss: crossentropy
   sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  save_pdb_every: 256
+  save_pdb_every: 16
   batch_size: 32
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 2048
+  max_task_samples: 64000
   losses:
-    kabsch:
+    alignment_strategy: kabsch # kabsch, kabsch_old, quaternion
+    mse:
       enable: True
-      weight: 0.2
+      weight: 0.1
     backbone_distance:
-      enable: False
-      weight: 10.0
+      enable: True
+      weight: 1.0
     backbone_direction:
-      enable: False
-      weight: 10.0
+      enable: True
+      weight: 1.0
     binned_distance_classification:
       enable: False
-      weight: 10.0
+      weight: 1.0
     binned_direction_classification:
       enable: False
-      weight: 10.0
+      weight: 1.0
     inverse_folding:
       enable: False
       weight: 1.0
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
-  do_every: 256
-  save_pdb_every: 256
+  do_every: 16
+  save_pdb_every: 16
   batch_size: 16
   num_workers: 2
 
@@ -84,7 +85,7 @@ visualization_settings:
 
 optimizer:
   name: schedulerfree
-  lr: 8e-5
+  lr: 5e-5
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-16

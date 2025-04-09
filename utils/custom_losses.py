@@ -680,7 +680,7 @@ def compute_quaternion_alignment(x_pred, x_tru, mask):
     return x_true_aligned
 
 
-def calculate_aligned_mse_loss(x_predicted, x_true, masks, new_version=True, kbasch_alignment_appoach=True, quaternion_alignment_appoach=False):
+def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
     """
     Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
     applying the provided masks.
@@ -706,14 +706,14 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, new_version=True, kba
 
         # Perform Kabsch alignment, keeping the same shape as the input
         with torch.no_grad():
-            if kbasch_alignment_appoach:
-                if new_version:
-                    x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1), allow_reflections=True).detach().reshape_as(x_tru)
-                else:
-                    # Perform Kabsch alignment, keeping the same shape as the input
-                    x_true_aligned = kabsch_alignment(x_tru, x_pred, mask).detach()
+            if alignment_strategy == 'kabsch':
+                x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1), allow_reflections=True).detach().reshape_as(x_tru)
 
-            elif quaternion_alignment_appoach:
+            if alignment_strategy == 'kabsch_old':
+                # Perform Kabsch alignment, keeping the same shape as the input
+                x_true_aligned = kabsch_alignment(x_tru, x_pred, mask).detach()
+
+            elif alignment_strategy == 'quaternion':
                 x_true_aligned = compute_quaternion_alignment(x_pred, x_tru, mask).detach()
 
             x_true_aligned_list.append(x_true_aligned)
@@ -1019,12 +1019,14 @@ def kabsch_alignment(x_true, x_predicted, mask):
     return x_tru_aligned
 
 
-def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None, seq_logits=None):
-    kabsch_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks, new_version=True)
+def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
+                           seq_logits=None, alignment_strategy='kabsch'):
+    mse_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks,
+                                                                             alignment_strategy=alignment_strategy)
 
     losses = []
-    if configs.train_settings.losses.kabsch.enable:
-        losses.append(kabsch_loss.mean()*configs.train_settings.losses.kabsch.weight)
+    if configs.train_settings.losses.mse.enable:
+        losses.append(mse_loss.mean()*configs.train_settings.losses.kabsch.weight)
 
     if configs.train_settings.losses.backbone_distance.enable:
         backbone_dist_loss = calculate_backbone_distance_loss(x_pred_aligned, x_true_aligned, masks).mean()
@@ -1047,6 +1049,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
 
     loss = sum(losses)
+    _, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
 
     return loss, x_pred_aligned, x_true_aligned
 

@@ -36,6 +36,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
+    alignment_strategy = configs.train_settings.losses.alignment_strategy
 
     # Prepare metrics for evaluation
     rmsd = torchmetrics.MeanSquaredError(squared=False)
@@ -94,6 +95,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
                 seq_logits=seq_logits,
+                alignment_strategy=alignment_strategy
             )
 
             loss = rec_loss + alpha * commit_loss
@@ -231,6 +233,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     writer = kwargs.pop('writer')
     logging = kwargs.pop('logging')
     alpha = configs.model.vqvae.vector_quantization.alpha
+    alignment_strategy = configs.train_settings.losses.alignment_strategy
 
     # Initialize local accumulators for metrics
     sum_mae = 0.0
@@ -275,6 +278,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
                 seq_logits=seq_logits,
+                alignment_strategy=alignment_strategy
             )
 
             loss = rec_loss + alpha * commit_loss
