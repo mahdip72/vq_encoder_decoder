@@ -704,10 +704,11 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
         x_pred = x_predicted[i]  # [seq_len, num_atoms, 3]
         x_tru = x_true[i]
 
-        # Perform Kabsch alignment, keeping the same shape as the input
         with torch.no_grad():
             if alignment_strategy == 'kabsch':
-                x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1), allow_reflections=True).detach().reshape_as(x_tru)
+                # Perform Kabsch alignment, keeping the same shape as the input
+                x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1),
+                                        allow_reflections=True).detach().reshape_as(x_tru)
 
             if alignment_strategy == 'kabsch_old':
                 # Perform Kabsch alignment, keeping the same shape as the input
@@ -1049,6 +1050,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
 
     loss = sum(losses)
+    _, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
 
     return loss, x_pred_aligned, x_true_aligned
 
