@@ -578,7 +578,109 @@ def test_aligned_mse_loss():
     print(f"Aligned MSE Loss: {loss.mean().item()} (RMSD: {rmsd.mean().item()})")
 
 
-def calculate_aligned_mse_loss(x_predicted, x_true, masks):
+def quaternion_align(P, Q, weights=None):
+    """
+    Quaternion-based alignment of point sets (Horn's method).
+    Aligns Q to P (true coordinates to predicted coordinates).
+
+    Args:
+        P: Predicted coordinates [batch, num_points, 3]
+        Q: True coordinates [batch, num_points, 3]
+        weights: Optional weights for each point [batch, num_points]
+
+    Returns:
+        R: Rotation matrices [batch, 3, 3]
+        t: Translation vectors [batch, 3, 1]
+    """
+    batch_size = P.shape[0]
+    device = P.device
+
+    if weights is None:
+        weights = torch.ones(P.shape[0], P.shape[1], device=device)
+
+    # Normalize weights to sum to 1 per batch
+    weights_sum = weights.sum(dim=1, keepdim=True)
+    norm_weights = weights / (weights_sum + 1e-8)
+
+    # Calculate centroids
+    weights_expanded = norm_weights.unsqueeze(-1)
+    p_center = torch.sum(P * weights_expanded, dim=1, keepdim=True)
+    q_center = torch.sum(Q * weights_expanded, dim=1, keepdim=True)
+
+    # Center the coordinates
+    p_centered = P - p_center
+    q_centered = Q - q_center
+
+    # Compute weighted covariance matrix
+    C = torch.zeros(batch_size, 3, 3, device=device)
+    for b in range(batch_size):
+        C[b] = (p_centered[b].transpose(-2, -1) @ (q_centered[b] * weights_expanded[b]))
+
+    # Construct the quaternion matrix
+    K = torch.zeros(batch_size, 4, 4, device=device)
+
+    K[:, 0, 0] = C[:, 0, 0] + C[:, 1, 1] + C[:, 2, 2]
+    K[:, 0, 1] = C[:, 1, 2] - C[:, 2, 1]
+    K[:, 0, 2] = C[:, 2, 0] - C[:, 0, 2]
+    K[:, 0, 3] = C[:, 0, 1] - C[:, 1, 0]
+
+    K[:, 1, 0] = C[:, 1, 2] - C[:, 2, 1]
+    K[:, 1, 1] = C[:, 0, 0] - C[:, 1, 1] - C[:, 2, 2]
+    K[:, 1, 2] = C[:, 0, 1] + C[:, 1, 0]
+    K[:, 1, 3] = C[:, 0, 2] + C[:, 2, 0]
+
+    K[:, 2, 0] = C[:, 2, 0] - C[:, 0, 2]
+    K[:, 2, 1] = C[:, 0, 1] + C[:, 1, 0]
+    K[:, 2, 2] = -C[:, 0, 0] + C[:, 1, 1] - C[:, 2, 2]
+    K[:, 2, 3] = C[:, 1, 2] + C[:, 2, 1]
+
+    K[:, 3, 0] = C[:, 0, 1] - C[:, 1, 0]
+    K[:, 3, 1] = C[:, 0, 2] + C[:, 2, 0]
+    K[:, 3, 2] = C[:, 1, 2] + C[:, 2, 1]
+    K[:, 3, 3] = -C[:, 0, 0] - C[:, 1, 1] + C[:, 2, 2]
+
+    # Find eigenvector with largest eigenvalue
+    _, eigenvecs = torch.linalg.eigh(K)
+    q = eigenvecs[:, :, -1]  # Last column is the eigenvector for largest eigenvalue
+
+    # Convert quaternion to rotation matrix
+    R = quaternion_to_matrix(q)
+
+    # Calculate translation
+    t = p_center - torch.bmm(R, q_center.transpose(-2, -1))
+
+    return R, t
+
+
+def compute_quaternion_alignment(x_pred, x_tru, mask):
+    # Flatten valid coordinates along sequence and atom dimensions for quaternion alignment
+    pred_flat = x_pred[mask].reshape(-1, 3)  # Shape: [num_valid_points, 3]
+    true_flat = x_tru[mask].reshape(-1, 3)  # Shape: [num_valid_points, 3]
+
+    # Create batch dimension of 1 for the quaternion_align function
+    pred_batch = pred_flat.unsqueeze(0)  # Shape: [1, num_valid_points, 3]
+    true_batch = true_flat.unsqueeze(0)  # Shape: [1, num_valid_points, 3]
+
+    # Compute rotation and translation to align true to predicted coordinates
+    # Note: quaternion_align aligns Q to P (true to predicted)
+    R, t = quaternion_align(pred_batch, true_batch)
+
+    # Apply rotation and translation to all true coordinates (not just masked ones)
+    # First reshape to batch dim for matrix multiplication
+    x_tru_reshaped = x_tru.reshape(-1, 3).unsqueeze(0)  # Shape: [1, seq_len*num_atoms, 3]
+
+    # Apply rotation
+    rotated = torch.bmm(R, x_tru_reshaped.transpose(1, 2)).transpose(1,
+                                                                     2)  # Shape: [1, seq_len*num_atoms, 3]
+
+    # Apply translation
+    x_true_aligned = (rotated + t.transpose(1, 2)).squeeze(0).reshape_as(
+        x_tru)  # Shape: [seq_len, num_atoms, 3]
+
+    return x_true_aligned
+
+
+def calculate_aligned_mse_loss(x_predicted, x_true, masks, new_version=True, kbasch_alignment_appoach=True, quaternion_alignment_appoach=False):
     """
     Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
     applying the provided masks.
@@ -604,7 +706,16 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks):
 
         # Perform Kabsch alignment, keeping the same shape as the input
         with torch.no_grad():
-            x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1), allow_reflections=True).detach().reshape_as(x_tru)
+            if kbasch_alignment_appoach:
+                if new_version:
+                    x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1), allow_reflections=True).detach().reshape_as(x_tru)
+                else:
+                    # Perform Kabsch alignment, keeping the same shape as the input
+                    x_true_aligned = kabsch_alignment(x_tru, x_pred, mask).detach()
+
+            elif quaternion_alignment_appoach:
+                x_true_aligned = compute_quaternion_alignment(x_pred, x_tru, mask).detach()
+
             x_true_aligned_list.append(x_true_aligned)
 
         # Compute MSE loss using the masked areas
@@ -852,8 +963,64 @@ def calculate_inverse_folding_loss(seq_logits, seq, masks):
     return loss
 
 
+@torch.no_grad()
+def kabsch_alignment(x_true, x_predicted, mask):
+    """
+    Performs Kabsch alignment of x_true to x_predicted, with masked coordinates.
+
+    Parameters:
+    x_true (torch.Tensor): True coordinates of shape [seq_len, num_atoms, 3].
+    x_predicted (torch.Tensor): Predicted coordinates of shape [seq_len, num_atoms, 3].
+    mask (torch.Tensor): Boolean mask of shape [seq_len], where True indicates valid positions.
+
+    Returns:
+    torch.Tensor: The aligned x_true coordinates, with the same shape as the input.
+    """
+    # Apply the mask to select only valid positions
+    x_tru_masked = x_true[mask]  # Shape: [num_valid, num_atoms, 3]
+    x_pred_masked = x_predicted[mask]  # Shape: [num_valid, num_atoms, 3]
+
+    # Reshape to [N, 3] where N = num_valid * num_atoms
+    x_tru_flat = x_tru_masked.reshape(-1, 3)
+    x_pred_flat = x_pred_masked.reshape(-1, 3)
+
+    # Subtract centroids from masked coordinates
+    centroid_true = x_tru_flat.mean(dim=0)
+    centroid_pred = x_pred_flat.mean(dim=0)
+    x_true_centered = x_tru_flat - centroid_true
+    x_pred_centered = x_pred_flat - centroid_pred
+
+    # Compute covariance matrix
+    H = x_true_centered.T @ x_pred_centered
+
+    # Singular Value Decomposition
+    U, S, Vt = torch.linalg.svd(H)
+
+    # Compute rotation matrix
+    d = torch.det(Vt.T @ U.T)
+    D = torch.diag(torch.tensor([1.0, 1.0, d], device=x_true.device))
+    R = Vt.T @ D @ U.T
+
+    # Apply rotation to the masked true coordinates
+    x_true_rotated = x_true_centered @ R
+
+    # Translate back to the predicted centroid
+    x_tru_aligned_flat = x_true_rotated + centroid_pred
+
+    # Reshape aligned flat coordinates back to the original masked shape
+    x_tru_aligned_masked = x_tru_aligned_flat.view_as(x_tru_masked)
+
+    # Create a tensor to store the aligned true coordinates (same shape as input)
+    x_tru_aligned = torch.zeros_like(x_true)
+
+    # Place the aligned values back into their original positions
+    x_tru_aligned[mask] = x_tru_aligned_masked
+
+    return x_tru_aligned
+
+
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None, seq_logits=None):
-    kabsch_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
+    kabsch_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks, new_version=True)
 
     losses = []
     if configs.train_settings.losses.kabsch.enable:
