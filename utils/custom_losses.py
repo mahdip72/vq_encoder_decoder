@@ -647,7 +647,7 @@ def quaternion_align(P, Q, weights=None):
     R = quaternion_to_matrix(q)
 
     # Calculate translation
-    t = p_center - torch.bmm(R, q_center.transpose(-2, -1))
+    t = p_center.transpose(1, 2) - torch.bmm(R, q_center.transpose(1, 2))  # Ensure t is [batch, 3, 1]
 
     return R, t
 
