@@ -1050,7 +1050,6 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
 
     loss = sum(losses)
-    _, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks)
 
     return loss, x_pred_aligned, x_true_aligned
 
