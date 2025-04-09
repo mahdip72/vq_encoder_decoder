@@ -21,6 +21,28 @@ class MultiTaskLossWrapper(nn.Module):
         return total_loss
 
 
+def rigid_from_3_points_batch(x1, x2, x3):
+    """
+    Compute the rigid transformation from 3 points using the Gram-Schmidt process for a batch of data.
+
+    Parameters:
+    - x1, x2, x3: Tensors of shape (batch_size, num_amino_acids, 3) representing the 3D coordinates of the points.
+
+    Returns:
+    - R: Rotation matrix of shape (batch_size, num_amino_acids, 3, 3).
+    - t: Translation vector of shape (batch_size, num_amino_acids, 3).
+    """
+    v1 = x3 - x2
+    v2 = x1 - x2
+    e1 = v1 / torch.norm(v1, dim=2, keepdim=True)
+    u2 = v2 - e1 * torch.sum(e1 * v2, dim=2, keepdim=True)
+    e2 = u2 / torch.norm(u2, dim=2, keepdim=True)
+    e3 = torch.cross(e1, e2, dim=2)
+    R = torch.stack([e1, e2, e3], dim=3)
+    t = x2
+    return R, t
+
+
 def create_voxel_grid(coordinates, grid_size=32):
     # Determine the min and max bounds
     min_coords = np.min(coordinates, axis=0)
@@ -827,6 +849,214 @@ def kabsch_alignment(x_true, x_predicted, mask):
     return x_tru_aligned
 
 
+def safe_normalize(tensor, dim=-1, keepdim=True, epsilon=1e-8):
+    """
+    Safely normalize a tensor along a dimension by adding epsilon to the norm before division
+    for numerical stability.
+
+    Args:
+        tensor: Input tensor.
+        dim: Dimension along which to normalize.
+        keepdim: Whether the output tensor has dim retained or not.
+        epsilon: Small value to prevent division by zero.
+
+    Returns:
+        Normalized tensor.
+    """
+    norm = torch.norm(tensor, dim=dim, keepdim=keepdim)
+    # Add epsilon to the norm before division
+    return tensor / (norm + epsilon)
+
+
+def compute_local_frames(coords):
+    """
+    Compute local frames (rotation and translation) for each residue based on backbone atoms (N, CA, C),
+    ensuring numerical stability.
+
+    Follows a Gram-Schmidt-like process or definition similar to AlphaFold2:
+    Origin (translation) at CA.
+    x-axis points from CA to C.
+    z-axis is orthogonal to the N-CA-C plane (using N-CA cross product with x-axis).
+    y-axis completes the right-handed orthonormal basis.
+
+    Args:
+        coords: Tensor of shape [batch_size, seq_len, num_atoms, 3] or [seq_len, num_atoms, 3] 
+               containing 3D coordinates. Assumes atom indices 0, 1, 2 correspond to N, CA, C respectively.
+
+    Returns:
+        rotation: Tensor of rotation matrices with same batch dimensions as input.
+        translation: Tensor of translation vectors (CA positions) with same batch dimensions as input.
+    """
+    # Check if we have a batch dimension
+    has_batch_dim = coords.dim() == 4
+    
+    # If no batch dimension, add one for consistent processing
+    if not has_batch_dim:
+        coords = coords.unsqueeze(0)  # Add batch dim of 1
+    
+    # Extract backbone atoms (N, CA, C)
+    N = coords[:, :, 0, :]  # [batch_size, seq_len, 3]
+    CA = coords[:, :, 1, :]  # [batch_size, seq_len, 3]
+    C = coords[:, :, 2, :]  # [batch_size, seq_len, 3]
+
+    # Define frame vectors relative to CA (origin)
+    vec_ca_c = C - CA  # [batch_size, seq_len, 3]
+    vec_n_ca = N - CA  # [batch_size, seq_len, 3]
+
+    # Calculate x-axis (points from CA to C)
+    # Explicitly maintain the dimensions for safe_normalize
+    x_vec = safe_normalize(vec_ca_c, dim=-1, keepdim=True)  # [batch_size, seq_len, 3, 1]
+    x_vec = x_vec.squeeze(-1)  # [batch_size, seq_len, 3]
+
+    # Calculate z-axis (orthogonal to the N-CA-C plane)
+    z_vec_unnormalized = torch.cross(vec_n_ca, x_vec, dim=-1)  # [batch_size, seq_len, 3]
+    z_vec = safe_normalize(z_vec_unnormalized, dim=-1, keepdim=True)
+    z_vec = z_vec.squeeze(-1)  # [batch_size, seq_len, 3]
+
+    # Calculate y-axis (orthogonal to x and z to form a right-handed system)
+    y_vec = torch.cross(z_vec, x_vec, dim=-1)  # [batch_size, seq_len, 3]
+    # No need to normalize y_vec as x_vec and z_vec are already orthonormal
+    # But we'll normalize anyway for numerical stability
+    y_vec = safe_normalize(y_vec, dim=-1, keepdim=True)
+    y_vec = y_vec.squeeze(-1)  # [batch_size, seq_len, 3]
+
+    # Stack basis vectors as columns to form rotation matrices
+    rotation = torch.stack([x_vec, y_vec, z_vec], dim=-1)  # Shape: [batch_size, seq_len, 3, 3]
+
+    # Translation is the CA coordinate (origin of the frame)
+    translation = CA  # Shape: [batch_size, seq_len, 3]
+    
+    # Remove batch dimension if input didn't have one
+    if not has_batch_dim:
+        rotation = rotation.squeeze(0)
+        translation = translation.squeeze(0)
+
+    return rotation, translation
+
+
+def fape_loss_simplified(pred_coords, true_coords, clamp_distance=10.0, length_scale=10.0, epsilon=1e-8):
+    """
+    Compute the Simplified FAPE loss between predicted and true coordinates.
+
+    *** IMPORTANT ***: This computes the FAPE loss comparing atoms within a residue only to the local frame of that SAME residue
+    (i.e., only the i==j terms of the full FAPE calculation). It does NOT compute the full pairwise FAPE loss described in the
+    AlphaFold 2 paper. It measures local frame rigidity.
+
+    Args:
+        pred_coords: Tensor of shape [batch_size, seq_len, num_atoms, 3] or [seq_len, num_atoms, 3], predicted coordinates.
+        true_coords: Tensor of shape [batch_size, seq_len, num_atoms, 3] or [seq_len, num_atoms, 3], true coordinates.
+        clamp_distance: Float, maximum distance error contribution per point (Angstroms).
+        length_scale: Float, factor to scale the L2 distance error (often 10.0).
+        epsilon: Small value for safe calculations.
+
+    Returns:
+        loss: Scalar tensor, the computed simplified FAPE loss.
+    """
+    # Check if inputs have batch dimension
+    has_batch_dim = pred_coords.dim() == 4 and true_coords.dim() == 4
+    
+    # Add batch dimension if missing
+    if not has_batch_dim:
+        pred_coords = pred_coords.unsqueeze(0)
+        true_coords = true_coords.unsqueeze(0)
+        
+    # Handle case where we might have fewer than 3 backbone atoms
+    # Make sure we have at least N, CA, C atoms (indices 0, 1, 2)
+    if pred_coords.shape[2] < 3 or true_coords.shape[2] < 3:
+        # Return zero loss if we don't have enough atoms for frame computation
+        return torch.tensor(0.0, device=pred_coords.device)
+    
+    # Compute local frames for true and predicted coordinates
+    # Detach true_coords frames as they are targets, not to be optimized through
+    try:
+        with torch.no_grad():
+            true_rotation, true_translation = compute_local_frames(true_coords)
+
+        pred_rotation, pred_translation = compute_local_frames(pred_coords)
+
+        # 1. Center coordinates at the frame origin (CA)
+        true_coords_centered = true_coords - true_translation.unsqueeze(2)
+        pred_coords_centered = pred_coords - pred_translation.unsqueeze(2)
+
+        # 2. Apply inverse rotation (transpose of rotation matrix)
+        true_rotation_inv = true_rotation.transpose(-2, -1)
+        pred_rotation_inv = pred_rotation.transpose(-2, -1)
+
+        # Transform true coordinates using true frame's inverse rotation
+        true_coords_local = torch.einsum('blij,blmj->blmi', true_rotation_inv, true_coords_centered)
+
+        # Transform predicted coordinates using predicted frame's inverse rotation
+        pred_coords_local = torch.einsum('blij,blmj->blmi', pred_rotation_inv, pred_coords_centered)
+
+        # Compute L2 distance error in the local frame
+        distances = torch.sqrt(torch.sum((pred_coords_local - true_coords_local)**2, dim=-1) + epsilon)
+
+        # Clamp distances
+        clamped_distances = torch.clamp(distances, max=clamp_distance)
+
+        # Compute the mean loss and scale it (divide by scale factor)
+        loss = clamped_distances.mean() / length_scale
+        
+    except Exception as e:
+        # If anything goes wrong (like degenerate frames), return a zero loss
+        print(f"Warning: FAPE loss calculation failed with error: {e}")
+        loss = torch.tensor(0.0, device=pred_coords.device)
+
+    return loss
+
+
+def calculate_fape_loss(x_predicted, x_true, masks, clamp_distance=10.0, length_scale=10.0):
+    """
+    Calculates the FAPE loss between x_predicted and x_true after applying masks.
+
+    Parameters:
+    x_predicted (torch.Tensor): Predicted coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
+    masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+    clamp_distance (float): Maximum distance error contribution per point (Angstroms).
+    length_scale (float): Factor to scale the L2 distance error.
+
+    Returns:
+    torch.Tensor: The computed FAPE loss.
+    """
+    batch_size = x_predicted.shape[0]
+    loss_list = []
+
+    for i in range(batch_size):
+        mask = masks[i].bool()  # Convert to boolean mask
+        if mask.sum() == 0:  # Skip if no valid residues
+            loss_list.append(torch.tensor(0.0, device=x_predicted.device))
+            continue
+            
+        # Extract only the valid residues
+        x_pred = x_predicted[i][mask]  # [num_valid, num_atoms, 3]
+        x_tru = x_true[i][mask]        # [num_valid, num_atoms, 3]
+        
+        # Ensure we have at least one residue
+        if x_pred.shape[0] == 0:
+            loss_list.append(torch.tensor(0.0, device=x_predicted.device))
+            continue
+            
+        # Add batch dimension for the FAPE calculation
+        x_pred = x_pred.unsqueeze(0)  # [1, num_valid, num_atoms, 3]
+        x_tru = x_tru.unsqueeze(0)    # [1, num_valid, num_atoms, 3]
+        
+        try:
+            loss = fape_loss_simplified(
+                x_pred,
+                x_tru,
+                clamp_distance=clamp_distance,
+                length_scale=length_scale
+            )
+            loss_list.append(loss)
+        except Exception as e:
+            # If anything goes wrong, add a zero loss for this batch item
+            print(f"Warning: FAPE loss calculation failed for batch item {i} with error: {e}")
+            loss_list.append(torch.tensor(0.0, device=x_predicted.device))
+
+    return torch.stack(loss_list)
+
+
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
                            seq_logits=None, alignment_strategy='kabsch'):
     mse_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks,
@@ -855,6 +1085,16 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
     if configs.train_settings.losses.inverse_folding.enable:
         seq_loss = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else 0.0
         losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
+        
+    if configs.train_settings.losses.fape.enable:
+        fape_loss = calculate_fape_loss(
+            x_predicted, 
+            x_true, 
+            masks,
+            clamp_distance=configs.train_settings.losses.fape.clamp_distance,
+            length_scale=configs.train_settings.losses.fape.length_scale
+        ).mean()
+        losses.append(fape_loss*configs.train_settings.losses.fape.weight)
 
     loss = sum(losses)
 
