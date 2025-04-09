@@ -670,12 +670,21 @@ def compute_quaternion_alignment(x_pred, x_tru, mask):
     x_tru_reshaped = x_tru.reshape(-1, 3).unsqueeze(0)  # Shape: [1, seq_len*num_atoms, 3]
 
     # Apply rotation
-    rotated = torch.bmm(R, x_tru_reshaped.transpose(1, 2)).transpose(1,
-                                                                     2)  # Shape: [1, seq_len*num_atoms, 3]
+    rotated = torch.bmm(R, x_tru_reshaped.transpose(1, 2)).transpose(1, 2)  # Shape: [1, seq_len*num_atoms, 3]
 
-    # Apply translation
-    x_true_aligned = (rotated + t.transpose(1, 2)).squeeze(0).reshape_as(
-        x_tru)  # Shape: [seq_len, num_atoms, 3]
+    # Apply translation - Fix the shape of t before broadcasting
+    # Ensure t has correct shape for broadcasting
+    if t.dim() == 3 and t.shape[1] == 3 and t.shape[2] != 1:
+        # If t is [1, 3, 3] or similar, extract the translation vector
+        t = t[:, :, 0].unsqueeze(2)  # Shape: [1, 3, 1]
+    
+    # Now properly reshape for broadcasting
+    t = t.transpose(1, 2)  # Shape: [1, 1, 3]
+    # Expand t to match the shape of rotated
+    t_broadcasted = t.expand_as(rotated)  # Shape: [1, seq_len*num_atoms, 3]
+    
+    # Add the translation to the rotated coordinates
+    x_true_aligned = (rotated + t_broadcasted).squeeze(0).reshape_as(x_tru)  # Shape: [seq_len, num_atoms, 3]
 
     return x_true_aligned
 
@@ -1027,7 +1036,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
 
     losses = []
     if configs.train_settings.losses.mse.enable:
-        losses.append(mse_loss.mean()*configs.train_settings.losses.kabsch.weight)
+        losses.append(mse_loss.mean()*configs.train_settings.losses.mse.weight)
 
     if configs.train_settings.losses.backbone_distance.enable:
         backbone_dist_loss = calculate_backbone_distance_loss(x_pred_aligned, x_true_aligned, masks).mean()
@@ -1062,3 +1071,4 @@ if __name__ == '__main__':
     test_bond_lengths_loss()
     test_bond_angles_loss()
     test_aligned_mse_loss()
+
