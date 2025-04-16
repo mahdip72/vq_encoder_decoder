@@ -38,13 +38,12 @@ def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturba
         # Generate random true coordinates
         x_true = torch.randn(batch_size, seq_len, num_atoms, 3, device=device)
 
-        # Generate random masks (1 for valid positions, 0 for invalid)
-        masks = torch.randint(0, 2, (batch_size, seq_len), device=device)
-
-        # Ensure at least one position is valid in each batch
+        # Generate masks with padding at the end (1 for valid positions, 0 for padding)
+        masks = torch.zeros(batch_size, seq_len, device=device)
         for b in range(batch_size):
-            if masks[b].sum() == 0:
-                masks[b, 0] = 1
+            # Random valid length (at least 1, at most seq_len)
+            valid_length = torch.randint(1, seq_len + 1, (1,)).item()
+            masks[b, :valid_length] = 1
 
         # Randomly rotate and translate the true coordinates
         quat = torch.rand(batch_size, 4, device=device)
