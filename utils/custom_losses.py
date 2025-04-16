@@ -394,7 +394,7 @@ def test_aligned_mse_loss():
     x_true_perturbed = rot.bmm(x_true.flatten(1, 2).mT).mT.reshape_as(x_true) + torch.rand(batch_size, 1, 1, 1) * x_scale_factor
 
     # Calculate the aligned MSE loss
-    loss, x_true_perturbed_aligned, x_true_aligned = calculate_aligned_mse_loss(x_true_perturbed, x_true, masks)
+    loss, x_true_perturbed_aligned, x_true_aligned = calculate_aligned_mse_loss(x_true_perturbed, x_true, masks, alignment_strategy='kbasch')
     rmsd = (x_true_perturbed_aligned - x_true_aligned).square().mean((-1, -2, -3)).sqrt()
 
     print(f"Aligned MSE Loss: {loss.mean().item()} (RMSD: {rmsd.mean().item()})")
