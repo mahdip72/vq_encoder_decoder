@@ -47,12 +47,13 @@ train_settings:
   batch_size: 32
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 16000
+  max_task_samples: 64000
+  gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   losses:
-    alignment_strategy: quaternion # kabsch, kabsch_old, quaternion
+    alignment_strategy: kabsch # kabsch, kabsch_old, quaternion
     mse:
-      enable: False
-      weight: 0.1
+      enable: True
+      weight: 1.0
     backbone_distance:
       enable: False
       weight: 1.0
@@ -69,7 +70,7 @@ train_settings:
       enable: False
       weight: 1.0
     fape:
-      enable: True
+      enable: False
       weight: 1.0
       clamp_distance: 10.0
       length_scale: 10.0
