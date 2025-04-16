@@ -10,8 +10,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from utils.custom_losses import calculate_aligned_mse_loss, quaternion_to_matrix
 
+
 def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturbation_scale=4,
-                                runs=5, strategies=None, device='cpu'):
+                                 runs=5, strategies=None, device='cpu'):
     """
     Compare different alignment strategies based on MSE and RMSD metrics.
     
@@ -33,7 +34,7 @@ def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturba
     results = {strategy: {'mse': [], 'rmsd': [], 'time': []} for strategy in strategies}
 
     for i in range(runs):
-        print(f"Run {i+1}/{runs}")
+        print(f"Run {i + 1}/{runs}")
 
         # Generate random true coordinates
         x_true = torch.randn(batch_size, seq_len, num_atoms, 3, device=device)
@@ -80,11 +81,13 @@ def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturba
 
     return results
 
+
 def print_results(results):
     """Print the results in a formatted table."""
-    print("\n" + "="*80)
-    print(f"{'Strategy':<15} | {'MSE Mean':<12} | {'MSE StdDev':<12} | {'RMSD Mean':<12} | {'RMSD StdDev':<12} | {'Time (s)':<12}")
-    print("-"*80)
+    print("\n" + "=" * 80)
+    print(
+        f"{'Strategy':<15} | {'MSE Mean':<12} | {'MSE StdDev':<12} | {'RMSD Mean':<12} | {'RMSD StdDev':<12} | {'Time (s)':<12}")
+    print("-" * 80)
 
     for strategy, metrics in results.items():
         print(f"{strategy:<15} | "
@@ -94,7 +97,8 @@ def print_results(results):
               f"{metrics['rmsd']['std']:<12.6f} | "
               f"{metrics['time']['mean']:<12.6f}")
 
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
+
 
 def plot_results(results, save_path=None):
     """Plot the results as a bar chart."""
@@ -136,6 +140,7 @@ def plot_results(results, save_path=None):
         print(f"Plot saved to {save_path}")
 
     plt.show()
+
 
 def run_detailed_comparison():
     """Run a series of tests for different parameters."""
@@ -199,6 +204,7 @@ def run_detailed_comparison():
 
     return all_results
 
+
 def run_basic_comparison():
     """Run a basic comparison with default parameters."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -223,6 +229,7 @@ def run_basic_comparison():
     plot_results(results, save_path=str(output_dir / 'alignment_comparison.png'))
 
     return results
+
 
 if __name__ == "__main__":
     print("Testing alignment strategies...")
