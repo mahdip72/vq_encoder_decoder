@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 # from vector_quantize_pytorch import VectorQuantize
-
+from ndlinear import NdLinear
 
 
 class VQVAETransformer(nn.Module):
@@ -9,6 +9,7 @@ class VQVAETransformer(nn.Module):
         super(VQVAETransformer, self).__init__()
 
         self.max_length = configs.model.max_length
+        self.use_ndlinear = getattr(configs.model.vqvae, 'use_ndlinear', False)
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
@@ -20,9 +21,15 @@ class VQVAETransformer(nn.Module):
         input_shape = 128
 
         # Encoder
-        self.encoder_tail = nn.Sequential(
-            nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
-        )
+        if self.use_ndlinear:
+            self.encoder_tail = NdLinear(
+                input_dims=(input_shape, 1), 
+                hidden_size=(self.encoder_dim, 1)
+            )
+        else:
+            self.encoder_tail = nn.Sequential(
+                nn.Conv1d(input_shape, self.encoder_dim, kernel_size=1),
+            )
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.encoder_dim, nhead=configs.model.vqvae.encoder.num_heads, dim_feedforward=self.encoder_dim * 4, activation='gelu', dropout=0.0,
@@ -32,9 +39,15 @@ class VQVAETransformer(nn.Module):
 
         self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
 
-        self.encoder_head = nn.Sequential(
-            nn.Conv1d(self.encoder_dim, latent_dim, 1),
-        )
+        if self.use_ndlinear:
+            self.encoder_head = NdLinear(
+                input_dims=(self.encoder_dim, 1),
+                hidden_size=(latent_dim, 1)
+            )
+        else:
+            self.encoder_head = nn.Sequential(
+                nn.Conv1d(self.encoder_dim, latent_dim, 1),
+            )
 
         # Vector Quantizer layer
         # self.vector_quantizer = VectorQuantize(
@@ -51,9 +64,15 @@ class VQVAETransformer(nn.Module):
 
         # self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.decoder_dim) * .02)
 
-        self.decoder_tail = nn.Sequential(
-            nn.Conv1d(latent_dim, self.decoder_dim, 1),
-        )
+        if self.use_ndlinear:
+            self.decoder_tail = NdLinear(
+                input_dims=(latent_dim, 1),
+                hidden_size=(self.decoder_dim, 1)
+            )
+        else:
+            self.decoder_tail = nn.Sequential(
+                nn.Conv1d(latent_dim, self.decoder_dim, 1),
+            )
 
         # Decoder
         decoder_layer = nn.TransformerEncoderLayer(
@@ -62,9 +81,15 @@ class VQVAETransformer(nn.Module):
         )
         self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
 
-        self.decoder_head = nn.Sequential(
-            nn.Conv1d(self.decoder_dim, 9, 1),
-        )
+        if self.use_ndlinear:
+            self.decoder_head = NdLinear(
+                input_dims=(self.decoder_dim, 1),
+                hidden_size=(latent_dim, 1)  # Changed from 9 to latent_dim (768)
+            )
+        else:
+            self.decoder_head = nn.Sequential(
+                nn.Conv1d(self.decoder_dim, 9, 1),
+            )
 
     @staticmethod
     def drop_positional_encoding(embedding, pos_embed):
@@ -73,8 +98,22 @@ class VQVAETransformer(nn.Module):
 
     def forward(self, x, mask, return_vq_only=False):
         # Apply input projection
-        x = x.permute(0, 2, 1)
-        x = self.encoder_tail(x)
+        if self.use_ndlinear:
+            # For NdLinear we need to reshape the tensor properly
+            batch_size, seq_len, channels = x.size()
+            
+            # Transpose to (batch, channels, seq_len) then reshape for NdLinear
+            x_reshaped = x.transpose(1, 2).reshape(batch_size * seq_len, channels, 1)
+            
+            # Apply encoder_tail NdLinear
+            x_reshaped = self.encoder_tail(x_reshaped)
+            
+            # Reshape back and transpose
+            x = x_reshaped.reshape(batch_size, seq_len, self.encoder_dim).transpose(1, 2)
+        else:
+            # Original Conv1d approach
+            x = x.permute(0, 2, 1)
+            x = self.encoder_tail(x)
 
         x = x.permute(0, 2, 1)
         # Apply positional encoding to encoder
@@ -82,7 +121,18 @@ class VQVAETransformer(nn.Module):
         x = self.encoder_blocks(x)
         x = x.permute(0, 2, 1)
 
-        x = self.encoder_head(x)
+        if self.use_ndlinear:
+            # Reshape for NdLinear
+            batch_size, channels, seq_len = x.size()
+            x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
+            
+            # Apply encoder_head NdLinear
+            x_reshaped = self.encoder_head(x_reshaped)
+            
+            # Reshape back
+            x = x_reshaped.reshape(batch_size, seq_len, -1).transpose(1, 2)
+        else:
+            x = self.encoder_head(x)
 
         # x = x.permute(0, 2, 1)
         # x, indices, commit_loss = self.vector_quantizer(x)
@@ -93,15 +143,38 @@ class VQVAETransformer(nn.Module):
         #     return x, indices, commit_loss
 
         # Apply positional encoding to decoder
-        x = self.decoder_tail(x)
+        if self.use_ndlinear:
+            # Reshape for NdLinear
+            batch_size, channels, seq_len = x.size()
+            x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
+            
+            # Apply decoder_tail NdLinear
+            x_reshaped = self.decoder_tail(x_reshaped)
+            
+            # Reshape back
+            x = x_reshaped.reshape(batch_size, seq_len, -1).transpose(1, 2)
+        else:
+            x = self.decoder_tail(x)
 
         x = x.permute(0, 2, 1)
         # x = x + self.pos_embed_decoder
         x = self.decoder_blocks(x)
-        # x = x.permute(0, 2, 1)
 
-        # x = self.decoder_head(x)*10
-        # x = x.permute(0, 2, 1)
+        if self.use_ndlinear:
+            # Need to reshape for final NdLinear layer
+            batch_size, seq_len, channels = x.size()
+            x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
+            
+            # Apply decoder_head NdLinear
+            x_reshaped = self.decoder_head(x_reshaped)
+            
+            # Reshape back to original format - using latent_dim here instead of hardcoded 9
+            x = x_reshaped.reshape(batch_size, seq_len, -1)
+        else:
+            # Original approach
+            x = x.permute(0, 2, 1)
+            x = self.decoder_head(x)
+            x = x.permute(0, 2, 1)
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)

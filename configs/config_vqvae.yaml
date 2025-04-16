@@ -22,6 +22,7 @@ model:
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
+    use_ndlinear: True  # Toggle for using NdLinear instead of Conv1d layers
     vector_quantization:
       dim: 768
       decay: 0.8
@@ -54,7 +55,7 @@ train_settings:
     alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
     mse:
       enable: True
-      weight: 1.0
+      weight: 0.01
     backbone_distance:
       enable: False
       weight: 1.0
