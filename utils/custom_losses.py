@@ -511,13 +511,15 @@ def compute_quaternion_alignment(x_pred, x_tru, mask):
 
 def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
     """
-    Calculates the MSE loss between x_predicted and x_true after performing Kabsch alignment,
+    Calculates the MSE loss between x_predicted and x_true after performing alignment,
     applying the provided masks.
 
     Parameters:
     x_predicted (torch.Tensor): Predicted coordinates of shape [batch_size, seq_len, num_atoms, 3].
     x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
     masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
+    alignment_strategy (str): Strategy for alignment. Options: 'kabsch', 'kabsch_old', 'quaternion', 'no'.
+                              Use 'no' for no alignment (absolute position error).
 
     Returns:
     torch.Tensor: The computed MSE loss for each batch element.
@@ -545,6 +547,10 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
 
             elif alignment_strategy == 'quaternion':
                 x_true_aligned = compute_quaternion_alignment(x_pred, x_tru, mask).detach()
+            
+            elif alignment_strategy == 'no':
+                # No alignment, use original true coordinates directly
+                x_true_aligned = x_tru.detach()
 
             x_true_aligned_list.append(x_true_aligned)
 
