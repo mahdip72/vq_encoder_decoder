@@ -138,7 +138,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 if global_step % 50 == 0:
-                    # Calculate the gradient norm every 10 steps
+                    # Calculate the gradient norm every 50 steps
                     grad_norm = torch.norm(
                         torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None]),
                         2)
