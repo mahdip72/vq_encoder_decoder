@@ -13,6 +13,7 @@ resume:
 model:
   compile_model: False
   max_length: 128
+  decoder_output_scaling_factor: 10  # Added scaling factor for backbone prediction outputs
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:

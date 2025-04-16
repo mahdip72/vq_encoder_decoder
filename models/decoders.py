@@ -194,6 +194,9 @@ class GeometricDecoder(nn.Module):
 
         self.direction_loss_bins = decoder_configs.direction_loss_bins
         self.pae_bins = decoder_configs.pae_bins
+        
+        # Store the decoder output scaling factor
+        self.decoder_output_scaling_factor = configs.model.decoder_output_scaling_factor
 
         self.embed = nn.Linear(
             self.vqvae_decoder_channels, self.decoder_channels, bias=False
@@ -309,4 +312,4 @@ class GeometricDecoder(nn.Module):
 
         seq_logits = self.inverse_folding_head(x)
 
-        return bb_pred.flatten(-2), dir_loss_logits, dist_loss_logits, seq_logits
+        return bb_pred.flatten(-2)*self.decoder_output_scaling_factor, dir_loss_logits, dist_loss_logits, seq_logits
