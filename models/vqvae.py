@@ -160,21 +160,21 @@ class VQVAETransformer(nn.Module):
         # x = x + self.pos_embed_decoder
         x = self.decoder_blocks(x)
 
-        if self.use_ndlinear:
-            # Need to reshape for final NdLinear layer
-            batch_size, seq_len, channels = x.size()
-            x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
-            
-            # Apply decoder_head NdLinear
-            x_reshaped = self.decoder_head(x_reshaped)
-            
-            # Reshape back to original format - using latent_dim here instead of hardcoded 9
-            x = x_reshaped.reshape(batch_size, seq_len, -1)
-        else:
-            # Original approach
-            x = x.permute(0, 2, 1)
-            x = self.decoder_head(x)
-            x = x.permute(0, 2, 1)
+        # if self.use_ndlinear:
+        #     # Need to reshape for final NdLinear layer
+        #     batch_size, seq_len, channels = x.size()
+        #     x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
+        #
+        #     # Apply decoder_head NdLinear
+        #     x_reshaped = self.decoder_head(x_reshaped)
+        #
+        #     # Reshape back to original format - using latent_dim here instead of hardcoded 9
+        #     x = x_reshaped.reshape(batch_size, seq_len, -1)
+        # else:clear
+        #     Original approach
+        #     x = x.permute(0, 2, 1)
+        #     x = self.decoder_head(x)
+        #     x = x.permute(0, 2, 1)
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
