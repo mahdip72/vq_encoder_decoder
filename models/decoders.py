@@ -198,7 +198,7 @@ class GeometricDecoder(nn.Module):
         # Store the decoder output scaling factor
         self.decoder_output_scaling_factor = configs.model.decoder_output_scaling_factor
 
-        self.embed = nn.Linear(
+        self.projector_in = nn.Linear(
             self.vqvae_decoder_channels, self.decoder_channels, bias=False
         )
         self.decoder_stack = TransformerStack(
@@ -262,7 +262,7 @@ class GeometricDecoder(nn.Module):
         #     (structure_tokens < 0).sum() == 0
         # ), "All structure tokens set to -1 should be replaced with BOS, EOS, PAD, or MASK tokens by now, but that isn't the case!"
 
-        x = self.embed(structure_tokens)
+        x = self.projector_in(structure_tokens)
         # !!! NOTE: Attention mask is actually unused here so watch out
         x, _ = self.decoder_stack.forward(
             x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id
