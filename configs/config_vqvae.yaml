@@ -13,7 +13,8 @@ resume:
 model:
   compile_model: False
   max_length: 128
-  decoder_output_scaling_factor: 10  # Added scaling factor for backbone prediction outputs
+  decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
+  use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
@@ -22,7 +23,6 @@ model:
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
-    use_ndlinear: True  # Toggle for using NdLinear instead of Conv1d layers
     vector_quantization:
       dim: 768
       decay: 0.8

@@ -9,7 +9,7 @@ class VQVAETransformer(nn.Module):
         super(VQVAETransformer, self).__init__()
 
         self.max_length = configs.model.max_length
-        self.use_ndlinear = getattr(configs.model.vqvae, 'use_ndlinear', False)
+        self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
