@@ -183,7 +183,9 @@ class GeometricDecoder(nn.Module):
     def __init__(self, configs, decoder_configs):
         super(GeometricDecoder, self).__init__()
 
-        self.seq_length = configs.model.max_length
+        self.max_length = configs.model.max_length
+
+        self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
         self.vqvae_decoder_channels = configs.model.vqvae.decoder.dimension
         self.decoder_channels = decoder_configs.dimension
 
@@ -202,8 +204,8 @@ class GeometricDecoder(nn.Module):
         # Use either NdLinear or nn.Linear based on the flag
         if self.use_ndlinear:
             self.projector_in = NdLinear(
-                input_dims=(self.seq_length, self.vqvae_decoder_channels),
-                hidden_size=(self.seq_length, self.decoder_channels),
+                input_dims=(self.max_length, self.vqvae_decoder_channels),
+                hidden_size=(self.max_length, self.decoder_channels),
             )
         else:
             self.projector_in = nn.Linear(

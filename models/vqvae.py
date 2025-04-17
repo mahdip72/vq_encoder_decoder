@@ -105,17 +105,18 @@ class VQVAETransformer(nn.Module):
             # Original Conv1d approach
             x = x.permute(0, 2, 1)
             x = self.encoder_tail(x)
+            x = x.permute(0, 2, 1)
 
-        x = x.permute(0, 2, 1)
+
         # Apply positional encoding to encoder
         x = x + self.pos_embed_encoder
         x = self.encoder_blocks(x)
-        x = x.permute(0, 2, 1)
 
         if self.use_ndlinear:
             # Apply encoder_head NdLinear
             x = self.encoder_head(x)
         else:
+            x = x.permute(0, 2, 1)
             x = self.encoder_head(x)
 
         # x = x.permute(0, 2, 1)
@@ -132,8 +133,8 @@ class VQVAETransformer(nn.Module):
             x = self.decoder_tail(x)
         else:
             x = self.decoder_tail(x)
+            x = x.permute(0, 2, 1)
 
-        x = x.permute(0, 2, 1)
         # x = x + self.pos_embed_decoder
         x = self.decoder_blocks(x)
 
