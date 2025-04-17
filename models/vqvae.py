@@ -23,8 +23,8 @@ class VQVAETransformer(nn.Module):
         # Encoder
         if self.use_ndlinear:
             self.encoder_tail = NdLinear(
-                input_dims=(input_shape, 1), 
-                hidden_size=(self.encoder_dim, 1)
+                input_dims=(self.max_length, input_shape),
+                hidden_size=(self.max_length, self.encoder_dim)
             )
         else:
             self.encoder_tail = nn.Sequential(
@@ -41,8 +41,8 @@ class VQVAETransformer(nn.Module):
 
         if self.use_ndlinear:
             self.encoder_head = NdLinear(
-                input_dims=(self.encoder_dim, 1),
-                hidden_size=(latent_dim, 1)
+                input_dims=(self.max_length, self.encoder_dim),
+                hidden_size=(self.max_length, latent_dim)
             )
         else:
             self.encoder_head = nn.Sequential(
@@ -66,8 +66,8 @@ class VQVAETransformer(nn.Module):
 
         if self.use_ndlinear:
             self.decoder_tail = NdLinear(
-                input_dims=(latent_dim, 1),
-                hidden_size=(self.decoder_dim, 1)
+                input_dims=(self.max_length, latent_dim),
+                hidden_size=(self.max_length, self.decoder_dim)
             )
         else:
             self.decoder_tail = nn.Sequential(
@@ -83,8 +83,8 @@ class VQVAETransformer(nn.Module):
 
         if self.use_ndlinear:
             self.decoder_head = NdLinear(
-                input_dims=(self.decoder_dim, 1),
-                hidden_size=(latent_dim, 1)  # Changed from 9 to latent_dim (768)
+                input_dims=(self.max_length, self.decoder_dim),
+                hidden_size=(self.max_length, latent_dim)  # Changed from 9 to latent_dim (768)
             )
         else:
             self.decoder_head = nn.Sequential(
@@ -99,17 +99,8 @@ class VQVAETransformer(nn.Module):
     def forward(self, x, mask, return_vq_only=False):
         # Apply input projection
         if self.use_ndlinear:
-            # For NdLinear we need to reshape the tensor properly
-            batch_size, seq_len, channels = x.size()
-            
-            # Transpose to (batch, channels, seq_len) then reshape for NdLinear
-            x_reshaped = x.transpose(1, 2).reshape(batch_size * seq_len, channels, 1)
-            
             # Apply encoder_tail NdLinear
-            x_reshaped = self.encoder_tail(x_reshaped)
-            
-            # Reshape back and transpose
-            x = x_reshaped.reshape(batch_size, seq_len, self.encoder_dim).transpose(1, 2)
+            x = self.encoder_tail(x)
         else:
             # Original Conv1d approach
             x = x.permute(0, 2, 1)
@@ -122,15 +113,8 @@ class VQVAETransformer(nn.Module):
         x = x.permute(0, 2, 1)
 
         if self.use_ndlinear:
-            # Reshape for NdLinear
-            batch_size, channels, seq_len = x.size()
-            x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
-            
             # Apply encoder_head NdLinear
-            x_reshaped = self.encoder_head(x_reshaped)
-            
-            # Reshape back
-            x = x_reshaped.reshape(batch_size, seq_len, -1).transpose(1, 2)
+            x = self.encoder_head(x)
         else:
             x = self.encoder_head(x)
 
@@ -144,15 +128,8 @@ class VQVAETransformer(nn.Module):
 
         # Apply positional encoding to decoder
         if self.use_ndlinear:
-            # Reshape for NdLinear
-            batch_size, channels, seq_len = x.size()
-            x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
-            
             # Apply decoder_tail NdLinear
-            x_reshaped = self.decoder_tail(x_reshaped)
-            
-            # Reshape back
-            x = x_reshaped.reshape(batch_size, seq_len, -1).transpose(1, 2)
+            x = self.decoder_tail(x)
         else:
             x = self.decoder_tail(x)
 
@@ -161,15 +138,8 @@ class VQVAETransformer(nn.Module):
         x = self.decoder_blocks(x)
 
         # if self.use_ndlinear:
-        #     # Need to reshape for final NdLinear layer
-        #     batch_size, seq_len, channels = x.size()
-        #     x_reshaped = x.reshape(batch_size * seq_len, channels, 1)
-        #
         #     # Apply decoder_head NdLinear
-        #     x_reshaped = self.decoder_head(x_reshaped)
-        #
-        #     # Reshape back to original format - using latent_dim here instead of hardcoded 9
-        #     x = x_reshaped.reshape(batch_size, seq_len, -1)
+        #     x = self.decoder_head(x)
         # else:clear
         #     Original approach
         #     x = x.permute(0, 2, 1)
