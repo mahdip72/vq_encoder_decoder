@@ -12,7 +12,7 @@ from utils.custom_losses import calculate_aligned_mse_loss, quaternion_to_matrix
 
 
 def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturbation_scale=4,
-                                 runs=5, strategies=None, device='cpu'):
+                                 runs=5, strategies=None, device='cpu', perturbation_type='both'):
     """
     Compare different alignment strategies based on MSE and RMSD metrics.
     
@@ -24,6 +24,7 @@ def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturba
         runs: Number of runs to average results over
         strategies: List of alignment strategies to test
         device: Device to run the test on ('cpu' or 'cuda')
+        perturbation_type: Type of perturbation to apply ('translation_only', 'rotation_only', 'both')
         
     Returns:
         results: Dictionary containing the results
@@ -46,13 +47,19 @@ def compare_alignment_strategies(batch_size=2, seq_len=10, num_atoms=3, perturba
             valid_length = torch.randint(1, seq_len + 1, (1,)).item()
             masks[b, :valid_length] = 1
 
-        # Randomly rotate and translate the true coordinates
-        quat = torch.rand(batch_size, 4, device=device)
-        rot = quaternion_to_matrix(quat)
-
-        # Apply rotation and translation to create perturbed coordinates
-        x_true_perturbed = rot.bmm(x_true.flatten(1, 2).mT).mT.reshape_as(x_true) + \
-                           torch.rand(batch_size, 1, 1, 1, device=device) * perturbation_scale
+        # Apply perturbation based on the specified type
+        x_true_perturbed = x_true.clone()
+        
+        if perturbation_type in ['rotation_only', 'both']:
+            # Apply rotation
+            quat = torch.rand(batch_size, 4, device=device)
+            rot = quaternion_to_matrix(quat)
+            x_true_perturbed = rot.bmm(x_true_perturbed.flatten(1, 2).mT).mT.reshape_as(x_true)
+            
+        if perturbation_type in ['translation_only', 'both']:
+            # Apply translation (uniform random translation for each batch)
+            translation = torch.rand(batch_size, 1, 1, 3, device=device) * perturbation_scale
+            x_true_perturbed = x_true_perturbed + translation
 
         # Test each alignment strategy
         for strategy in strategies:
@@ -100,7 +107,7 @@ def print_results(results):
     print("=" * 80 + "\n")
 
 
-def plot_results(results, save_path=None):
+def plot_results(results, save_path=None, title=None):
     """Plot the results as a bar chart."""
     strategies = list(results.keys())
 
@@ -114,6 +121,10 @@ def plot_results(results, save_path=None):
 
     # Create figure with 3 subplots
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # Set main title if provided
+    if title:
+        fig.suptitle(title, fontsize=16)
 
     # Plot MSE
     ax1.bar(strategies, mse_means, yerr=mse_stds, capsize=5, alpha=0.7)
@@ -150,12 +161,30 @@ def run_detailed_comparison():
     seq_lengths = [10, 50, 100]
     # Test with different perturbation scales
     perturbation_scales = [1, 4, 10]
+    # Test with different perturbation types
+    perturbation_types = ['translation_only', 'rotation_only', 'both']
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Running tests on {device}")
 
     # Store all results
     all_results = {}
+
+    # Different perturbation types
+    print("\n=== Testing with different perturbation types ===")
+    for p_type in perturbation_types:
+        print(f"\nTesting with perturbation type: {p_type}")
+        results = compare_alignment_strategies(
+            batch_size=2,
+            seq_len=50,
+            num_atoms=3,
+            perturbation_scale=4,
+            runs=5,
+            device=device,
+            perturbation_type=p_type
+        )
+        print_results(results)
+        all_results[f"perturbation_{p_type}"] = results
 
     # Different batch sizes
     print("\n=== Testing with different batch sizes ===")
@@ -209,26 +238,99 @@ def run_basic_comparison():
     """Run a basic comparison with default parameters."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Running tests on {device}")
-
-    results = compare_alignment_strategies(
-        batch_size=2,
-        seq_len=128,
-        num_atoms=3,
-        perturbation_scale=4,
-        runs=10,
-        device=device
-    )
-
-    print_results(results)
-
+    
     # Create output directory if it doesn't exist
     output_dir = Path('./outputs')
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Test different perturbation types
+    perturbation_types = ['translation_only', 'rotation_only', 'both']
+    all_results = {}
+    
+    for p_type in perturbation_types:
+        print(f"\n=== Testing with perturbation type: {p_type} ===")
+        results = compare_alignment_strategies(
+            batch_size=2,
+            seq_len=128,
+            num_atoms=3,
+            perturbation_scale=4,
+            runs=10,
+            device=device,
+            perturbation_type=p_type
+        )
+        
+        print_results(results)
+        all_results[p_type] = results
+        
+        # Plot and save individual results
+        plot_results(
+            results, 
+            save_path=str(output_dir / f'alignment_comparison_{p_type}.png'),
+            title=f'Alignment Comparison with {p_type.replace("_", " ").title()} Perturbation'
+        )
+    
+    # Compare all perturbation types in a combined visualization
+    plot_perturbation_comparison(all_results, save_path=str(output_dir / 'perturbation_type_comparison.png'))
+    
+    return all_results
 
-    # Plot and save results
-    plot_results(results, save_path=str(output_dir / 'alignment_comparison.png'))
 
-    return results
+def plot_perturbation_comparison(all_results, save_path=None):
+    """Plot a comparison of different perturbation types."""
+    perturbation_types = list(all_results.keys())
+    strategies = list(all_results[perturbation_types[0]].keys())
+    
+    # Create figure with 2 subplots (MSE and RMSD)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    
+    fig.suptitle('Comparison of Alignment Methods with Different Perturbation Types', fontsize=16)
+    
+    # Set width of bars
+    bar_width = 0.25
+    r = np.arange(len(strategies))
+    
+    # Colors for different perturbation types
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+    
+    # Plot MSE
+    for i, p_type in enumerate(perturbation_types):
+        mse_means = [all_results[p_type][s]['mse']['mean'] for s in strategies]
+        mse_stds = [all_results[p_type][s]['mse']['std'] for s in strategies]
+        
+        pos = [x + bar_width * i for x in r]
+        ax1.bar(pos, mse_means, bar_width, label=p_type.replace('_', ' ').title(),
+                yerr=mse_stds, capsize=4, alpha=0.7, color=colors[i])
+    
+    ax1.set_title('MSE by Perturbation Type')
+    ax1.set_ylabel('Mean Squared Error')
+    ax1.set_xticks([x + bar_width for x in r])
+    ax1.set_xticklabels(strategies)
+    ax1.legend()
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    
+    # Plot RMSD
+    for i, p_type in enumerate(perturbation_types):
+        rmsd_means = [all_results[p_type][s]['rmsd']['mean'] for s in strategies]
+        rmsd_stds = [all_results[p_type][s]['rmsd']['std'] for s in strategies]
+        
+        pos = [x + bar_width * i for x in r]
+        ax2.bar(pos, rmsd_means, bar_width, label=p_type.replace('_', ' ').title(),
+                yerr=rmsd_stds, capsize=4, alpha=0.7, color=colors[i])
+    
+    ax2.set_title('RMSD by Perturbation Type')
+    ax2.set_ylabel('Root Mean Square Deviation')
+    ax2.set_xticks([x + bar_width for x in r])
+    ax2.set_xticklabels(strategies)
+    ax2.legend()
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to {save_path}")
+    
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -243,3 +345,4 @@ if __name__ == "__main__":
         results = run_basic_comparison()
 
     print("Testing complete!")
+
