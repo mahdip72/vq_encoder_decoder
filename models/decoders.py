@@ -7,7 +7,7 @@ from gcpnet.layers.transformer_stack import TransformerStack
 from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
 from gcpnet.utils.misc import _normalize, batch_orientations
 from gcpnet.models.gcpnet import GCPNetModel
-
+from ndlinear import NdLinear
 
 
 class GCPNetDecoder(nn.Module):
@@ -183,6 +183,7 @@ class GeometricDecoder(nn.Module):
     def __init__(self, configs, decoder_configs):
         super(GeometricDecoder, self).__init__()
 
+        self.seq_length = configs.model.max_length
         self.vqvae_decoder_channels = configs.model.vqvae.decoder.dimension
         self.decoder_channels = decoder_configs.dimension
 
@@ -198,9 +199,17 @@ class GeometricDecoder(nn.Module):
         # Store the decoder output scaling factor
         self.decoder_output_scaling_factor = configs.model.decoder_output_scaling_factor
 
-        self.projector_in = nn.Linear(
-            self.vqvae_decoder_channels, self.decoder_channels, bias=False
-        )
+        # Use either NdLinear or nn.Linear based on the flag
+        if self.use_ndlinear:
+            self.projector_in = NdLinear(
+                input_dims=(self.seq_length, self.vqvae_decoder_channels),
+                hidden_size=(self.seq_length, self.decoder_channels),
+            )
+        else:
+            self.projector_in = nn.Linear(
+                self.vqvae_decoder_channels, self.decoder_channels, bias=False
+            )
+
         self.decoder_stack = TransformerStack(
             self.decoder_channels, self.num_heads, 1, self.num_layers, scale_residue=False, n_layers_geom=0
         )
@@ -262,7 +271,14 @@ class GeometricDecoder(nn.Module):
         #     (structure_tokens < 0).sum() == 0
         # ), "All structure tokens set to -1 should be replaced with BOS, EOS, PAD, or MASK tokens by now, but that isn't the case!"
 
-        x = self.projector_in(structure_tokens)
+        # Apply projector_in with appropriate reshaping for NdLinear if needed
+        if self.use_ndlinear:
+            # Apply NdLinear projector
+            x = self.projector_in(structure_tokens)
+        else:
+            # Original linear approach
+            x = self.projector_in(structure_tokens)
+
         # !!! NOTE: Attention mask is actually unused here so watch out
         x, _ = self.decoder_stack.forward(
             x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id
