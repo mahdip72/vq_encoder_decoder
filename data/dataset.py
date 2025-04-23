@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import os
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+import functools
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from utils.custom_losses import rigid_from_3_points_batch
@@ -79,7 +80,7 @@ def custom_collate(one_batch):
     return batched_data
 
 
-def custom_collate_pretrained_gcp(one_batch, fill_value: float = 1e-5):
+def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=None, fill_value: float = 1e-5):
     # Unpack the batch
     torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
 
@@ -140,6 +141,12 @@ def custom_collate_pretrained_gcp(one_batch, fill_value: float = 1e-5):
     one_batch["graph"].seq_pos = torch.cat([torch.arange(len(seq), device=device).unsqueeze(1) for seq in one_batch[
         "seq"]])  # NOTE: this assumes all input graphs represent single-chain proteins
 
+    if featuriser:
+        # Apply the featuriser to the collated graph batch
+        one_batch['graph'] = featuriser(one_batch['graph'])
+        # Apply the task transform if it exists
+        if task_transform:
+            one_batch['graph'] = task_transform(one_batch['graph'])
     return one_batch
 
 
@@ -661,6 +668,29 @@ class GCPNetDataset(Dataset):
             "Y": [0.260, 0.830, 3.097, -0.838, 1.512]}
 
         self.max_length = kwargs['configs'].model.max_length
+
+        self.configs = kwargs['configs'] # Main training config
+
+        # Initialize attributes to None
+        self.pretrained_featuriser = None
+        self.pretrained_task_transform = None
+
+        # Instantiate featuriser/transform only if using the pretrained GCPNet encoder
+        if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
+            # Import hydra and OmegaConf only when needed
+            import hydra
+            from omegaconf import OmegaConf
+
+            pretrained_config_path = self.configs.model.encoder.pretrained.config_path
+            # Load the configuration file associated with the pretrained model
+            pretrained_cfg = OmegaConf.load(pretrained_config_path)
+
+            # Instantiate the featuriser defined in the pretrained config
+            self.pretrained_featuriser = hydra.utils.instantiate(pretrained_cfg.features)
+
+            # Instantiate the task transform defined in the pretrained config (if it exists)
+            if pretrained_cfg.get("task.transform"):
+                self.pretrained_task_transform = hydra.utils.instantiate(pretrained_cfg.task.transform)
 
         # self.processor = Protein3DProcessing()
 
@@ -1667,7 +1697,12 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     )
 
     condition_met = configs.model.encoder.pretrained.enabled and configs.model.encoder.name == "gcpnet"
-    selected_collate = custom_collate_pretrained_gcp if condition_met else custom_collate
+    custom_collate_pretrained_gcp_partial = functools.partial(
+        custom_collate_pretrained_gcp,
+        featuriser=dataset.pretrained_featuriser,
+        task_transform=dataset.pretrained_task_transform
+    )
+    selected_collate = custom_collate_pretrained_gcp_partial if condition_met else custom_collate
 
     if condition_met:
         logging.info("Using custom collate function for GCPNet with pretrained encoder")

@@ -29,8 +29,8 @@ class SuperModel(nn.Module):
         device = batch["graph"].x_bb.device
         batch_index = batch['graph'].batch
 
-        if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-            batch = self.pretrained_gcpnet_batch_preprocessing(batch)
+        # if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
+        #     batch = self.pretrained_gcpnet_batch_preprocessing(batch)
 
         if self.configs.model.encoder.name == "gcpnet":
             if self.configs.model.encoder.pretrained.enabled:
