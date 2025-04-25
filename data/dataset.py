@@ -1699,8 +1699,8 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     condition_met = configs.model.encoder.pretrained.enabled and configs.model.encoder.name == "gcpnet"
     custom_collate_pretrained_gcp_partial = functools.partial(
         custom_collate_pretrained_gcp,
-        featuriser=dataset.pretrained_featuriser,
-        task_transform=dataset.pretrained_task_transform
+        featuriser=train_dataset.pretrained_featuriser,
+        task_transform=train_dataset.pretrained_task_transform
     )
     selected_collate = custom_collate_pretrained_gcp_partial if condition_met else custom_collate
 

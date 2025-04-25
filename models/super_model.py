@@ -35,7 +35,7 @@ class SuperModel(nn.Module):
         if self.configs.model.encoder.name == "gcpnet":
             if self.configs.model.encoder.pretrained.enabled:
                 with torch.autocast(device_type=device.type, enabled=False, cache_enabled=False):
-                    model_output = self.encoder(batch)
+                    model_output = self.encoder(batch['graph'])
                 x = model_output["node_embedding"].type(dtype)
 
             else:
