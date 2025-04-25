@@ -172,8 +172,8 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
     """
     start_epoch = 1
 
-    # If the 'enable' flag is True, load the saved models checkpoints.
-    if configs.resume.enable:
+    # If the 'enabled' flag is True, load the saved models checkpoints.
+    if configs.resume.enabled:
         model_checkpoint = torch.load(configs.resume.resume_path, map_location='cpu', weights_only=False)
         pretrained_state_dict = model_checkpoint['model_state_dict']
         pretrained_state_dict = {k.replace('_orig_mod.', ''): v for k, v in pretrained_state_dict.items()}

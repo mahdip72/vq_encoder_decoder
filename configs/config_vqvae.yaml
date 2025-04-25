@@ -6,7 +6,7 @@ result_path: ./results/gcpnet_vqvae/
 normalizer_path: ./data/normalizer.pkl
 
 resume:
-  enable: True
+  enabled: True
   resume_path: results/gcpnet_vqvae/2025-04-21__22-18-14/checkpoints/best_valid.pth
   restart_optimizer: True
 
@@ -18,7 +18,7 @@ model:
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
-      enable: True
+      enabled: True
       config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
@@ -54,25 +54,25 @@ train_settings:
   losses:
     alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
     mse:
-      enable: False
+      enabled: False
       weight: 0.01
     backbone_distance:
-      enable: True
+      enabled: True
       weight: 1.0
     backbone_direction:
-      enable: True
+      enabled: True
       weight: 1.0
     binned_distance_classification:
-      enable: False
+      enabled: False
       weight: 0.01
     binned_direction_classification:
-      enable: False
+      enabled: False
       weight: 0.01
     inverse_folding:
-      enable: False
+      enabled: False
       weight: 1.0
     fape:
-      enable: False
+      enabled: False
       weight: 1.0
       clamp_distance: 10.0
       length_scale: 10.0

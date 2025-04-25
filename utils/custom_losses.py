@@ -1069,30 +1069,30 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
                                                                           alignment_strategy=alignment_strategy)
 
     losses = []
-    if configs.train_settings.losses.mse.enable:
+    if configs.train_settings.losses.mse.enabled:
         losses.append(mse_loss.mean()*configs.train_settings.losses.mse.weight)
 
-    if configs.train_settings.losses.backbone_distance.enable:
+    if configs.train_settings.losses.backbone_distance.enabled:
         backbone_dist_loss = calculate_backbone_distance_loss(x_pred_aligned, x_true_aligned, masks).mean()
         losses.append(backbone_dist_loss*configs.train_settings.losses.backbone_distance.weight)
 
-    if configs.train_settings.losses.backbone_direction.enable:
+    if configs.train_settings.losses.backbone_direction.enabled:
         backbone_dir_loss = calculate_backbone_direction_loss(x_pred_aligned, x_true_aligned, masks).mean()
         losses.append(backbone_dir_loss*configs.train_settings.losses.backbone_direction.weight)
 
-    if configs.train_settings.losses.binned_direction_classification.enable:
+    if configs.train_settings.losses.binned_direction_classification.enabled:
         binned_dir_class_loss = calculate_binned_direction_classification_loss(dir_loss_logits, x_true_aligned, masks).mean() if dir_loss_logits is not None else 0.0
         losses.append(binned_dir_class_loss*configs.train_settings.losses.binned_direction_classification.weight)
 
-    if configs.train_settings.losses.binned_distance_classification.enable:
+    if configs.train_settings.losses.binned_distance_classification.enabled:
         binned_dist_class_loss = calculate_binned_distance_classification_loss(dist_loss_logits, x_true_aligned, masks).mean() if dist_loss_logits is not None else 0.0
         losses.append(binned_dist_class_loss*configs.train_settings.losses.binned_distance_classification.weight)
 
-    if configs.train_settings.losses.inverse_folding.enable:
+    if configs.train_settings.losses.inverse_folding.enabled:
         seq_loss = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else 0.0
         losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
         
-    if configs.train_settings.losses.fape.enable:
+    if configs.train_settings.losses.fape.enabled:
         fape_loss = calculate_fape_loss(
             x_predicted, 
             x_true, 
