@@ -58,7 +58,7 @@ class SuperModel(nn.Module):
 
 def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
     if configs.model.encoder.name == "gcpnet":
-        if not configs.model.encoder.pretrained.enabled:
+        if not configs.model.encoder.pretrained.enable:
             encoder = GCPNetModel(module_cfg=kwargs["encoder_configs"].module_cfg,
                                   model_cfg=kwargs["encoder_configs"].model_cfg,
                                   layer_cfg=kwargs["encoder_configs"].layer_cfg,

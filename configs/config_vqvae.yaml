@@ -6,8 +6,8 @@ result_path: ./results/gcpnet_vqvae/
 normalizer_path: ./data/normalizer.pkl
 
 resume:
-  resume: False
-  resume_path: results/gcpnet_vqvae/2025-03-15__02-07-15/checkpoints/epoch_1024.pth
+  enable: True
+  resume_path: results/gcpnet_vqvae/2025-04-21__22-18-14/checkpoints/best_valid.pth
   restart_optimizer: True
 
 model:
@@ -18,7 +18,7 @@ model:
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
-      enabled: True
+      enable: True
       config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
@@ -39,7 +39,7 @@ model:
       num_blocks: 4
 
 train_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/swissprot_1024_h5
+  data_path: /mnt/hdd8/mehdi/datasets/vqvae/uniref_50/
   num_epochs: 1024
   shuffle: True
   loss: crossentropy
@@ -49,25 +49,25 @@ train_settings:
   batch_size: 32
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 64000
+  max_task_samples: 256000
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   losses:
     alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
     mse:
-      enable: True
+      enable: False
       weight: 0.01
     backbone_distance:
-      enable: False
+      enable: True
       weight: 1.0
     backbone_direction:
-      enable: False
+      enable: True
       weight: 1.0
     binned_distance_classification:
       enable: False
-      weight: 1.0
+      weight: 0.01
     binned_direction_classification:
       enable: False
-      weight: 1.0
+      weight: 0.01
     inverse_folding:
       enable: False
       weight: 1.0
@@ -79,10 +79,10 @@ train_settings:
 
 valid_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
-  do_every: 16
+  do_every: 4
   save_pdb_every: 16
   batch_size: 16
-  num_workers: 2
+  num_workers: 0
 
 visualization_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
