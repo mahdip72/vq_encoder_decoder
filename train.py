@@ -422,11 +422,11 @@ def main(dict_config, config_file_path):
     optimizer, scheduler = prepare_optimizer(net, configs, len(train_dataloader), logging)
     logging.info('preparing optimizer is done')
 
+    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
+
     net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
     )
-
-    net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
 
     net.to(accelerator.device)
 
@@ -469,6 +469,7 @@ def main(dict_config, config_file_path):
             f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
+        accelerator.wait_for_everyone()
 
         if epoch % configs.checkpoints_every == 0:
             tools = dict()
