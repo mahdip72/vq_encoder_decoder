@@ -7,6 +7,7 @@ import os
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import functools
+import random
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from utils.custom_losses import rigid_from_3_points_batch
@@ -611,8 +612,12 @@ class GCPNetDataset(Dataset):
                  num_positional_embeddings=16, top_k=30, **kwargs
                  ):
         super(GCPNetDataset, self).__init__()
-        self.h5_samples = glob.glob(os.path.join(data_path, '**', '*.h5'), recursive=True)[
-                          :kwargs['configs'].train_settings.max_task_samples]
+        self.h5_samples = glob.glob(os.path.join(data_path, '**', '*.h5'), recursive=True)
+
+        # Randolmy shuffle the samples and take the first 1000 samples
+        random.shuffle(self.h5_samples)
+        self.h5_samples = self.h5_samples[:kwargs['configs'].train_settings.max_task_samples]
+
         self.top_k = top_k
         self.num_positional_embeddings = num_positional_embeddings
         # self.node_counts = [len(e['seq']) for e in data_list]
