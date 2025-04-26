@@ -614,8 +614,9 @@ class GCPNetDataset(Dataset):
         super(GCPNetDataset, self).__init__()
         self.h5_samples = glob.glob(os.path.join(data_path, '**', '*.h5'), recursive=True)
 
-        # Randolmy shuffle the samples and take the first 1000 samples
-        random.shuffle(self.h5_samples)
+        if 'train' in data_path:
+            random.shuffle(self.h5_samples)
+            
         self.h5_samples = self.h5_samples[:kwargs['configs'].train_settings.max_task_samples]
 
         self.top_k = top_k
