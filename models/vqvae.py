@@ -10,7 +10,7 @@ class VQVAETransformer(nn.Module):
 
         self.max_length = configs.model.max_length
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
-        self.positional_encoding_encoder = configs.model.vqvae.encoder.positional_encoding
+        self.positional_encoding_encoder = configs.model.vqvae.positional_encoding
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
