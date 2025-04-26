@@ -23,6 +23,7 @@ model:
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
+    positional_encoding: True
     vector_quantization:
       dim: 768
       decay: 0.8

@@ -10,6 +10,7 @@ class VQVAETransformer(nn.Module):
 
         self.max_length = configs.model.max_length
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
+        self.positional_encoding_encoder = configs.model.vqvae.encoder.positional_encoding
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
@@ -37,7 +38,8 @@ class VQVAETransformer(nn.Module):
         )
         self.encoder_blocks = nn.TransformerEncoder(encoder_layer, num_layers=self.num_encoder_blocks)
 
-        self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+        if self.positional_encoding_encoder:
+            self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
 
         if self.use_ndlinear:
             self.encoder_head = NdLinear(
@@ -107,9 +109,9 @@ class VQVAETransformer(nn.Module):
             x = self.encoder_tail(x)
             x = x.permute(0, 2, 1)
 
-
-        # Apply positional encoding to encoder
-        x = x + self.pos_embed_encoder
+        if self.positional_encoding_encoder:
+            # Apply positional encoding to encoder
+            x = x + self.pos_embed_encoder
         x = self.encoder_blocks(x)
 
         if self.use_ndlinear:
