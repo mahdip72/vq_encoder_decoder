@@ -178,6 +178,12 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
         pretrained_state_dict = model_checkpoint['model_state_dict']
         pretrained_state_dict = {k.replace('_orig_mod.', ''): v for k, v in pretrained_state_dict.items()}
 
+        # remove "vqvae.pos_embed_encoder" from the dict
+        if 'vqvae.pos_embed_encoder' in pretrained_state_dict:
+            # Check if the vqvae.pos_embed_encoder of the checkpoint has not have the same shape as the model before removing
+            if pretrained_state_dict['vqvae.pos_embed_encoder'].shape != net.vqvae.pos_embed_encoder.shape:
+                logging.info(f"Removing vqvae.pos_embed_encoder from the checkpoint as it has a different shape.")
+                pretrained_state_dict.pop('vqvae.pos_embed_encoder')
         loading_log = net.load_state_dict(pretrained_state_dict, strict=False)
 
         logging.info(f'Loading checkpoint log: {loading_log}')
