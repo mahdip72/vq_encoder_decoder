@@ -1,5 +1,6 @@
 import torch_geometric
 import torch
+import time
 
 
 def separate_features(batched_features, batch):
@@ -69,3 +70,79 @@ def merge_features(features_list, max_length):
     valid_batch_indices = valid_indices_tuple[0] # Get the row indices (batch indices)
 
     return padded_features, mask, valid_batch_indices, slice_indices
+
+
+def test_merge_features_speed(num_batches=128, avg_seq_len=500, feature_dim=512, max_length=1024, num_iterations=100, device='cuda'):
+    """
+    Tests the speed of the merge_features function on a specified device (GPU recommended).
+
+    Args:
+        num_batches (int): Number of tensors in the input list.
+        avg_seq_len (int): Average sequence length for generated tensors.
+        feature_dim (int): Feature dimension of the tensors.
+        max_length (int): Maximum sequence length for padding/truncation.
+        num_iterations (int): Number of times to run the function for timing.
+        device (str): The device to run the test on ('cuda' or 'cpu').
+    """
+    print(f"\nTesting merge_features speed on {device}...")
+    print(f"Parameters: num_batches={num_batches}, avg_seq_len={avg_seq_len}, feature_dim={feature_dim}, max_length={max_length}, iterations={num_iterations}")
+
+    # Generate random input data on the target device
+    features_list = []
+    for _ in range(num_batches):
+        # Vary sequence lengths slightly around the average
+        seq_len = max(1, int(avg_seq_len + torch.randn(1).item() * (avg_seq_len / 4)))
+        features_list.append(torch.randn(seq_len, feature_dim, device=device))
+
+    # Warm-up run
+    _ = merge_features(features_list, max_length)
+
+    if device == 'cuda':
+        # Use CUDA events for accurate GPU timing
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+
+        start_event.record()
+        for _ in range(num_iterations):
+            _ = merge_features(features_list, max_length)
+        end_event.record()
+
+        # Waits for everything to finish running
+        torch.cuda.synchronize()
+        elapsed_time_ms = start_event.elapsed_time(end_event)
+        avg_time_ms = elapsed_time_ms / num_iterations
+    else:
+        # Use time.time() for CPU timing
+        start_time = time.time()
+        for _ in range(num_iterations):
+            _ = merge_features(features_list, max_length)
+        end_time = time.time()
+        elapsed_time_s = end_time - start_time
+        avg_time_ms = (elapsed_time_s / num_iterations) * 1000
+
+    print(f"Average execution time over {num_iterations} iterations: {avg_time_ms:.4f} ms")
+
+
+if __name__ == '__main__':
+    # Check if CUDA is available
+    if torch.cuda.is_available():
+        test_merge_features_speed(
+            num_batches=256,
+            avg_seq_len=600,
+            feature_dim=768,
+            max_length=1024,
+            num_iterations=200,
+            device='cuda'
+        )
+    else:
+        print("\nCUDA not available. Skipping GPU speed test for merge_features.")
+
+    # Optionally, run the CPU test as well or instead
+    # test_merge_features_speed(
+    #     num_batches=64,
+    #     avg_seq_len=500,
+    #     feature_dim=512,
+    #     max_length=1024,
+    #     num_iterations=50,
+    #     device='cpu'
+    # )
