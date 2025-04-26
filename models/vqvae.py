@@ -99,6 +99,7 @@ class VQVAETransformer(nn.Module):
         return embedding
 
     def forward(self, x, mask, return_vq_only=False):
+        mask = ~mask
         # Apply input projection
         if self.use_ndlinear:
             # Apply encoder_tail NdLinear
@@ -112,7 +113,8 @@ class VQVAETransformer(nn.Module):
         if self.positional_encoding_encoder:
             # Apply positional encoding to encoder
             x = x + self.pos_embed_encoder
-        x = self.encoder_blocks(x)
+
+        x = self.encoder_blocks(x, src_key_padding_mask=mask)
 
         if self.use_ndlinear:
             # Apply encoder_head NdLinear
@@ -138,7 +140,7 @@ class VQVAETransformer(nn.Module):
             x = x.permute(0, 2, 1)
 
         # x = x + self.pos_embed_decoder
-        x = self.decoder_blocks(x)
+        x = self.decoder_blocks(x, src_key_padding_mask=mask)
 
         # if self.use_ndlinear:
         #     # Apply decoder_head NdLinear
