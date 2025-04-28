@@ -812,9 +812,6 @@ class GCPNetDataset(Dataset):
         coords = coords.squeeze(0)
         masks = masks.squeeze(0)
 
-        # # find if nan values in the features print something
-        # if i >= 30:
-        #     pass
         return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels]
 
     def _featurize_as_graph(self, protein):
