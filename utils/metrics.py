@@ -303,36 +303,30 @@ class LDDT(Metric):
         Returns:
         lddt_score (torch.Tensor): The computed lDDT score. A single floating point number.
         """
-        # Ensure the tensors are on the same device and have the same shape
-        assert preds.device == target.device
         assert preds.shape == target.shape
+        device = preds.device
+        N = preds.shape[0]
 
-        # Compute the pairwise distance matrices for the predicted and actual structures
-        preds_dist = torch.cdist(preds, preds)
-        target_dist = torch.cdist(target, target)
+        # pairwise distances
+        pd = torch.cdist(preds, preds)
+        td = torch.cdist(target, target)
 
-        # Initialize a tensor to hold the per-atom lDDT scores
-        lddt_scores = torch.zeros(preds.shape[0], device=preds.device)
+        # mask neighbors in target within 15Å, exclude self
+        eye = torch.eye(N, dtype=torch.bool, device=device)
+        neighbor_mask = (td <= 15.0) & ~eye
 
-        # For each atom, compute the lDDT score
-        for i in range(preds.shape[0]):
-            # Get the neighbors within a 15 Ångström radius
-            preds_neighbors = preds_dist[i] <= 15
-            target_neighbors = target_dist[i] <= 15
+        lddt_per_res = []
+        for i in range(N):
+            nbrs = neighbor_mask[i]
+            if nbrs.sum() == 0:
+                lddt_per_res.append(torch.tensor(0.0, device=device))
+                continue
 
-            # Compute the lDDT score for each threshold
-            for threshold in thresholds:
-                # Compute the fraction of distances in the predicted structure that fall within the threshold
-                # of the distances in the actual structure
-                lddt_scores[i] += ((preds_dist[i, preds_neighbors] - target_dist[i, target_neighbors]).abs() < threshold).float().mean()
+            diffs = (pd[i, nbrs] - td[i, nbrs]).abs()
+            scores = torch.tensor([(diffs <= t).float().mean() for t in thresholds], device=device)
+            lddt_per_res.append(scores.mean())
 
-            # Average the lDDT scores across all thresholds
-            lddt_scores[i] /= len(thresholds)
-
-        # Average the per-atom lDDT scores across all atoms to get the overall lDDT score
-        lddt_score = lddt_scores.mean()
-
-        return lddt_score
+        return torch.stack(lddt_per_res).mean()
 
 
 if __name__ == "__main__":
