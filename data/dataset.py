@@ -614,8 +614,10 @@ class GCPNetDataset(Dataset):
         super(GCPNetDataset, self).__init__()
         self.h5_samples = glob.glob(os.path.join(data_path, '**', '*.h5'), recursive=True)
 
+        self.mode = 'evaluation'
         if 'train' in data_path:
             random.shuffle(self.h5_samples)
+            self.mode = 'train'
             
         self.h5_samples = self.h5_samples[:kwargs['configs'].train_settings.max_task_samples]
 
@@ -790,6 +792,12 @@ class GCPNetDataset(Dataset):
 
         coords_tensor = coords_tensor[:self.max_length, ...]
 
+        if self.configs.train_settings.cutoff_augmentation.enabled and self.mode == 'train':
+            if random.random() < self.configs.train_settings.cutoff_augmentation.probability:
+                # Randomly select a number between min_length and max_length
+                random_length = random.randint(self.configs.train_settings.cutoff_augmentation.min_length, self.max_length)
+                coords_tensor = coords_tensor[:random_length, ...]
+
         # coords_tensor = self.processor.normalize_coords(coords_tensor)
         # coords_tensor = coords_tensor / 10
 
@@ -804,9 +812,9 @@ class GCPNetDataset(Dataset):
         coords = coords.squeeze(0)
         masks = masks.squeeze(0)
 
-        # find if nan values in the features print something
-        if i >= 30:
-            pass
+        # # find if nan values in the features print something
+        # if i >= 30:
+        #     pass
         return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels]
 
     def _featurize_as_graph(self, protein):
