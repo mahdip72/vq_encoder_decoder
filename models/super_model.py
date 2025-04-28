@@ -9,6 +9,7 @@ from gcpnet.models.gcpnet import GCPNetModel
 # from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
 from models.utils import merge_features, separate_features
+import time
 
 
 class SuperModel(nn.Module):
@@ -34,9 +35,9 @@ class SuperModel(nn.Module):
 
         if self.configs.model.encoder.name == "gcpnet":
             if self.configs.model.encoder.pretrained.enabled:
-                with torch.autocast(device_type=device.type, enabled=False, cache_enabled=False):
-                    model_output = self.encoder(batch['graph'])
-                x = model_output["node_embedding"].type(dtype)
+                # No explicit casting or autocast override here.
+                model_output = self.encoder(batch['graph'])
+                x = model_output["node_embedding"]
 
             else:
                 _, x, _ = self.encoder(batch['graph'])
