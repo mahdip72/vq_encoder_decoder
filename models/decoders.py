@@ -192,6 +192,8 @@ class GeometricDecoder(nn.Module):
         self.num_heads = decoder_configs.num_heads
         self.num_layers = int(decoder_configs.num_blocks / 2)
 
+        self.is_causal = decoder_configs.causal_attention
+
         self.special_tokens = decoder_configs.special_tokens
         self.max_pae_bin = decoder_configs.max_pae_bin
 
@@ -283,7 +285,7 @@ class GeometricDecoder(nn.Module):
 
         # !!! NOTE: Attention mask is actually unused here so watch out
         x, _ = self.decoder_stack.forward(
-            x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id
+            x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id, is_causal=self.is_causal
         )
 
         tensor7_affine, bb_pred = self.affine_output_projection(

@@ -44,7 +44,7 @@ class MultiHeadAttention(nn.Module):
         k = k.flatten(-2, -1)
         return q, k
 
-    def forward(self, x, seq_id):
+    def forward(self, x, seq_id, is_causal: bool = False):
         qkv_BLD3 = self.layernorm_qkv(x)
         query_BLD, key_BLD, value_BLD = torch.chunk(qkv_BLD3, 3, dim=-1)
         query_BLD, key_BLD = self.q_ln(query_BLD), self.k_ln(key_BLD)
@@ -65,13 +65,20 @@ class MultiHeadAttention(nn.Module):
             mask_BHLL = mask_BLL.unsqueeze(1)
 
             context_BHLD = F.scaled_dot_product_attention(
-                query_BHLD, key_BHLD, value_BHLD, mask_BHLL
+                query_BHLD,
+                key_BHLD,
+                value_BHLD,
+                mask_BHLL,
+                is_causal=is_causal,
             )
         else:
             # Shortcut, if we don't use attention biases then torch
             # will autoselect flashattention as the implementation
             context_BHLD = F.scaled_dot_product_attention(
-                query_BHLD, key_BHLD, value_BHLD
+                query_BHLD,
+                key_BHLD,
+                value_BHLD,
+                is_causal=is_causal,
             )
         context_BLD = einops.rearrange(context_BHLD, "b h s d -> b s (h d)")
         return self.out_proj(context_BLD)

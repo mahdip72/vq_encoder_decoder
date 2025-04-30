@@ -118,6 +118,7 @@ class UnifiedTransformerBlock(nn.Module):
         frames: Affine3D,
         frames_mask: torch.Tensor,
         chain_id: torch.Tensor,
+        is_causal: bool = False,
     ) -> torch.Tensor:
         """
         Forward pass for the UnifiedTransformerBlock.
@@ -134,6 +135,7 @@ class UnifiedTransformerBlock(nn.Module):
             Boolean mask tensor indicating valid frames for geometric attention.
         chain_id : torch.Tensor[int]
             Tensor containing chain IDs for each element, used for attention masking in geometric attention.
+        is_causal : bool, optional
 
         Returns
         -------
@@ -141,7 +143,7 @@ class UnifiedTransformerBlock(nn.Module):
             The output tensor after applying the transformer block operations.
         """
         if self.use_plain_attn:
-            r1 = self.attn(x, sequence_id)
+            r1 = self.attn(x, sequence_id, is_causal=is_causal)
             x = x + r1 / self.scaling_factor
 
         if self.use_geom_attn:
