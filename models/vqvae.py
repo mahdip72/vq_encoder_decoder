@@ -11,6 +11,7 @@ class VQVAETransformer(nn.Module):
         self.max_length = configs.model.max_length
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
         self.positional_encoding_encoder = configs.model.vqvae.positional_encoding
+        self.is_causal = configs.model.vqvae.causal_attention
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
@@ -114,7 +115,12 @@ class VQVAETransformer(nn.Module):
             # Apply positional encoding to encoder
             x = x + self.pos_embed_encoder
 
-        x = self.encoder_blocks(x, src_key_padding_mask=mask)
+        x = self.encoder_blocks(
+            x,
+            mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1) , device=x.device, dtype=torch.bool) if self.is_causal else None,
+            src_key_padding_mask=mask,
+            is_causal=self.is_causal
+        )
 
         if self.use_ndlinear:
             # Apply encoder_head NdLinear
@@ -140,12 +146,16 @@ class VQVAETransformer(nn.Module):
             x = x.permute(0, 2, 1)
 
         # x = x + self.pos_embed_decoder
-        x = self.decoder_blocks(x, src_key_padding_mask=mask)
+        x = self.decoder_blocks(
+            x,
+            mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1), device=x.device, dtype=torch.bool) if self.is_causal else None,
+            src_key_padding_mask=mask,
+            is_causal=self.is_causal)
 
         # if self.use_ndlinear:
         #     # Apply decoder_head NdLinear
         #     x = self.decoder_head(x)
-        # else:clear
+        # else:
         #     Original approach
         #     x = x.permute(0, 2, 1)
         #     x = self.decoder_head(x)
