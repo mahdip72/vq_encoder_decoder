@@ -614,10 +614,10 @@ class GCPNetDataset(Dataset):
         super(GCPNetDataset, self).__init__()
         self.h5_samples = glob.glob(os.path.join(data_path, '**', '*.h5'), recursive=True)
 
-        self.mode = 'evaluation'
-        if 'train' in data_path:
+        self.mode = kwargs["mode"]
+
+        if self.mode == 'train':
             random.shuffle(self.h5_samples)
-            self.mode = 'train'
             
         self.h5_samples = self.h5_samples[:kwargs['configs'].train_settings.max_task_samples]
 
@@ -1690,21 +1690,24 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         configs.train_settings.data_path,
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
-        configs=configs
+        configs=configs,
+        mode="train",
     )
 
     valid_dataset = GCPNetDataset(
         configs.valid_settings.data_path,
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
-        configs=configs
+        configs=configs,
+        mode = "evaluation",
     )
 
     visualization_dataset = GCPNetDataset(
         configs.visualization_settings.data_path,
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
-        configs=configs
+        configs=configs,
+        mode="evaluation",
     )
 
     condition_met = configs.model.encoder.pretrained.enabled and configs.model.encoder.name == "gcpnet"
