@@ -29,3 +29,4 @@ pip install jaxtyping
 pip install beartype
 pip install omegaconf
 pip install ndlinear
+pip install torch_tb_profiler

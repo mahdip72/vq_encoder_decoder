@@ -18,7 +18,7 @@ model:
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
     pretrained:
-      enabled: True
+      enabled: False
       config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   decoder: geometric_decoder # geometric_decoder, gcpnet
@@ -41,7 +41,7 @@ model:
       num_blocks: 4
 
 train_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/uniref_50/
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   num_epochs: 1024
   shuffle: True
   loss: crossentropy
@@ -52,6 +52,8 @@ train_settings:
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 256000
+  profiler_log_dir: ./log/torch_profiler_untrained_gcpnet
+  profile_train_loop: True
   cutoff_augmentation:
     enabled: True
     probability: 0.5
@@ -84,14 +86,14 @@ train_settings:
       length_scale: 10.0
 
 valid_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   do_every: 4
   save_pdb_every: 16
   batch_size: 16
   num_workers: 0
 
 visualization_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
+  data_path: /bml/acmwhb/Repositories/Lab_Repositories/vq_encoder_decoder/data/validation/validation_set_1024_h5
   fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 8192
   batch_size: 1

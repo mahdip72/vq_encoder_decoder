@@ -27,6 +27,7 @@ pip install schedulefree
 pip install h5py
 pip install -U scikit-learn
 pip install ndlinear
+pip install torch_tb_profiler
 
 # for multi-gpu training
 export TOKENIZERS_PARALLELISM=false

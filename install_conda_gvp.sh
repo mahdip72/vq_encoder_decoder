@@ -24,3 +24,4 @@ pip install tmtools
 pip install scikit-learn
 pip install schedulefree
 pip install ndlinear
+pip install torch_tb_profiler

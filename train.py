@@ -22,7 +22,6 @@ import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
 from models.super_model import prepare_model_vqvae
-from models.utils import merge_features, separate_features
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -33,6 +32,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
     optimizer_name = configs.optimizer.name
     writer = kwargs.pop('writer')
     logging = kwargs.pop('logging')
+    profiler = kwargs.pop('profiler')
+    profile_train_loop = kwargs.pop('profile_train_loop')
     alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
@@ -74,6 +75,12 @@ def train_loop(net, train_loader, epoch, **kwargs):
         optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
+            if profile_train_loop:
+                profiler.step()
+                if i >= 1 + 1 + 3:
+                    logging.info("Profiler finished, exiting train step loop.")
+                    break
+
             labels = data['target_coords']
             masks = data['masks']
 
@@ -445,6 +452,19 @@ def main(dict_config, config_file_path):
         train_steps = np.ceil(len(train_dataloader) / configs.train_settings.grad_accumulation)
         logging.info(f'number of train steps per epoch: {int(train_steps)}')
 
+    # Maybe monitor resource usage during training.
+    prof = None
+    profile_train_loop = configs.train_settings.profile_train_loop
+
+    if profile_train_loop:
+        prof = torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(configs.train_settings.profiler_log_dir),
+            record_shapes=True,
+            with_stack=True,
+        )
+        prof.start()
+
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
@@ -456,7 +476,14 @@ def main(dict_config, config_file_path):
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
                                            logging=logging, global_step=global_step,
-                                           writer=train_writer, result_path=result_path)
+                                           writer=train_writer, result_path=result_path,
+                                           profiler=prof, profile_train_loop=profile_train_loop)
+
+        if profile_train_loop:
+            prof.stop()
+            logging.info("Profiler stopped, exiting train epoch loop.")
+            break
+
         end_time = time.time()
         training_time = end_time - start_time
         logging.info(
