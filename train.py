@@ -77,7 +77,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         with accelerator.accumulate(net):
             if profile_train_loop:
                 profiler.step()
-                if i >= 1 + 1 + 3:
+                if i >= 1 + 1 + 30:
                     logging.info("Profiler finished, exiting train step loop.")
                     break
 
@@ -458,11 +458,9 @@ def main(dict_config, config_file_path):
 
     if profile_train_loop:
         prof = torch.profiler.profile(
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=30, repeat=1),
             on_trace_ready=torch.profiler.tensorboard_trace_handler(configs.train_settings.profiler_log_dir),
-            record_shapes=True,
             profile_memory=True,
-            with_stack=True,
         )
         prof.start()
 
