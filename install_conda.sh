@@ -26,6 +26,7 @@ pip install scikit-learn
 pip install schedulefree
 pip install h5py
 pip install -U scikit-learn
+pip install ndlinear
 
 # for multi-gpu training
 export TOKENIZERS_PARALLELISM=false

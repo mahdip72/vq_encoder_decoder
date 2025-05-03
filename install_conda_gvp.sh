@@ -23,3 +23,4 @@ pip install joblib
 pip install tmtools
 pip install scikit-learn
 pip install schedulefree
+pip install ndlinear
