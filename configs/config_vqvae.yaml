@@ -104,9 +104,9 @@ optimizer:
   lr: 5e-5
   weight_decouple: True
   weight_decay: 1e-2
-  eps: 1e-16
+  eps: 1e-7
   beta_1: 0.9
-  beta_2: 0.999
+  beta_2: 0.98
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
