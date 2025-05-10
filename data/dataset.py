@@ -1699,7 +1699,7 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs,
-        mode = "evaluation",
+        mode="evaluation",
     )
 
     visualization_dataset = GCPNetDataset(
@@ -1725,11 +1725,14 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               num_workers=configs.train_settings.num_workers,
-                              pin_memory=False,
+                              pin_memory=False,  # page-lock host buffers
+                              persistent_workers=True,  # keep workers alive between epochs
+                              prefetch_factor=4,
                               collate_fn=selected_collate)
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
                               num_workers=configs.valid_settings.num_workers,
                               pin_memory=False,
+                              persistent_workers=False,  # keep workers alive between epochs
                               shuffle=False,
                               collate_fn=selected_collate)
     visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
