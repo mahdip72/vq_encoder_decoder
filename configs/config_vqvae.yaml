@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 1024
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/gcpnet_vqvae/
+result_path: ./results/gcpnet_vqvae/test
 normalizer_path: ./data/normalizer.pkl
 
 resume:
@@ -52,10 +52,9 @@ train_settings:
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 256000
-  profiler_log_dir: ./log/torch_profiler_pretrained_gcpnet
   profile_train_loop: False
   cutoff_augmentation:
-    enabled: True
+    enabled: False
     probability: 0.5
     min_length: 25
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)

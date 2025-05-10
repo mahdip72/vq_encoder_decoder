@@ -457,9 +457,12 @@ def main(dict_config, config_file_path):
     profile_train_loop = configs.train_settings.profile_train_loop
 
     if profile_train_loop:
+        from pathlib import Path
+        train_profile_path = os.path.join(result_path, 'train', 'profile')
+        Path(train_profile_path).mkdir(parents=True, exist_ok=True)
         prof = torch.profiler.profile(
             schedule=torch.profiler.schedule(wait=1, warmup=1, active=30, repeat=1),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(configs.train_settings.profiler_log_dir),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(train_profile_path),
             profile_memory=True,
         )
         prof.start()
