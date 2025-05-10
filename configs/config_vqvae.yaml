@@ -52,6 +52,8 @@ train_settings:
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 256000
+  profiler_log_dir: ./log/torch_profiler_pretrained_gcpnet
+  profile_train_loop: False
   cutoff_augmentation:
     enabled: True
     probability: 0.5
