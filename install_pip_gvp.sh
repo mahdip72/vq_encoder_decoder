@@ -21,4 +21,5 @@ uv pip install tmtools
 uv pip install schedulefree
 uv pip install packaging
 uv pip install flash-attn --no-build-isolation
-
+uv pip install ndlinear
+uv pip install torch_tb_profiler

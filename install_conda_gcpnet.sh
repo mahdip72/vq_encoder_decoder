@@ -7,7 +7,7 @@ pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https
 pip install torch_geometric
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu118.html
 pip install torch-cluster -f https://data.pyg.org/whl/torch-2.4.0+cu118.html
-pip install git+https://github.com/a-r-j/ProteinWorkshop.git@340885ee2eb222c3b7ce27f6c4cde810a6b0ca23
+pip install git+https://github.com/a-r-j/ProteinWorkshop.git@da7cfe6d3e469ef64d4899dc31a9391a3b69c8cc
 pip install torchtext
 pip install torchmetrics
 pip install einops
@@ -28,3 +28,5 @@ pip install schedulefree
 pip install jaxtyping
 pip install beartype
 pip install omegaconf
+pip install ndlinear
+pip install torch_tb_profiler
