@@ -144,8 +144,8 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
     torch.save({
         'epoch': epoch,
         'model_state_dict': accelerator.unwrap_model(kwargs['net']).state_dict(),
-        'optimizer_state_dict': accelerator.unwrap_model(kwargs['optimizer'].state_dict()),
-        'scheduler_state_dict': accelerator.unwrap_model(kwargs['scheduler'].state_dict()) if optimizer_name != 'schedulerfree' else "schedulerfree",
+        'optimizer_state_dict': kwargs['optimizer'].state_dict(),
+        'scheduler_state_dict': kwargs['scheduler'].state_dict() if optimizer_name != 'schedulerfree' else "schedulerfree",
     }, model_path)
 
 
