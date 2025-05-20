@@ -4,13 +4,35 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import os
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import functools
 import random
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
+from utils.custom_losses import rigid_from_3_points_batch
+from sklearn.decomposition import PCA
 from data.normalizer import Protein3DProcessing
+from scipy.spatial import KDTree
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
+
+
+def create_distance_map(coords):
+    """
+    Computes the pairwise distance map for CA coordinates using PyTorch.
+
+    Parameters:
+    coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
+
+    Returns:
+    torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
+    """
+    # coords = coords.half()
+    diff = coords[:, None, :] - coords[None, :, :]
+    distance_map = torch.norm(diff, dim=-1)
+
+    return distance_map
 
 
 def merge_features_and_create_mask(features_list, max_length=512):
@@ -897,6 +919,689 @@ class GCPNetDataset(Dataset):
         return vec
 
 
+class VQVAEDataset(Dataset):
+    def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
+        super(VQVAEDataset, self).__init__()
+
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+
+        self.max_length = kwargs['configs'].model.max_length
+
+        self.train_mode = train_mode
+
+        # self.rdf_bins = kwargs['configs'].model.vqvae.add_features.rdf_bins
+        # self.rdf_cutoff = kwargs['configs'].model.vqvae.add_features.rdf_cutoff
+        # self.k_neighbors = kwargs['configs'].model.vqvae.add_features.k_neighbors
+        self.add_features = kwargs['configs'].model.vqvae.add_features.enable
+
+        self.rotate_randomly = rotate_randomly
+        self.cutout = kwargs['configs'].train_settings.cutout.enable
+        self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
+        self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
+        self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
+
+        self.processor = Protein3DProcessing()
+
+        # Load saved pca and scaler models for processing
+        self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+
+    def __len__(self):
+        return len(self.h5_samples)
+
+    @staticmethod
+    def compute_spherical_coords(coords):
+        """
+        Converts Cartesian coordinates to spherical coordinates.
+
+        Args:
+            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+
+        Returns:
+            torch.Tensor: Tensor of shape (n_points, 3) containing spherical coordinates (r, theta, phi).
+        """
+        x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
+        r = torch.sqrt(x ** 2 + y ** 2 + z ** 2)
+        theta = torch.acos(z / r)
+        phi = torch.atan2(y, x)
+        spherical_coords = torch.stack((r, theta, phi), dim=-1)
+        return spherical_coords
+
+    def compute_rdf(self, coords):
+        """
+        Computes the Radial Distribution Function (RDF) for the given coordinates.
+
+        Args:
+            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+
+        Returns:
+            torch.Tensor: Tensor of shape (n_points, rdf_bins) containing RDF histograms.
+        """
+        dist_matrix = torch.cdist(coords, coords)
+        histograms = torch.zeros(coords.size(0), self.rdf_bins, dtype=torch.float32)
+        bin_edges = torch.linspace(0, self.rdf_cutoff, self.rdf_bins + 1)
+        for i in range(coords.size(0)):
+            distances = dist_matrix[i]
+            hist = torch.histc(distances, bins=self.rdf_bins, min=0, max=self.rdf_cutoff)
+            histograms[i] = hist
+        return histograms
+
+    def compute_local_angles(self, coords):
+        """
+        Computes local angles with the k nearest neighbors for the given coordinates using KD-Tree.
+
+        Args:
+            coords (torch.Tensor): Tensor of shape (n_points, 3) containing Cartesian coordinates.
+            k_neighbors (int): Number of nearest neighbors to consider for angle calculation.
+
+        Returns:
+            torch.Tensor: Tensor of shape (n_points, k_neighbors) containing local angles.
+        """
+        coords_np = coords.numpy()
+        kdtree = KDTree(coords_np)
+        distances, knn_indices = kdtree.query(coords_np, k=self.k_neighbors + 1)  # +1 to include the point itself
+
+        ref_vec = torch.tensor([1, 0, 0], dtype=torch.float32)
+        ref_norm = torch.norm(ref_vec)
+
+        num_points = coords.size(0)
+        angles = torch.zeros(num_points, self.k_neighbors, dtype=torch.float32)
+
+        for i in range(num_points):
+            neighbor_vecs = coords[knn_indices[i, 1:]] - coords[i]  # Exclude the point itself
+            cos_angles = torch.einsum('ij,j->i', neighbor_vecs, ref_vec) / (torch.norm(neighbor_vecs, dim=1) * ref_norm)
+            angles[i, :self.k_neighbors] = torch.acos(cos_angles)
+
+        return angles
+
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The coordinates with NaN values replaced by the previous valid coordinate values.
+        """
+        # Flatten the coordinates for easier manipulation
+        original_shape = coords.shape
+        coords = coords.view(-1, 3)
+
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
+
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
+
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
+
+            for i in range(0, coords.shape[0] - 1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
+
+        return coords.view(original_shape)
+
+    @staticmethod
+    def random_rotation_matrix(angle_range):
+        """
+        Creates a random 3D rotation matrix.
+
+        Parameters:
+            angle_range (float): The range of angles for the rotation matrix
+
+        Returns:
+            torch.Tensor: A 3x3 rotation matrix.
+        """
+        theta = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+        phi = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+        psi = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+
+        r_x = torch.Tensor([[1, 0, 0],
+                            [0, np.cos(theta), -np.sin(theta)],
+                            [0, np.sin(theta), np.cos(theta)]])
+
+        r_y = torch.Tensor([[np.cos(phi), 0, np.sin(phi)],
+                            [0, 1, 0],
+                            [-np.sin(phi), 0, np.cos(phi)]])
+
+        r_z = torch.Tensor([[np.cos(psi), -np.sin(psi), 0],
+                            [np.sin(psi), np.cos(psi), 0],
+                            [0, 0, 1]])
+
+        r = r_z @ r_y @ r_x
+
+        return r
+
+    def rotate_coords(self, coords, angle_range: float = 0.8):
+        """
+        Rotates the coordinates using a random rotation matrix.
+
+        Parameters:
+            coords (torch.Tensor): The coordinates to rotate.
+            angle_range (float): The range of angles for the rotation matrix.
+
+        Returns:
+            torch.Tensor: The rotated coordinates.
+        """
+        R = self.random_rotation_matrix(angle_range)
+        rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
+
+        # Ensure orthogonality
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32),
+                              atol=1e-6), "Rotation matrix is not orthogonal"
+
+        # Ensure proper rotation
+        assert torch.isclose(torch.det(R),
+                             torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+
+        return rotated_coords
+
+    def cutout_augmentation(self, input_tensor, min_mask_size, max_mask_size, max_cuts):
+        """
+        Apply cutout augmentation on the coordinates.
+
+        Parameters:
+        input_tensor (torch.Tensor): The coordinates tensor to augment.
+        min_mask_size (int): The minimum size of the mask to apply.
+        max_mask_size (int): The maximum size of the mask to apply.
+        max_cuts (int): The maximum number of cuts to apply.
+
+        Returns:
+        torch.Tensor: The augmented coordinates.
+        """
+        # Get the total length of the coordinates
+        total_length = input_tensor.shape[1]
+
+        # Randomly select the number of cuts
+        num_cuts = np.random.randint(1, max_cuts + 1)
+
+        for _ in range(num_cuts):
+            # Randomly select the size of the mask
+            mask_size = np.random.randint(min_mask_size, min(max_mask_size + 1, total_length))
+
+            # Randomly select the start index for the mask
+            start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
+
+            # Apply the mask
+            input_tensor[:, start_idx:start_idx + mask_size, :] = 0
+
+        return input_tensor
+
+    def __getitem__(self, i):
+        sample_path = self.h5_samples[i]
+        sample = load_h5_file(sample_path)
+        basename = os.path.basename(sample_path)
+        pid = basename.split('.h5')[0].split('_')[0]
+        coords_list = sample[1].tolist()
+        coords_tensor = torch.Tensor(coords_list)
+
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        coords_tensor = self.processor.normalize_coords(coords_tensor)
+
+        if self.rotate_randomly > 0 and self.train_mode:
+            # Apply random rotation
+            input_coords_tensor = self.rotate_coords(coords_tensor)
+        else:
+            input_coords_tensor = coords_tensor
+
+        # Merge the features and create a mask
+        if self.add_features:
+            # rbf_feature = self.compute_rdf(coords_tensor.reshape(-1, 3))
+            spherical_coords_feature = self.compute_spherical_coords(input_coords_tensor.reshape(-1, 3))
+            # local_angles_feature = self.compute_local_angles(coords_tensor.reshape(-1, 3))
+
+            # rbf_feature = rbf_feature.reshape(1, coords_tensor.shape[0], -1)
+            spherical_coords_feature = spherical_coords_feature.reshape(1, input_coords_tensor.shape[0], -1)
+            # local_angles_feature = local_angles_feature.reshape(1, coords_tensor.shape[0], -1)
+
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
+        if self.cutout and self.train_mode:
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
+                                                           max_mask_size=self.max_mask_size,
+                                                           max_cuts=self.max_cuts)
+        if self.add_features and self.cutout and self.train_mode:
+            # rbf_feature = self.cutout_augmentation(rbf_feature, min_mask_size=self.min_mask_size,
+            #                                        max_mask_size=self.max_mask_size,
+            #                                        max_cuts=self.max_cuts)
+            spherical_coords_feature = self.cutout_augmentation(spherical_coords_feature,
+                                                                min_mask_size=self.min_mask_size,
+                                                                max_mask_size=self.max_mask_size,
+                                                                max_cuts=self.max_cuts)
+            # local_angles_feature = self.cutout_augmentation(local_angles_feature, min_mask_size=self.min_mask_size,
+            #                                                 max_mask_size=self.max_mask_size,
+            #                                                 max_cuts=self.max_cuts)
+
+        coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
+
+        if self.add_features:
+            # rbf_feature = merge_features_and_create_mask(rbf_feature, self.max_length)[0]
+            spherical_coords_feature = merge_features_and_create_mask(spherical_coords_feature, self.max_length)[0]
+            # local_angles_feature = merge_features_and_create_mask(local_angles_feature, self.max_length)[0]
+            input_coords_tensor = torch.cat(
+                (input_coords_tensor, spherical_coords_feature), dim=-1)
+
+        # squeeze coords and masks to return them to 2D
+        coords = coords.squeeze(0)
+        input_coords_tensor = input_coords_tensor.squeeze(0)
+        masks = masks.squeeze(0)
+
+        return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords, 'masks': masks}
+
+
+class EGNNVQVAEDataset(Dataset):
+    def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
+        super(EGNNVQVAEDataset, self).__init__()
+
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['max_samples']]
+
+        self.max_length = kwargs['configs'].model.max_length
+
+        self.train_mode = train_mode
+
+        self.rotate_randomly = rotate_randomly
+        self.cutout = kwargs['configs'].train_settings.cutout.enable
+        self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
+        self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
+        self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
+
+        self.processor = Protein3DProcessing()
+
+        # Load saved pca and scaler models for processing
+        # self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+
+    def __len__(self):
+        return len(self.h5_samples)
+
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The coordinates with NaN values replaced by the previous valid coordinate values.
+        """
+        # Flatten the coordinates for easier manipulation
+        original_shape = coords.shape
+        coords = coords.view(-1, 3)
+
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
+
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
+
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
+
+            for i in range(0, coords.shape[0] - 1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
+
+        return coords.view(original_shape)
+
+    @staticmethod
+    def random_rotation_matrix(angle_range):
+        """
+        Creates a random 3D rotation matrix.
+
+        Parameters:
+            angle_range (float): The range of angles for the rotation matrix
+
+        Returns:
+            torch.Tensor: A 3x3 rotation matrix.
+        """
+        theta = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+        phi = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+        psi = torch.FloatTensor(1).uniform_(-angle_range, angle_range).item()
+
+        r_x = torch.Tensor([[1, 0, 0],
+                            [0, np.cos(theta), -np.sin(theta)],
+                            [0, np.sin(theta), np.cos(theta)]])
+
+        r_y = torch.Tensor([[np.cos(phi), 0, np.sin(phi)],
+                            [0, 1, 0],
+                            [-np.sin(phi), 0, np.cos(phi)]])
+
+        r_z = torch.Tensor([[np.cos(psi), -np.sin(psi), 0],
+                            [np.sin(psi), np.cos(psi), 0],
+                            [0, 0, 1]])
+
+        r = r_z @ r_y @ r_x
+
+        return r
+
+    def rotate_coords(self, coords, angle_range: float = 0.8):
+        """
+        Rotates the coordinates using a random rotation matrix.
+
+        Parameters:
+            coords (torch.Tensor): The coordinates to rotate.
+            angle_range (float): The range of angles for the rotation matrix.
+
+        Returns:
+            torch.Tensor: The rotated coordinates.
+        """
+        R = self.random_rotation_matrix(angle_range)
+        rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
+
+        # Ensure orthogonality
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32),
+                              atol=1e-6), "Rotation matrix is not orthogonal"
+
+        # Ensure proper rotation
+        assert torch.isclose(torch.det(R),
+                             torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+
+        return rotated_coords
+
+    def cutout_augmentation(self, input_tensor, min_mask_size, max_mask_size, max_cuts):
+        """
+        Apply cutout augmentation on the coordinates.
+
+        Parameters:
+        input_tensor (torch.Tensor): The coordinates tensor to augment.
+        min_mask_size (int): The minimum size of the mask to apply.
+        max_mask_size (int): The maximum size of the mask to apply.
+        max_cuts (int): The maximum number of cuts to apply.
+
+        Returns:
+        torch.Tensor: The augmented coordinates.
+        """
+        # Get the total length of the coordinates
+        total_length = input_tensor.shape[1]
+
+        # Randomly select the number of cuts
+        num_cuts = np.random.randint(1, max_cuts + 1)
+
+        for _ in range(num_cuts):
+            # Randomly select the size of the mask
+            mask_size = np.random.randint(min_mask_size, min(max_mask_size + 1, total_length))
+
+            # Randomly select the start index for the mask
+            start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
+
+            # Apply the mask
+            input_tensor[:, start_idx:start_idx + mask_size, :] = 0
+
+        return input_tensor
+
+    def __getitem__(self, i):
+        sample_path = self.h5_samples[i]
+        sample = load_h5_file(sample_path)
+        basename = os.path.basename(sample_path)
+        pid = basename.split('.h5')[0].split('_')[0]
+        coords_list = sample[1].tolist()
+        coords_tensor = torch.Tensor(coords_list)
+
+        # Remove amino acids longer than max_length
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
+
+        if self.rotate_randomly > 0 and self.train_mode:
+            # Apply random rotation
+            input_coords_tensor = self.rotate_coords(coords_tensor)
+        else:
+            input_coords_tensor = coords_tensor
+
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
+        if self.cutout and self.train_mode:
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
+                                                           max_mask_size=self.max_mask_size,
+                                                           max_cuts=self.max_cuts)
+
+        coords_tensor, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
+
+        # extract carbon alpha coordinates from all amino acids
+        input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)  # ['N', 'CA', 'C', 'O']
+        coords_tensor = coords_tensor[..., :9].reshape(1, -1, 3)  # ['N', 'CA', 'C', 'O']
+
+        # squeeze coords and masks to return them to 2D
+        coords_tensor = coords_tensor.squeeze(0)
+        input_coords_tensor = input_coords_tensor.squeeze(0)
+        masks = masks.squeeze(0)
+
+        return {'pid': pid, 'input_coords': input_coords_tensor, 'target_coords': coords_tensor, 'masks': masks}
+
+
+class DistanceMapVQVAEDataset(Dataset):
+    def __init__(self, data_path, train_mode=False, rotate_randomly=False, **kwargs):
+        super(DistanceMapVQVAEDataset, self).__init__()
+
+        self.h5_samples = glob.glob(os.path.join(data_path, '*.h5'))[:kwargs['configs'].train_settings.max_task_samples]
+
+        self.max_length = kwargs['configs'].model.max_length
+
+        self.train_mode = train_mode
+
+        self.rotate_randomly = rotate_randomly
+        self.cutout = kwargs['configs'].train_settings.cutout.enable
+        self.min_mask_size = kwargs['configs'].train_settings.cutout.min_mask_size
+        self.max_mask_size = kwargs['configs'].train_settings.cutout.max_mask_size
+        self.max_cuts = kwargs['configs'].train_settings.cutout.max_cuts
+
+        self.processor = Protein3DProcessing()
+
+        # Load saved pca and scaler models for processing
+        self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+
+    def __len__(self):
+        return len(self.h5_samples)
+
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Parameters:
+        -----------
+        coords : torch.Tensor
+            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+
+        Returns:
+        --------
+        torch.Tensor
+            The coordinates with NaN values replaced by the previous valid coordinate values.
+        """
+        # Flatten the coordinates for easier manipulation
+        original_shape = coords.shape
+        coords = coords.view(-1, 3)
+
+        # check if there are any NaN values in the coordinates
+        while torch.isnan(coords).any():
+            # Identify NaN values
+            nan_mask = torch.isnan(coords)
+
+            if not nan_mask.any():
+                return coords.view(original_shape)  # Return if there are no NaN values
+
+            # Iterate through coordinates and replace NaNs with the previous valid coordinate
+            for i in range(1, coords.shape[0]):
+                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
+                    coords[i] = coords[i - 1]
+
+            for i in range(0, coords.shape[0] - 1):
+                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
+                    coords[i] = coords[i + 1]
+
+        return coords.view(original_shape)
+
+    @staticmethod
+    def random_rotation_matrix():
+        """
+        Creates a random 3D rotation matrix.
+
+        Returns:
+            torch.Tensor: A 3x3 rotation matrix.
+        """
+        theta = np.random.uniform(0, 2 * np.pi)
+        phi = np.random.uniform(0, 2 * np.pi)
+        psi = np.random.uniform(0, 2 * np.pi)
+
+        r_x = torch.Tensor([[1, 0, 0],
+                            [0, np.cos(theta), -np.sin(theta)],
+                            [0, np.sin(theta), np.cos(theta)]])
+
+        r_y = torch.Tensor([[np.cos(phi), 0, np.sin(phi)],
+                            [0, 1, 0],
+                            [-np.sin(phi), 0, np.cos(phi)]])
+
+        r_z = torch.Tensor([[np.cos(psi), -np.sin(psi), 0],
+                            [np.sin(psi), np.cos(psi), 0],
+                            [0, 0, 1]])
+
+        r = r_z @ r_y @ r_x
+
+        return r
+
+    def rotate_coords(self, coords):
+        """
+        Rotates the coordinates using a random rotation matrix.
+
+        Parameters:
+            coords (torch.Tensor): The coordinates to rotate.
+
+        Returns:
+            torch.Tensor: The rotated coordinates.
+        """
+        R = self.random_rotation_matrix()
+        rotated_coords = torch.einsum('ij,nj->ni', R, coords.view(-1, 3)).reshape(coords.shape)
+
+        # Ensure orthogonality
+        assert torch.allclose(R.T @ R, torch.eye(3, dtype=torch.float32),
+                              atol=1e-6), "Rotation matrix is not orthogonal"
+
+        # Ensure proper rotation
+        assert torch.isclose(torch.det(R),
+                             torch.tensor(1.0, dtype=torch.float32)), "Rotation matrix determinant is not +1"
+
+        return rotated_coords
+
+    def cutout_augmentation(self, coords, min_mask_size, max_mask_size, max_cuts):
+        """
+        Apply cutout augmentation on the coordinates.
+
+        Parameters:
+        coords (torch.Tensor): The coordinates tensor to augment.
+        min_mask_size (int): The minimum size of the mask to apply.
+        max_mask_size (int): The maximum size of the mask to apply.
+        max_cuts (int): The maximum number of cuts to apply.
+
+        Returns:
+        torch.Tensor: The augmented coordinates.
+        """
+        # Get the total length of the coordinates
+        total_length = coords.shape[1]
+
+        # Randomly select the number of cuts
+        num_cuts = np.random.randint(1, max_cuts + 1)
+
+        for _ in range(num_cuts):
+            # Randomly select the size of the mask
+            mask_size = np.random.randint(min_mask_size, max_mask_size + 1)
+
+            # Randomly select the start index for the mask
+            start_idx = torch.randint(0, total_length - mask_size + 1, (1,)).item()
+
+            # Apply the mask
+            coords[:, start_idx:start_idx + mask_size, :] = 0
+
+        return coords
+
+    @staticmethod
+    def create_distance_map(coords):
+        """
+        Computes the pairwise distance map for CA coordinates using PyTorch.
+
+        Parameters:
+        ca_coords (torch.Tensor): A 2D tensor of shape (n, 3) containing the coordinates of CA atoms.
+
+        Returns:
+        torch.Tensor: A 2D tensor of shape (n, n) containing the pairwise distances.
+        """
+        diff = coords.unsqueeze(1) - coords.unsqueeze(0)
+        distance_map = torch.sqrt(torch.sum(diff ** 2, dim=-1))
+        return distance_map
+
+    def __getitem__(self, i):
+        sample_path = self.h5_samples[i]
+        sample = load_h5_file(sample_path)
+        basename = os.path.basename(sample_path)
+        pid = basename.split('.h5')[0].split('_')[0]
+        sequence = sample[0]
+        coords_list = sample[1].tolist()
+        coords_tensor = torch.Tensor(coords_list)
+
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = self.handle_nan_coordinates(coords_tensor)
+        # coords_tensor = self.processor.normalize_coords(coords_tensor)
+
+        if self.rotate_randomly and self.train_mode:
+            # Apply random rotation
+            input_coords_tensor = self.rotate_coords(coords_tensor)
+        else:
+            input_coords_tensor = coords_tensor
+
+        # Merge the features and create a mask
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        input_coords_tensor = input_coords_tensor.reshape(1, -1, 12)
+        if self.cutout and self.train_mode:
+            input_coords_tensor = self.cutout_augmentation(input_coords_tensor, min_mask_size=self.min_mask_size,
+                                                           max_mask_size=self.max_mask_size,
+                                                           max_cuts=self.max_cuts)
+
+        coords_tensor, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        input_coords_tensor, masks = merge_features_and_create_mask(input_coords_tensor, self.max_length)
+
+        input_coords_tensor = input_coords_tensor[..., 3:6].reshape(1, -1, 3)
+        coords_tensor = coords_tensor[..., 3:6].reshape(1, -1, 3)
+
+        input_distance_map = self.create_distance_map(input_coords_tensor.squeeze(0))
+        target_distance_map = self.create_distance_map(coords_tensor.squeeze(0))
+
+        input_distance_map = self.processor.normalize_distance_map(input_distance_map)
+        target_distance_map = self.processor.normalize_distance_map(target_distance_map)
+
+        # input_coords_tensor = input_coords_tensor.reshape(-1, 12)
+        # coords = coords.reshape(-1, 12)
+
+        # expand the first dimension of distance maps
+        input_distance_map = input_distance_map.unsqueeze(0) / 100
+        target_distance_map = target_distance_map.unsqueeze(0) / 100
+        return {'pid': pid, 'seq': sequence, 'input_coords': input_coords_tensor.squeeze(0),
+                'input_distance_map': input_distance_map, 'target_coords': coords_tensor.squeeze(0),
+                'target_distance_map': target_distance_map, 'masks': masks.squeeze(0)}
+
+
 def prepare_gvp_vqvae_dataloaders(logging, accelerator, configs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
@@ -1038,6 +1743,224 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     return train_loader, valid_loader, visualization_loader
 
 
+def prepare_vqvae_dataloaders(logging, accelerator, configs):
+    if accelerator.is_main_process:
+        logging.info(f"train directory: {configs.train_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
+
+    train_dataset = VQVAEDataset(configs.train_settings.data_path, train_mode=True,
+                                 rotate_randomly=configs.train_settings.rotate_randomly,
+                                 configs=configs)
+    valid_dataset = VQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
+    visualization_dataset = VQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
+                                         configs=configs)
+
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+                              shuffle=configs.train_settings.shuffle,
+                              num_workers=configs.train_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True)
+
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              shuffle=False,
+                              num_workers=configs.valid_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True)
+
+    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
+                                      shuffle=False,
+                                      num_workers=0,
+                                      pin_memory=True)
+
+    return train_loader, valid_loader, visualization_loader
+
+
+def prepare_egnn_vqvae_dataloaders(logging, accelerator, configs):
+    if accelerator.is_main_process:
+        logging.info(f"train directory: {configs.train_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
+
+    train_dataset = EGNNVQVAEDataset(configs.train_settings.data_path, train_mode=True,
+                                     rotate_randomly=configs.train_settings.rotate_randomly,
+                                     max_samples=configs.train_settings.max_task_samples,
+                                     configs=configs)
+    valid_dataset = EGNNVQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False,
+                                     max_samples=configs.train_settings.max_task_samples,
+                                     configs=configs)
+    visualization_dataset = EGNNVQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
+                                             max_samples=configs.train_settings.max_task_samples,
+                                             configs=configs)
+
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+                              shuffle=configs.train_settings.shuffle,
+                              num_workers=configs.train_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True,
+                              prefetch_factor=2, )
+
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              shuffle=False,
+                              num_workers=configs.valid_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True,
+                              prefetch_factor=2)
+
+    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
+                                      shuffle=False,
+                                      num_workers=configs.visualization_settings.num_workers,
+                                      pin_memory=True)
+
+    return train_loader, valid_loader, visualization_loader
+
+
+def prepare_distance_map_vqvae_dataloaders(logging, accelerator, configs):
+    if accelerator.is_main_process:
+        logging.info(f"train directory: {configs.train_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
+        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
+
+    train_dataset = DistanceMapVQVAEDataset(configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+                                            configs=configs)
+    valid_dataset = DistanceMapVQVAEDataset(configs.valid_settings.data_path, rotate_randomly=False, configs=configs)
+    visualization_dataset = DistanceMapVQVAEDataset(configs.visualization_settings.data_path, rotate_randomly=False,
+                                                    configs=configs)
+
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+                              shuffle=configs.train_settings.shuffle,
+                              num_workers=configs.train_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True)
+
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              shuffle=False,
+                              num_workers=configs.valid_settings.num_workers,
+                              # multiprocessing_context='spawn' if configs.train_settings.num_workers > 0 else None,
+                              pin_memory=True)
+
+    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
+                                      shuffle=False,
+                                      num_workers=configs.visualization_settings.num_workers,
+                                      pin_memory=True)
+
+    return train_loader, valid_loader, visualization_loader
+
+
+def plot_3d_coords(coords: np.ndarray):
+    """
+    Plot 3D coordinates in a scatter plot.
+
+    Parameters:
+    coords (np.ndarray): A numpy array of shape (N, 3) where N is the number of points,
+                         and each point has three coordinates (x, y, z).
+    """
+
+    if coords.shape[1] != 3:
+        raise ValueError("Input array must have shape (N, 3)")
+
+    # Extracting x, y, and z coordinates
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z = coords[:, 2]
+
+    # Create a new figure for plotting
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Scatter plot of the points
+    ax.scatter(x, y, z, c='r', marker='o')
+
+    # Optionally, label the axes
+    ax.set_xlabel('X axis')
+    ax.set_ylabel('Y axis')
+    ax.set_zlabel('Z axis')
+
+    # Show the plot
+    plt.show()
+
+
+def plot_3d_coords_plotly(coords: np.ndarray):
+    """
+    Plot 3D coordinates in a scatter plot.
+
+    Parameters:
+    coords (np.ndarray): A numpy array of shape (N, 3) where N is the number of points,
+                         and each point has three coordinates (x, y, z).
+    """
+
+    if coords.shape[1] != 3:
+        raise ValueError("Input array must have shape (N, 3)")
+
+    # Extracting x, y, and z coordinates
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z = coords[:, 2]
+
+    # Create a 3D scatter plot
+    fig = go.Figure(data=[go.Scatter3d(
+        x=x,
+        y=y,
+        z=z,
+        mode='markers',
+        marker=dict(size=5, color='red')
+    )])
+
+    # Optionally, set titles and labels
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='X axis',
+            yaxis_title='Y axis',
+            zaxis_title='Z axis'
+        ),
+        title="3D Scatter Plot"
+    )
+
+    # Show the plot
+    fig.show()
+
+
+def plot_3d_coords_lines_plotly(coords: np.ndarray):
+    """
+    Plot 3D coordinates in a scatter plot and connect each pair of points with a line.
+
+    Parameters:
+    coords (np.ndarray): A numpy array of shape (N, 3) where N is the number of points,
+                         and each point has three coordinates (x, y, z).
+    """
+    import plotly.graph_objects as go
+
+    if coords.shape[1] != 3:
+        raise ValueError("Input array must have shape (N, 3)")
+
+    # Extracting x, y, and z coordinates
+    x = coords[:, 0]
+    y = coords[:, 1]
+    z = coords[:, 2]
+
+    # Create a 3D scatter plot
+    fig = go.Figure(data=[go.Scatter3d(
+        x=x,
+        y=y,
+        z=z,
+        mode='lines+markers',  # This will create lines between points
+        marker=dict(size=5, color='red')
+    )])
+
+    # Optionally, set titles and labels
+    fig.update_layout(
+        title="3D Scatter Plot with Lines",
+        scene=dict(
+            xaxis_title="X axis",
+            yaxis_title="Y axis",
+            zaxis_title="Z axis"
+        )
+    )
+
+    # Show the plot
+    fig.show()
+
+
 if __name__ == '__main__':
     import yaml
     import tqdm
@@ -1066,7 +1989,7 @@ if __name__ == '__main__':
     #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
     #                      configs=test_configs)
 
-    dataset = GCPNetDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+    dataset = EGNNVQVAEDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
                                max_samples=test_configs.train_settings.max_task_samples,
                                configs=test_configs)
 
