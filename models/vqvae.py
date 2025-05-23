@@ -122,12 +122,12 @@ class VQVAETransformer(nn.Module):
             is_causal=self.is_causal
         )
 
-        if self.use_ndlinear:
-            # Apply encoder_head NdLinear
-            x = self.encoder_head(x)
-        else:
-            x = x.permute(0, 2, 1)
-            x = self.encoder_head(x)
+        # if self.use_ndlinear:
+        #     # Apply encoder_head NdLinear
+        #     x = self.encoder_head(x)
+        # else:
+        #     x = x.permute(0, 2, 1)
+        #     x = self.encoder_head(x)
 
         # x = x.permute(0, 2, 1)
         # x, indices, commit_loss = self.vector_quantizer(x)
@@ -138,19 +138,19 @@ class VQVAETransformer(nn.Module):
         #     return x, indices, commit_loss
 
         # Apply positional encoding to decoder
-        if self.use_ndlinear:
-            # Apply decoder_tail NdLinear
-            x = self.decoder_tail(x)
-        else:
-            x = self.decoder_tail(x)
-            x = x.permute(0, 2, 1)
+        # if self.use_ndlinear:
+        #     # Apply decoder_tail NdLinear
+        #     x = self.decoder_tail(x)
+        # else:
+        #     x = self.decoder_tail(x)
+        #     x = x.permute(0, 2, 1)
 
         # x = x + self.pos_embed_decoder
-        x = self.decoder_blocks(
-            x,
-            mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1), device=x.device, dtype=torch.bool) if self.is_causal else None,
-            src_key_padding_mask=mask,
-            is_causal=self.is_causal)
+        # x = self.decoder_blocks(
+        #     x,
+        #     mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1), device=x.device, dtype=torch.bool) if self.is_causal else None,
+        #     src_key_padding_mask=mask,
+        #     is_causal=self.is_causal)
 
         # if self.use_ndlinear:
         #     # Apply decoder_head NdLinear
