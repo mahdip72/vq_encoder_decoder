@@ -537,7 +537,7 @@ def main(dict_config, config_file_path):
             )
 
             # Check valid metric to save the best model
-            if valid_loop_reports["gdtts"] > best_valid_metrics['gdtts']:
+            if valid_loop_reports["rmsd"] < best_valid_metrics['rmsd']:
                 best_valid_metrics['gdtts'] = valid_loop_reports["gdtts"]
                 best_valid_metrics['mae'] = valid_loop_reports["mae"]
                 best_valid_metrics['rmsd'] = valid_loop_reports["rmsd"]
@@ -555,7 +555,7 @@ def main(dict_config, config_file_path):
                 save_checkpoint(epoch, model_path, accelerator, net=net, optimizer=optimizer, scheduler=scheduler,
                                 configs=configs)
                 logging.info(f'\tsaving the best models in {model_path}')
-                logging.info(f'\tbest valid gdtts: {best_valid_metrics["gdtts"]:.4f}')
+                logging.info(f'\tbest valid rmsd: {best_valid_metrics["rmsd"]:.4f}')
 
         if epoch % configs.visualization_settings.do_every == 0:
             logging.info(f'\tstart visualization at epoch {epoch}')
