@@ -470,7 +470,7 @@ def main(dict_config, config_file_path):
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
-    best_valid_metrics = {'gdtts': 0.0, 'mae': 0.0, 'rmsd': 0.0, 'lddt': 0.0, 'loss': 1000.0}
+    best_valid_metrics = {'gdtts': 0.0, 'mae': 1000.0, 'rmsd': 1000.0, 'lddt': 0.0, 'loss': 1000.0}
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch,
