@@ -1038,13 +1038,63 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     return train_loader, valid_loader, visualization_loader
 
 
+
+
+
 if __name__ == '__main__':
     import yaml
     import tqdm
-    from utils.utils import load_configs, get_dummy_logger
+    import logging as log
+    from box import Box
+    from io import StringIO
+    # from ..utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
     from utils.metrics import batch_distance_map_to_coordinates
+
+
+    def load_configs(config):
+        """
+            Load the configuration file and convert the necessary values to floats.
+
+            Args:
+                config (dict): The configuration dictionary.
+
+            Returns:
+                The updated configuration dictionary with float values.
+            """
+
+        # Convert the dictionary to a Box object for easier access to the values.
+        tree_config = Box(config)
+
+        # Convert the necessary values to floats.
+        tree_config.optimizer.lr = float(tree_config.optimizer.lr)
+        tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
+        tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
+        tree_config.optimizer.eps = float(tree_config.optimizer.eps)
+
+        return tree_config
+
+
+    def get_dummy_logger():
+        # Create a logger object
+        logger = log.getLogger('dummy')
+        logger.setLevel(log.INFO)
+
+        # Create a string buffer to hold the logs
+        log_buffer = StringIO()
+
+        # Create a stream handler that writes to the string buffer
+        handler = log.StreamHandler(log_buffer)
+        formatter = log.Formatter('%(asctime)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+        # Optionally disable propagation to prevent logging on the parent logger
+        logger.propagate = False
+
+        # Return both logger and buffer so you can inspect logs as needed
+        return logger
 
     config_path = "../configs/config_vqvae.yaml"
 
