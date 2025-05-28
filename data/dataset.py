@@ -1050,7 +1050,7 @@ if __name__ == '__main__':
     # from ..utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
-    from utils.metrics import batch_distance_map_to_coordinates
+    # from utils.metrics import batch_distance_map_to_coordinates
 
 
     def load_configs(config):
