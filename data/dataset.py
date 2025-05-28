@@ -1046,11 +1046,14 @@ if __name__ == '__main__':
     from accelerate import Accelerator
     from utils.metrics import batch_distance_map_to_coordinates
 
-    config_path = "../configs/config_egnn_vqvae.yaml"
+    config_path = "../configs/config_vqvae.yaml"
 
+    print('Loading config file:', config_path)
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
+    config_file['model']['encoder']['pretrained']['config_path'] = "../configs/pretrained/structure_denoising_pretrained_config.yaml"
+    config_file['model']['encoder']['pretrained']['checkpoint_path'] = "../models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt"
     test_configs = load_configs(config_file)
 
     test_logger = get_dummy_logger()
@@ -1066,14 +1069,29 @@ if __name__ == '__main__':
     #                      num_positional_embeddings=test_configs.model.struct_encoder.num_positional_embeddings,
     #                      configs=test_configs)
 
+    print('data path:', test_configs.train_settings.data_path)
     dataset = GCPNetDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
-                               max_samples=test_configs.train_settings.max_task_samples,
-                               configs=test_configs)
+                            max_samples=test_configs.train_settings.max_task_samples,
+                            configs=test_configs,
+                            mode="train")
 
-    test_loader = DataLoader(dataset, batch_size=32, num_workers=4,
-                             pin_memory=False,
-                             persistent_workers=False,
-                             collate_fn=None)
+    # determine collate function based on pretrained GCPNet config
+    condition_met = test_configs.model.encoder.pretrained.enabled and test_configs.model.encoder.name == "gcpnet"
+    custom_collate_pretrained_gcp_partial = functools.partial(
+        custom_collate_pretrained_gcp,
+        featuriser=dataset.pretrained_featuriser,
+        task_transform=dataset.pretrained_task_transform
+    )
+    selected_collate = custom_collate_pretrained_gcp_partial if condition_met else custom_collate
+
+    test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size,
+                             num_workers=test_configs.train_settings.num_workers,
+                             pin_memory=False,  # page-lock host buffers
+                             persistent_workers=True,  # keep workers alive between epochs
+                             prefetch_factor=2,
+                             collate_fn=selected_collate)
+
+    print('Building dataset with', len(dataset), 'samples')
 
     # test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
     struct_embeddings = []
