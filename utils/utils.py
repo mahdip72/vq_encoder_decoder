@@ -450,27 +450,45 @@ def load_h5_file(file_path):
     return seq, n_ca_c_o_coord, plddt_scores
 
 
-def ca_coords_to_pdb(ca_coords, masks, save_path):
+def save_backbone_pdb(coords, masks, save_path_prefix, atom_names=["N", "CA", "C"]):
     """
-    Convert alpha carbon coordinates to a PDB file.
+    Convert backbone (N, CA, C) atom coordinates to PDB files, one per sample in the batch.
 
-    :param ca_coords: (torch.Tensor[batch_size, n_residues, 3]) Alpha carbon coordinates.
+    :param coords: (torch.Tensor[batch_size, n_residues, 3, 3]) Backbone atom coordinates (N, CA, C).
     :param masks: (torch.Tensor[batch_size, n_residues]) Masks corresponding to each residue.
-    :param save_path: (str) Path to save the PDB file.
+    :param save_path_prefix: (str) Prefix for the path to save the PDB files.
+                                  A suffix like '_sample_0.pdb', '_sample_1.pdb' will be added.
+    :param atom_names: (list) List of atom names, e.g., ["N", "CA", "C"].
     """
-    # check if the save path exists
-    for i in range(ca_coords.shape[0]):  # Loop over batch
-        with open(save_path + f'_{i}.pdb', 'w') as pdb_file:
-            atom_index = 1
-            for j in range(ca_coords.shape[1]):  # Loop over residues
+    if coords.dim() == 3: # If a single sample is passed [n_residues, 3, 3]
+        coords = coords.unsqueeze(0) # Add batch dimension
+        masks = masks.unsqueeze(0) # Add batch dimension
 
-                if masks[i, j].item() == 1:  # Only write residues that are present
-                    x, y, z = ca_coords[i, j].tolist()
+    for i in range(coords.shape[0]):  # Loop over batch
+        # Ensure save_path_prefix does not end with .pdb if we are adding _sample_idx.pdb
+        current_save_path = f"{save_path_prefix}_sample_{i}.pdb"
+        if save_path_prefix.lower().endswith(".pdb"):
+             base_name = save_path_prefix[:-4] # Remove .pdb
+             current_save_path = f"{base_name}_sample_{i}.pdb"
 
-                    # Write current residue to PDB file
-                    pdb_file.write(
-                        f"ATOM  {atom_index:5d}  CA  UNK A{j + 1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C\n")
-                    atom_index += 1
+
+        with open(current_save_path, 'w') as pdb_file:
+            atom_serial_number = 1
+            for res_idx in range(coords.shape[1]):  # Loop over residues
+                if masks[i, res_idx].item() == 1:  # Only write residues that are not masked
+                    for atom_k in range(coords.shape[2]):  # Loop over N, CA, C atoms
+                        atom_name_str = atom_names[atom_k]
+                        x, y, z = coords[i, res_idx, atom_k].tolist()
+
+                        # Basic PDB ATOM line format.
+                        # You might need to adjust chain ID, residue name (UNK), etc., as needed.
+                        # ATOM serial name altloc resname chain resseq icode X Y Z occupancy temp element
+                        pdb_file.write(
+                            f"ATOM  {atom_serial_number:5d} {atom_name_str:<4s} UNK A {res_idx + 1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           {atom_name_str[0]:<2s}\n"
+                        )
+                        atom_serial_number += 1
+            pdb_file.write("TER\n")
+            pdb_file.write("END\n")
 
 
 if __name__ == "__main__":
@@ -484,7 +502,7 @@ if __name__ == "__main__":
     coordinates = torch.rand((bsz, num_res, 3))
     atom_masks = torch.zeros((bsz, num_res))
     atom_masks = torch.tensor([[1, 1, 0, 1, 1]])
-    ca_coords_to_pdb(coordinates, atom_masks, pdb_path)
+    save_backbone_pdb(coordinates, atom_masks, pdb_path)
     # print(coordinates)
 
     # Test ca_coords_to_pdb with h5 structures
@@ -499,5 +517,5 @@ if __name__ == "__main__":
         batch_coords.append(coords_tensor)
     coordinates = torch.stack(batch_coords)
     atom_masks = torch.ones((n_samps, coordinates.shape[1]))
-    ca_coords_to_pdb(coordinates, atom_masks, pdb_path)
+    save_backbone_pdb(coordinates, atom_masks, pdb_path)
     print(coordinates)
