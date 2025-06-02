@@ -129,7 +129,8 @@ def main():
 
     pdb_files_dir1 = sorted([f for f in os.listdir(args.dir1) if f.endswith(".pdb")])
 
-    dir1_file_pattern = re.compile(r"valid_outputs_epoch_\d+_(step_\d+_\d+)\.pdb")
+    # Updated regex to match new filenames with sample index
+    dir1_file_pattern = re.compile(r"valid_outputs_epoch_\d+_(step_\d+)_sample_(\d+)\.pdb")
 
     for pdb_file_name_dir1 in pdb_files_dir1:
         processed_files += 1
@@ -137,11 +138,13 @@ def main():
 
         match = dir1_file_pattern.match(pdb_file_name_dir1)
         if not match:
-            print(f"Warning: Filename {pdb_file_name_dir1} in dir1 does not match expected pattern 'valid_outputs_epoch_E_step_S_I.pdb'. Skipping.")
+            print(f"Warning: Filename {pdb_file_name_dir1} in dir1 does not match expected pattern 'valid_outputs_epoch_E_step_S_sample_I.pdb'. Skipping.")
             continue
 
-        step_and_index_part = match.group(1)
-        pdb_file_name_dir2 = f"valid_labels_{step_and_index_part}.pdb"
+        step_part = match.group(1)  # e.g., 'step_1'
+        sample_idx = match.group(2) # e.g., '0'
+        # Construct the corresponding filename for dir2
+        pdb_file_name_dir2 = f"valid_labels_{step_part}_sample_{sample_idx}.pdb"
         path2 = os.path.join(args.dir2, pdb_file_name_dir2)
 
         if not os.path.exists(path2):
