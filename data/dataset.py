@@ -1022,7 +1022,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
                               num_workers=configs.train_settings.num_workers,
                               pin_memory=False,  # page-lock host buffers
                               persistent_workers=False,  # keep workers alive between epochs
-                              prefetch_factor=4,
                               collate_fn=selected_collate)
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
                               num_workers=configs.valid_settings.num_workers,
