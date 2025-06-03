@@ -1,23 +1,119 @@
-import numpy as np
+import os
+import yaml
+import shutil
+import datetime
 import torch
-import cv2
-from utils.utils import load_checkpoints_simple
-from data.data_cifar import prepare_dataloaders
-from models.model import prepare_models
+import logging
+import functools
+from torch.utils.data import DataLoader
+
+from utils.utils import load_configs, load_encoder_decoder_configs, save_backbone_pdb, load_checkpoints_simple
+from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
+from models.super_model import prepare_model_vqvae
+
+# Dummy accelerator for compatibility
+class DummyAccelerator:
+    def __init__(self):
+        self.is_main_process = True
 
 
 def main():
-    import yaml
-    from utils.utils import load_configs
+    # Load inference configuration
+    with open("configs/inference_config.yaml") as f:
+        infer_cfg = yaml.full_load(f)
 
-    config_path = "results/2024-04-22__21-53-27/config_gvp.yaml"
-    checkpoint_path = "results/2024-04-22__21-53-27/checkpoints/epoch_24.pth"
+    # Setup output directory with timestamp
+    now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
+    result_dir = os.path.join(infer_cfg['output_base_dir'], now)
+    os.makedirs(result_dir, exist_ok=True)
+    pdb_dir = os.path.join(result_dir, 'pdb_files')
+    os.makedirs(pdb_dir, exist_ok=True)
 
-    with open(config_path) as file:
-        config_file = yaml.full_load(file)
+    # Copy inference config for reference
+    shutil.copy("configs/inference_config.yaml", result_dir)
 
-    configs = load_configs(config_file)
+    # Paths to training configs
+    vqvae_cfg_path = os.path.join("configs", infer_cfg['config_vqvae'])
+    encoder_cfg_path = os.path.join("configs", infer_cfg['config_encoder'])
+    decoder_cfg_path = os.path.join("configs", infer_cfg['config_decoder'])
+
+    # Load main config
+    with open(vqvae_cfg_path) as f:
+        vqvae_cfg = yaml.full_load(f)
+    configs = load_configs(vqvae_cfg)
+
+    # Override task-specific settings
+    configs.train_settings.max_task_samples = infer_cfg.get('max_task_samples', configs.train_settings.max_task_samples)
+    configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
+
+    # Load encoder/decoder configs
+    encoder_configs, decoder_configs = load_encoder_decoder_configs(configs, infer_cfg['trained_model_dir'])
+
+    # Prepare dataset and dataloader
+    dataset = GCPNetDataset(
+        infer_cfg['data_path'],
+        top_k=encoder_configs.top_k,
+        num_positional_embeddings=encoder_configs.num_positional_embeddings,
+        configs=configs,
+        mode='evaluation'
+    )
+    # Select collate function
+    if configs.model.encoder.pretrained.enabled:
+        collate_fn = functools.partial(
+            custom_collate_pretrained_gcp,
+            featuriser=dataset.pretrained_featuriser,
+            task_transform=dataset.pretrained_task_transform
+        )
+    else:
+        collate_fn = custom_collate
+
+    loader = DataLoader(
+        dataset,
+        batch_size=infer_cfg['batch_size'],
+        num_workers=infer_cfg['num_workers'],
+        collate_fn=collate_fn
+    )
+
+    # Setup device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Prepare model
+    logger = logging.getLogger('inference')
+    logger.setLevel(logging.INFO)
+    model = prepare_model_vqvae(
+        configs, logger, DummyAccelerator(),
+        encoder_configs=encoder_configs,
+        decoder_configs=decoder_configs
+    )
+    model.to(device)
+    model.eval()
+
+    # Load checkpoint
+    checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
+    model = load_checkpoints_simple(checkpoint_path, model)
+    model.to(device)
+
+    # Inference loop
+    with torch.no_grad():
+        for batch in loader:
+            # Move batch to device
+            # Graph batch inside may hold tensors, assume works
+            # Forward pass
+            outputs, _, _ = model(batch)
+            # outputs: (B, L, 3, 3)
+            preds = outputs.detach().cpu()
+            masks = batch['masks'].cpu()
+            pids = batch['pid']  # list of identifiers
+
+            for i, pid in enumerate(pids):
+                coords = preds[i]
+                mask = masks[i]
+                prefix = os.path.join(pdb_dir, pid)
+                save_backbone_pdb(coords, mask, prefix)
+
+    logger.info(f"Inference completed. Results are saved in {result_dir}")
 
 
 if __name__ == '__main__':
     main()
+
