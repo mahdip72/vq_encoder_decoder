@@ -6,8 +6,9 @@ import torch
 import logging
 import functools
 from torch.utils.data import DataLoader
+from box import Box  # add Box for config loading
 
-from utils.utils import load_configs, load_encoder_decoder_configs, save_backbone_pdb, load_checkpoints_simple
+from utils.utils import load_configs, save_backbone_pdb, load_checkpoints_simple
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model_vqvae
 
@@ -15,6 +16,19 @@ from models.super_model import prepare_model_vqvae
 class DummyAccelerator:
     def __init__(self):
         self.is_main_process = True
+
+
+def load_saved_encoder_decoder_configs(trained_model_dir, encoder_config_name, decoder_config_name):
+    # Load encoder and decoder configs from a saved result directory
+    encoder_cfg_path = os.path.join(trained_model_dir, encoder_config_name)
+    with open(encoder_cfg_path) as f:
+        enc_cfg = yaml.full_load(f)
+    encoder_configs = Box(enc_cfg)
+    decoder_cfg_path = os.path.join(trained_model_dir, decoder_config_name)
+    with open(decoder_cfg_path) as f:
+        dec_cfg = yaml.full_load(f)
+    decoder_configs = Box(dec_cfg)
+    return encoder_configs, decoder_configs
 
 
 def main():
@@ -46,8 +60,12 @@ def main():
     configs.train_settings.max_task_samples = infer_cfg.get('max_task_samples', configs.train_settings.max_task_samples)
     configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
 
-    # Load encoder/decoder configs
-    encoder_configs, decoder_configs = load_encoder_decoder_configs(configs, infer_cfg['trained_model_dir'])
+    # Load encoder/decoder configs from saved results instead of default utils
+    encoder_configs, decoder_configs = load_saved_encoder_decoder_configs(
+        infer_cfg['trained_model_dir'],
+        infer_cfg['config_encoder'],
+        infer_cfg['config_decoder']
+    )
 
     # Prepare dataset and dataloader
     dataset = GCPNetDataset(
