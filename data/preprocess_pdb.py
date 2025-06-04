@@ -181,13 +181,14 @@ def preprocess_file(file_path, max_len, save_path, dictn, report_dict):
         if has_ambiguous_residue:
             continue
 
-        pad_seq = protein_seq[:max_len]
+        if len(protein_seq) > max_len:
+            continue
         if len(best_chains) > 1:
             outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + f"_chain_id_{chain_id}.h5")
         else:
             outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + ".h5")
         report_dict['h5_processed'] += 1
-        write_h5_file(outputfile, pad_seq, pos, plddt_scores)
+        write_h5_file(outputfile, protein_seq, pos, plddt_scores)
 
 
 def main():
