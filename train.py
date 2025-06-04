@@ -498,6 +498,7 @@ def main(dict_config, config_file_path):
             f'mae {training_loop_reports["mae"]:.4f}, '
             f'rmsd {training_loop_reports["rmsd"]:.4f}, '
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
+            f'tm_score {training_loop_reports["tm_score"]:.4f}, '
             f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
