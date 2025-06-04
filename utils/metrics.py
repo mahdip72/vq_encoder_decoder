@@ -206,16 +206,23 @@ def batch_tm_score(coords_batch1, coords_batch2, masks=None):
     :return: (float) average TM-score
     """
 
-    assert coords_batch1.size() == coords_batch2.size()
-    # Ensure coords are C-alpha, i.e., (B, L, 3)
-    assert coords_batch1.dim() == 3 and coords_batch1.shape[-1] == 3
-    assert coords_batch2.dim() == 3 and coords_batch2.shape[-1] == 3
-    if masks is not None:
-        assert masks.dim() == 2 and masks.shape[0] == coords_batch1.shape[0] and masks.shape[1] == coords_batch1.shape[1]
+    # Accept single protein coords (N,3) or batch coords (B,N,3)
+    assert coords_batch1.size() == coords_batch2.size(), "Predictions and target must have same shape"
+    if coords_batch1.dim() == 2 and coords_batch1.shape[1] == 3:
+        # single structure, add batch dimension
+        coords_batch1 = coords_batch1.unsqueeze(0)
+        coords_batch2 = coords_batch2.unsqueeze(0)
+        if masks is not None:
+            masks = masks.unsqueeze(0)
+    else:
+        # ensure batch dimension and coordinate dim
+        assert coords_batch1.dim() == 3 and coords_batch1.shape[-1] == 3, "Coordinates must have shape (B, L, 3) or (L, 3)"
+        assert coords_batch2.dim() == 3 and coords_batch2.shape[-1] == 3
+        if masks is not None:
+            assert masks.dim() == 2 and masks.shape[0] == coords_batch1.shape[0] and masks.shape[1] == coords_batch1.shape[1]
 
-
-    coords_batch1 = torch.clone(coords_batch1)
-    coords_batch2 = torch.clone(coords_batch2)
+    coords_batch1 = coords_batch1.clone()
+    coords_batch2 = coords_batch2.clone()
 
     total_tm_score = 0.0
     num_proteins_processed = 0
