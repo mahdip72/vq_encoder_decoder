@@ -1,18 +1,18 @@
 fix_seed: 0
-checkpoints_every: 1024
+checkpoints_every: 256
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/gcpnet_vqvae/test
+result_path: ./results/gcpnet_vqvae/
 normalizer_path: ./data/normalizer.pkl
 
 resume:
   enabled: False
-  resume_path: results/gcpnet_vqvae/2025-04-21__22-18-14/checkpoints/best_valid.pth
+  resume_path: results/gcpnet_vqvae/2025-05-26__18-58-54/checkpoints/best_valid.pth
   restart_optimizer: True
 
 model:
   compile_model: False
-  max_length: 128
+  max_length: 512
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
   use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
   encoder:
@@ -24,34 +24,31 @@ model:
   decoder: geometric_decoder # geometric_decoder, gcpnet
   vqvae:
     positional_encoding: True
-    causal_attention: True
+    causal_attention: False
     vector_quantization:
-      dim: 768
+      enabled: False
+      dim: 128
       decay: 0.8
       codebook_size: 256
       commitment_weight: 1.0
       alpha: 1.0
     encoder:
       dimension: 768
-      num_heads: 16
+      num_heads: 8
       num_blocks: 8
-    decoder:
-      dimension: 768
-      num_heads: 16
-      num_blocks: 4
 
 train_settings:
   data_path: /mnt/hdd8/mehdi/datasets/vqvae/uniref_50/
-  num_epochs: 1024
+  num_epochs: 256
   shuffle: True
   loss: crossentropy
   sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
-  save_pdb_every: 16
-  batch_size: 32
+  save_pdb_every: 64
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 256000
+  max_task_samples: 8000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
@@ -61,14 +58,14 @@ train_settings:
   losses:
     alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
     mse:
-      enabled: False
-      weight: 0.01
+      enabled: True
+      weight: 0.1
     backbone_distance:
       enabled: True
-      weight: 1.0
+      weight: 0.1
     backbone_direction:
       enabled: True
-      weight: 1.0
+      weight: 0.1
     binned_distance_classification:
       enabled: False
       weight: 0.01
@@ -85,22 +82,22 @@ train_settings:
       length_scale: 10.0
 
 valid_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
-  do_every: 4
-  save_pdb_every: 16
+  data_path: ../../datasets/vqvae/validation_set_2048_h5
+  do_every: 8
+  save_pdb_every: 64
   batch_size: 16
   num_workers: 0
 
 visualization_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/validation_set_1024_h5
+  data_path: ../../datasets/vqvae/validation_set_2048_h5
   fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 8192
   batch_size: 1
   num_workers: 4
 
 optimizer:
-  name: schedulerfree
-  lr: 5e-5
+  name: adam
+  lr: 1e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-7
@@ -109,7 +106,7 @@ optimizer:
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 1024
+    warmup: 2000
     min_lr: 1e-7
     gamma: 0.2
     num_restarts: 1

@@ -1,11 +1,11 @@
 import torch.nn as nn
 import torch
-# from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import VectorQuantize
 from ndlinear import NdLinear
 
 
 class VQVAETransformer(nn.Module):
-    def __init__(self, latent_dim, codebook_size, decay, configs):
+    def __init__(self, configs):
         super(VQVAETransformer, self).__init__()
 
         self.max_length = configs.model.max_length
@@ -15,9 +15,10 @@ class VQVAETransformer(nn.Module):
 
         # Define the number of residual blocks for encoder and decoder
         self.num_encoder_blocks = configs.model.vqvae.encoder.num_blocks
-        self.num_decoder_blocks = configs.model.vqvae.decoder.num_blocks
         self.encoder_dim = configs.model.vqvae.encoder.dimension
-        self.decoder_dim = configs.model.vqvae.decoder.dimension
+
+        self.vqvae_enabled = configs.model.vqvae.vector_quantization.enabled
+        self.vqvae_dim = configs.model.vqvae.vector_quantization.dim
 
         # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
         input_shape = 128
@@ -34,65 +35,33 @@ class VQVAETransformer(nn.Module):
             )
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.encoder_dim, nhead=configs.model.vqvae.encoder.num_heads, dim_feedforward=self.encoder_dim * 4, activation='gelu', dropout=0.0,
+            d_model=self.encoder_dim, nhead=configs.model.vqvae.encoder.num_heads, dim_feedforward=self.encoder_dim * 4,
+            activation='gelu', dropout=0.0,
             batch_first=True
         )
         self.encoder_blocks = nn.TransformerEncoder(encoder_layer, num_layers=self.num_encoder_blocks)
 
         if self.positional_encoding_encoder:
-            self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, latent_dim) * .02)
+            self.pos_embed_encoder = nn.Parameter(torch.randn(1, self.max_length, self.encoder_dim) * .02)
 
         if self.use_ndlinear:
             self.encoder_head = NdLinear(
                 input_dims=(self.max_length, self.encoder_dim),
-                hidden_size=(self.max_length, latent_dim)
+                hidden_size=(self.max_length, self.vqvae_dim)
             )
         else:
             self.encoder_head = nn.Sequential(
-                nn.Conv1d(self.encoder_dim, latent_dim, 1),
+                nn.Conv1d(self.encoder_dim, self.vqvae_dim, 1),
             )
 
         # Vector Quantizer layer
-        # self.vector_quantizer = VectorQuantize(
-        #     dim=latent_dim,
-        #     codebook_size=codebook_size,
-        #     decay=decay,
-        #     commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
-        # orthogonal_reg_weight=10,  # in paper, they recommended a value of 10
-        # orthogonal_reg_max_codes=512,
-        # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
-        # orthogonal_reg_active_codes_only=False
-        # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
-        # )
-
-        # self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.decoder_dim) * .02)
-
-        # if self.use_ndlinear:
-        #     self.decoder_tail = NdLinear(
-        #         input_dims=(self.max_length, latent_dim),
-        #         hidden_size=(self.max_length, self.decoder_dim)
-        #     )
-        # else:
-        #     self.decoder_tail = nn.Sequential(
-        #         nn.Conv1d(latent_dim, self.decoder_dim, 1),
-        #     )
-
-        # Decoder
-        # decoder_layer = nn.TransformerEncoderLayer(
-        #     d_model=self.decoder_dim, nhead=configs.model.vqvae.decoder.num_heads, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
-        #     batch_first=True
-        # )
-        # self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
-
-        # if self.use_ndlinear:
-        #     self.decoder_head = NdLinear(
-        #         input_dims=(self.max_length, self.decoder_dim),
-        #         hidden_size=(self.max_length, latent_dim)  # Changed from 9 to latent_dim (768)
-        #     )
-        # else:
-        #     self.decoder_head = nn.Sequential(
-        #         nn.Conv1d(self.decoder_dim, 9, 1),
-        #     )
+        if self.vqvae_enabled:
+            self.vector_quantizer = VectorQuantize(
+                dim=configs.model.vqvae.vector_quantization.dim,
+                codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+                decay=configs.model.vqvae.vector_quantization.decay,
+                commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+            )
 
     @staticmethod
     def drop_positional_encoding(embedding, pos_embed):
@@ -117,49 +86,29 @@ class VQVAETransformer(nn.Module):
 
         x = self.encoder_blocks(
             x,
-            mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1) , device=x.device, dtype=torch.bool) if self.is_causal else None,
+            mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1), device=x.device,
+                                                                      dtype=torch.bool) if self.is_causal else None,
             src_key_padding_mask=mask,
             is_causal=self.is_causal
         )
 
-        # if self.use_ndlinear:
-        #     # Apply encoder_head NdLinear
-        #     x = self.encoder_head(x)
-        # else:
-        #     x = x.permute(0, 2, 1)
-        #     x = self.encoder_head(x)
+        if self.use_ndlinear:
+            # Apply encoder_head NdLinear
+            x = self.encoder_head(x)
+        else:
+            x = x.permute(0, 2, 1)
+            x = self.encoder_head(x)
+            x = x.permute(0, 2, 1)
 
-        # x = x.permute(0, 2, 1)
-        # x, indices, commit_loss = self.vector_quantizer(x)
-        # x = x.permute(0, 2, 1)
+        if self.vqvae_enabled:
+            # Apply vector quantization
+            x = x.permute(0, 2, 1)
+            x, indices, commit_loss = self.vector_quantizer(x)
+            x = x.permute(0, 2, 1)
 
-        # if return_vq_only:
-        #     x = x.permute(0, 2, 1)
-        #     return x, indices, commit_loss
-
-        # Apply positional encoding to decoder
-        # if self.use_ndlinear:
-        #     # Apply decoder_tail NdLinear
-        #     x = self.decoder_tail(x)
-        # else:
-        #     x = self.decoder_tail(x)
-        #     x = x.permute(0, 2, 1)
-
-        # x = x + self.pos_embed_decoder
-        # x = self.decoder_blocks(
-        #     x,
-        #     mask=torch.nn.Transformer.generate_square_subsequent_mask(x.size(1), device=x.device, dtype=torch.bool) if self.is_causal else None,
-        #     src_key_padding_mask=mask,
-        #     is_causal=self.is_causal)
-
-        # if self.use_ndlinear:
-        #     # Apply decoder_head NdLinear
-        #     x = self.decoder_head(x)
-        # else:
-        #     Original approach
-        #     x = x.permute(0, 2, 1)
-        #     x = self.decoder_head(x)
-        #     x = x.permute(0, 2, 1)
+            if return_vq_only:
+                x = x.permute(0, 2, 1)
+                return x, indices, commit_loss
 
         # return x, indices, commit_loss
         return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)

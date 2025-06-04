@@ -84,10 +84,7 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
         raise ValueError("Invalid encoder model specified!")
 
     vqvae = VQVAETransformer(
-        latent_dim=configs.model.vqvae.vector_quantization.dim,
-        codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
-        decay=configs.model.vqvae.vector_quantization.decay,
-        configs=configs
+        configs=configs,
     )
 
     if configs.model.decoder == "gcpnet":

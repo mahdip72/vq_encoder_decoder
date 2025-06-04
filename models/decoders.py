@@ -186,7 +186,7 @@ class GeometricDecoder(nn.Module):
         self.max_length = configs.model.max_length
 
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
-        self.vqvae_decoder_channels = configs.model.vqvae.decoder.dimension
+        self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim
         self.decoder_channels = decoder_configs.dimension
 
         self.num_heads = decoder_configs.num_heads
@@ -206,12 +206,12 @@ class GeometricDecoder(nn.Module):
         # Use either NdLinear or nn.Linear based on the flag
         if self.use_ndlinear:
             self.projector_in = NdLinear(
-                input_dims=(self.max_length, self.vqvae_decoder_channels),
+                input_dims=(self.max_length, self.vqvae_dimension),
                 hidden_size=(self.max_length, self.decoder_channels),
             )
         else:
             self.projector_in = nn.Linear(
-                self.vqvae_decoder_channels, self.decoder_channels, bias=False
+                self.vqvae_dimension, self.decoder_channels, bias=False
             )
 
         self.decoder_stack = TransformerStack(
