@@ -251,30 +251,66 @@ def batch_tm_score(coords_batch1, coords_batch2, masks=None):
 
 
 class TMScore(Metric):
+    """
+    TM-score metric.
+
+    Computes the average TM-score between predicted and target 3D coordinates.
+    Accepts single-protein coords (shape: N x 3) or batch coords (shape: B x N x 3) with optional masks.
+    """
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
         self.add_state("sum_tm", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
 
     def update(self, preds: torch.Tensor, target: torch.Tensor, masks=None):
+        """
+        Update TM-score metric state with predictions and targets.
+
+        Args:
+            preds (torch.Tensor): Predicted coordinates, shape (N, 3) or (B, N, 3).
+            target (torch.Tensor): Ground truth coords, same shape as preds.
+            masks (torch.Tensor, optional): Boolean mask indicating valid residues,
+                shape (N,) or (B, N). If provided, only masked entries are scored.
+        """
         assert preds.shape == target.shape, "Predictions and target must have the same shape"
         tm_score = batch_tm_score(preds, target, masks)
         self.sum_tm += torch.tensor(tm_score)
         self.total += 1
 
     def compute(self):
+        """
+        Compute the average TM-score over all accumulated updates.
+
+        Returns:
+            torch.Tensor: Scalar tensor of average TM-score.
+        """
         return self.sum_tm / self.total
 
 
 class GDTTS(Metric):
+    """
+    Global Distance Test Total Score (GDT-TS) metric.
+
+    Computes the average fraction of residues whose predicted 3D coordinates
+    lie within predefined distance thresholds of the target structure.
+    Can operate on a single structure (shape: N x 3) or a batch (shape: B x N x 3).
+    """
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
         self.add_state("sum_gdt", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
 
     def update(self, preds: torch.Tensor, target: torch.Tensor):
+        """
+        Update metric state with batch or single protein coordinates.
+
+        Args:
+            preds (torch.Tensor): Predicted coordinates with shape (..., N, 3)
+                or (N, 3), where N is number of residues (batch dim optional).
+            target (torch.Tensor): Ground truth coordinates, same shape as preds.
+        """
         assert preds.shape == target.shape, "Predictions and target must have the same shape"
-        
+        # distance thresholds for GDT-TS calculation
         thresholds = [1.0, 2.0, 4.0, 8.0]
         gdt_scores = torch.zeros(len(thresholds))
 
