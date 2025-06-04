@@ -50,10 +50,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
     gdtts.to(accelerator.device)
     tm_score_metric.to(accelerator.device)
 
-    # Prepare the normalizer for denormalization
-    # processor = Protein3DProcessing()
-    # processor.load_normalizer(configs.normalizer_path)
-
     optimizer.zero_grad()
 
     train_total_loss = 0.0
@@ -123,8 +119,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
             masked_labels = trans_true_coords[masks]
 
             # Denormalize the outputs and labels
-            # masked_outputs = processor.denormalize_coords(masked_outputs).reshape(-1, 3)
-            # masked_labels = processor.denormalize_coords(masked_labels).reshape(-1, 3)
             masked_outputs = (masked_outputs).reshape(-1, 3)
             masked_labels = (masked_labels).reshape(-1, 3)
 
