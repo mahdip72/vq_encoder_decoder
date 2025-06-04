@@ -14,7 +14,7 @@ from utils.utils import (
     prepare_tensorboard,
     save_checkpoint,
     load_encoder_decoder_configs)
-from utils.metrics import GDTTS
+from utils.metrics import GDTTS, TMScore
 from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
 from visualization.main import compute_visualization
 from tqdm import tqdm
@@ -43,10 +43,12 @@ def train_loop(net, train_loader, epoch, **kwargs):
     rmsd = torchmetrics.MeanSquaredError(squared=False)
     mae = torchmetrics.MeanAbsoluteError()
     gdtts = GDTTS()
+    tm_score_metric = TMScore()
 
     rmsd.to(accelerator.device)
     mae.to(accelerator.device)
     gdtts.to(accelerator.device)
+    tm_score_metric.to(accelerator.device)
 
     # Prepare the normalizer for denormalization
     # processor = Protein3DProcessing()
@@ -133,6 +135,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 mae.update(masked_outputs.detach(), masked_labels.detach())
                 rmsd.update(masked_outputs.detach(), masked_labels.detach())
                 gdtts.update(masked_outputs.detach(), masked_labels.detach())
+                tm_score_metric.update(masked_outputs.detach(), masked_labels.detach())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
@@ -202,6 +205,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     denormalized_rec_mae = mae.compute().cpu().item()
     denormalized_rec_rmsd = rmsd.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
+    tm_score = tm_score_metric.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
     avg_activation = total_activation / counter
 
@@ -212,6 +216,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('mae', denormalized_rec_mae, epoch)
         writer.add_scalar('rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
+        writer.add_scalar('tm_score', tm_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
 
@@ -219,6 +224,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     mae.reset()
     rmsd.reset()
     gdtts.reset()
+    tm_score_metric.reset()
 
     return_dict = {
         "loss": avg_loss,
@@ -226,6 +232,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "mae": denormalized_rec_mae,
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
+        "tm_score": tm_score,
         "cmt_loss": avg_cmt_loss,
         "counter": counter,
         "global_step": global_step
