@@ -67,32 +67,32 @@ class VQVAETransformer(nn.Module):
 
         # self.pos_embed_decoder = nn.Parameter(torch.randn(1, self.max_length, self.decoder_dim) * .02)
 
-        if self.use_ndlinear:
-            self.decoder_tail = NdLinear(
-                input_dims=(self.max_length, latent_dim),
-                hidden_size=(self.max_length, self.decoder_dim)
-            )
-        else:
-            self.decoder_tail = nn.Sequential(
-                nn.Conv1d(latent_dim, self.decoder_dim, 1),
-            )
+        # if self.use_ndlinear:
+        #     self.decoder_tail = NdLinear(
+        #         input_dims=(self.max_length, latent_dim),
+        #         hidden_size=(self.max_length, self.decoder_dim)
+        #     )
+        # else:
+        #     self.decoder_tail = nn.Sequential(
+        #         nn.Conv1d(latent_dim, self.decoder_dim, 1),
+        #     )
 
         # Decoder
-        decoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.decoder_dim, nhead=configs.model.vqvae.decoder.num_heads, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
-            batch_first=True
-        )
-        self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
+        # decoder_layer = nn.TransformerEncoderLayer(
+        #     d_model=self.decoder_dim, nhead=configs.model.vqvae.decoder.num_heads, dim_feedforward=self.decoder_dim * 4, activation='gelu', dropout=0.0,
+        #     batch_first=True
+        # )
+        # self.decoder_blocks = nn.TransformerEncoder(decoder_layer, num_layers=self.num_decoder_blocks)
 
-        if self.use_ndlinear:
-            self.decoder_head = NdLinear(
-                input_dims=(self.max_length, self.decoder_dim),
-                hidden_size=(self.max_length, latent_dim)  # Changed from 9 to latent_dim (768)
-            )
-        else:
-            self.decoder_head = nn.Sequential(
-                nn.Conv1d(self.decoder_dim, 9, 1),
-            )
+        # if self.use_ndlinear:
+        #     self.decoder_head = NdLinear(
+        #         input_dims=(self.max_length, self.decoder_dim),
+        #         hidden_size=(self.max_length, latent_dim)  # Changed from 9 to latent_dim (768)
+        #     )
+        # else:
+        #     self.decoder_head = nn.Sequential(
+        #         nn.Conv1d(self.decoder_dim, 9, 1),
+        #     )
 
     @staticmethod
     def drop_positional_encoding(embedding, pos_embed):
