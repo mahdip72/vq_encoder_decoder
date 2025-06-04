@@ -38,7 +38,7 @@ model:
       num_blocks: 8
 
 train_settings:
-  data_path: /mnt/hdd8/mehdi/datasets/vqvae/uniref_50/
+  data_path: ../../datasets/vqvae/uniref_50/
   num_epochs: 256
   shuffle: True
   loss: crossentropy
