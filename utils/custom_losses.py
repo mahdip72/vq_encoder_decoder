@@ -533,13 +533,25 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
     for i in range(batch_size):
         mask = masks[i].bool()  # Convert to boolean mask
         x_pred = x_predicted[i]  # [seq_len, num_atoms, 3]
-        x_tru = x_true[i]
+        x_tru = x_true[i] # [seq_len, num_atoms, 3]
 
         with torch.no_grad():
             if alignment_strategy == 'kabsch':
-                # Perform Kabsch alignment, keeping the same shape as the input
-                x_true_aligned = kabsch(x_tru.flatten(0, 1), x_pred.flatten(0, 1),
-                                        allow_reflections=True).detach().reshape_as(x_tru)
+                # Extract valid residues (each with multiple atoms) based on mask
+                x_tru_valid = x_tru[mask]        # Shape: (num_valid_residues, num_atoms, 3)
+                x_pred_valid = x_pred[mask]
+                # Clone full true coords to fill in aligned residues
+                x_true_aligned = x_tru.clone()
+                # Flatten atoms across residues for Kabsch input
+                coords_true_flat = x_tru_valid.reshape(-1, 3)
+                coords_pred_flat = x_pred_valid.reshape(-1, 3)
+                # Perform Kabsch alignment on flattened points
+                aligned_flat = kabsch(coords_true_flat, coords_pred_flat,
+                                      allow_reflections=True).detach()
+                # Reshape back to per-residue atom layout
+                aligned_valid = aligned_flat.reshape_as(x_tru_valid)
+                # Assign aligned residues back into the full tensor
+                x_true_aligned[mask] = aligned_valid
 
             elif alignment_strategy == 'kabsch_old':
                 # Perform Kabsch alignment, keeping the same shape as the input
@@ -1030,7 +1042,7 @@ def calculate_fape_loss(x_predicted, x_true, masks, clamp_distance=10.0, length_
 
     for i in range(batch_size):
         mask = masks[i].bool()  # Convert to boolean mask
-        if mask.sum() == 0:  # Skip if no valid residues
+        if (mask.sum() == 0):  # Skip if no valid residues
             loss_list.append(torch.tensor(0.0, device=x_predicted.device))
             continue
             
