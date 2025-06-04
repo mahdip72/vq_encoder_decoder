@@ -200,38 +200,53 @@ def calc_tm_score(coords1, coords2):
 def batch_tm_score(coords_batch1, coords_batch2, masks=None):
     """
     Calculate the average TM-score between two batches of protein structure coordinates.
-    :param coords_batch1: (torch.Tensor) first batch of 3D coordinates
-    :param coords_batch2: (torch.Tensor) second batch of 3D coordinates
-    :param masks: (torch.Tensor) masks for both batches, optional
+    :param coords_batch1: (torch.Tensor) first batch of 3D coordinates (B, L, 3)
+    :param coords_batch2: (torch.Tensor) second batch of 3D coordinates (B, L, 3)
+    :param masks: (torch.Tensor) masks for both batches (B, L), optional
     :return: (float) average TM-score
     """
 
     assert coords_batch1.size() == coords_batch2.size()
+    # Ensure coords are C-alpha, i.e., (B, L, 3)
+    assert coords_batch1.dim() == 3 and coords_batch1.shape[-1] == 3
+    assert coords_batch2.dim() == 3 and coords_batch2.shape[-1] == 3
+    if masks is not None:
+        assert masks.dim() == 2 and masks.shape[0] == coords_batch1.shape[0] and masks.shape[1] == coords_batch1.shape[1]
+
+
     coords_batch1 = torch.clone(coords_batch1)
     coords_batch2 = torch.clone(coords_batch2)
 
     total_tm_score = 0.0
-    num_samples = 0
+    num_proteins_processed = 0
 
     # Iterate through each sample in batch
     for i in range(len(coords_batch1)):
-        coords1 = coords_batch1[i]
-        coords2 = coords_batch2[i]
+        coords1_protein = coords_batch1[i]
+        coords2_protein = coords_batch2[i]
 
-        # Remove padding
-        if (masks is not None):
-            coords1 = coords1[masks[i]]
-            coords2 = coords2[masks[i]]
+        current_mask_protein = None
+        if masks is not None:
+            current_mask_protein = masks[i]
+            coords1_masked = coords1_protein[current_mask_protein]
+            coords2_masked = coords2_protein[current_mask_protein]
+        else:
+            coords1_masked = coords1_protein
+            coords2_masked = coords2_protein
 
-        len_coords1 = len(coords1)
-        len_coords2 = len(coords2)
+
+        if coords1_masked.shape[0] == 0: # No residues after masking for this protein
+            continue # Skip this protein
 
         # Calculate TM-score
-        tm_score = calc_tm_score(coords1, coords2)
+        tm_score = calc_tm_score(coords1_masked, coords2_masked)
         total_tm_score += tm_score
-        num_samples += 1
+        num_proteins_processed += 1
 
-    avg_tm_score = total_tm_score / num_samples
+    if num_proteins_processed == 0:
+        return 0.0
+
+    avg_tm_score = total_tm_score / num_proteins_processed
     return avg_tm_score
 
 
