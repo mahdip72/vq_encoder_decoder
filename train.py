@@ -129,7 +129,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 mae.update(masked_outputs.detach(), masked_labels.detach())
                 rmsd.update(masked_outputs.detach(), masked_labels.detach())
                 gdtts.update(masked_outputs.detach(), masked_labels.detach())
-                tm_score_metric.update(masked_outputs.detach(), masked_labels.detach())
+                # Extract C-alpha coordinates for TMScore
+                pred_ca_coords = trans_pred_coords[:, :, 1, :].detach()
+                true_ca_coords = trans_true_coords[:, :, 1, :].detach()
+                tm_score_metric.update(pred_ca_coords, true_ca_coords, masks.detach().bool())
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
@@ -244,13 +247,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     alpha = configs.model.vqvae.vector_quantization.alpha
     alignment_strategy = configs.train_settings.losses.alignment_strategy
 
-    # Initialize local accumulators for metrics
-    sum_mae = 0.0
-    count_mae = 0
-    sum_rmsd = 0.0
-    count_rmsd = 0
-    gdtts_sum = 0.0
-    gdtts_count = 0
+    # Prepare metrics for evaluation, initialized once for the validation epoch
+    mae_metric_val = torchmetrics.MeanAbsoluteError().to(accelerator.device)
+    rmsd_metric_val = torchmetrics.MeanSquaredError(squared=False).to(accelerator.device)
+    gdtts_metric_val = GDTTS().to(accelerator.device)
+    tm_score_metric_val = TMScore().to(accelerator.device) # Ensure TMScore is initialized
 
     total_loss = 0.0
     total_rec_loss = 0.0
@@ -306,23 +307,27 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masked_labels = trans_true_coords[masks].reshape(-1, 3)
 
             # Compute local metrics
-            errors = torch.abs(masked_outputs - masked_labels)
-            sum_mae += torch.sum(errors).item()
-            count_mae += errors.numel()  # Total number of coordinates
-            sum_rmsd += torch.sum(errors ** 2).item()
-            count_rmsd += errors.numel()
+            # Using torchmetrics for MAE and RMSD
+            if masked_outputs.numel() > 0:
+                mae_metric_val.update(masked_outputs.detach(), masked_labels.detach())
+                rmsd_metric_val.update(masked_outputs.detach(), masked_labels.detach())
 
-            # GDTTS: Compute per protein and accumulate (assuming GDTTS is per protein)
-            batch_size = trans_pred_coords.shape[0]
-            for b in range(batch_size):
-                protein_pred = trans_pred_coords[b][masks[b]]
-                protein_true = trans_true_coords[b][masks[b]]
-                # Assuming GDTTS class can handle single protein coords
-                gdtts_metric = GDTTS().to(accelerator.device)
-                gdtts_metric.update(protein_pred.detach(), protein_true.detach())
-                gdtts_score = gdtts_metric.compute().item()
-                gdtts_sum += gdtts_score
-                gdtts_count += 1
+            # For GDTTS (and TM-score if used), use C-alpha coordinates
+            pred_ca_coords_val = trans_pred_coords[:, :, 1, :].detach()  # Shape: (B, L, 3)
+            true_ca_coords_val = trans_true_coords[:, :, 1, :].detach()  # Shape: (B, L, 3)
+            current_masks_val = masks.detach() # Shape: (B, L)
+
+            if pred_ca_coords_val.numel() > 0 and true_ca_coords_val.numel() > 0:
+                # Apply masks to C-alpha coordinates before GDTTS update
+                masked_pred_ca_val = pred_ca_coords_val[current_masks_val] # Shape: (M, 3)
+                masked_true_ca_val = true_ca_coords_val[current_masks_val] # Shape: (M, 3)
+
+                if masked_pred_ca_val.numel() > 0: # Ensure there are residues after masking
+                    gdtts_metric_val.update(masked_pred_ca_val, masked_true_ca_val)
+
+                # Update TMScore with C-alpha coordinates and original masks
+                # The TMScore class handles masking internally
+                tm_score_metric_val.update(pred_ca_coords_val, true_ca_coords_val, current_masks_val)
 
         progress_bar.update(1)
         counter += 1
@@ -341,19 +346,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
-    # Synchronize metric sums and counts across ranks
-    global_sum_mae = accelerator.reduce(torch.tensor(sum_mae, device=accelerator.device), reduction='sum').item()
-    global_count_mae = accelerator.reduce(torch.tensor(count_mae, device=accelerator.device), reduction='sum').item()
-    denormalized_rec_mae = global_sum_mae / global_count_mae if global_count_mae > 0 else 0
+    # Compute final metrics using torchmetrics objects
+    denormalized_rec_mae = mae_metric_val.compute().cpu().item()
+    denormalized_rec_rmsd = rmsd_metric_val.compute().cpu().item()
+    gdtts_score = gdtts_metric_val.compute().cpu().item()
+    tm_score_val = tm_score_metric_val.compute().cpu().item() # Compute TM-score
 
-    global_sum_rmsd = accelerator.reduce(torch.tensor(sum_rmsd, device=accelerator.device), reduction='sum').item()
-    global_count_rmsd = accelerator.reduce(torch.tensor(count_rmsd, device=accelerator.device), reduction='sum').item()
-    denormalized_rec_rmsd = (global_sum_rmsd / global_count_rmsd) ** 0.5 if global_count_rmsd > 0 else 0
-
-    global_gdtts_sum = accelerator.reduce(torch.tensor(gdtts_sum, device=accelerator.device), reduction='sum').item()
-    global_gdtts_count = accelerator.reduce(torch.tensor(gdtts_count, device=accelerator.device),
-                                            reduction='sum').item()
-    gdtts_score = global_gdtts_sum / global_gdtts_count if global_gdtts_count > 0 else 0
+    # Reset metrics for the next epoch
+    mae_metric_val.reset()
+    rmsd_metric_val.reset()
+    gdtts_metric_val.reset()
+    tm_score_metric_val.reset() # Reset TM-score metric
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
@@ -362,6 +365,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('mae', denormalized_rec_mae, epoch)
         writer.add_scalar('rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
+        writer.add_scalar('tm_score', tm_score_val, epoch) # Log TM-score
 
     return_dict = {
         "loss": avg_loss,
@@ -369,6 +373,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "mae": denormalized_rec_mae,
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
+        "tm_score": tm_score_val, # Add TM-score to return dict
         "counter": counter,
     }
     return return_dict
@@ -536,7 +541,8 @@ def main(dict_config, config_file_path):
                 f'rec loss {valid_loop_reports["rec_loss"]:.4f}, '
                 f'mae {valid_loop_reports["mae"]:.4f}, '
                 f'rmsd {valid_loop_reports["rmsd"]:.4f}, '
-                f'gdtts {valid_loop_reports["gdtts"]:.4f}'
+                f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
+                f'tm_score {valid_loop_reports["tm_score"]:.4f}' # Add TM-score to console log
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
             )
 
@@ -599,4 +605,3 @@ if __name__ == '__main__':
         config_file = yaml.full_load(file)
 
     main(config_file, config_path)
-
