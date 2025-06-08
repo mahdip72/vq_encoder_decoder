@@ -206,10 +206,22 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_cmt_loss = total_cmt_loss / counter
 
     # Calculate global unique codebook activation
-    gathered_lists_of_indices = accelerator.gather(list(epoch_unique_indices_collector))
-    # gathered_lists_of_indices is expected to be a flat list of all indices from all processes.
-    # Directly convert this flat list to a set to get unique indices.
-    final_unique_indices_for_epoch = set(gathered_lists_of_indices)
+    # Convert the set to a list, then to a tensor for gathering
+    indices_list = list(epoch_unique_indices_collector)
+    if not indices_list:  # Handle empty list case
+        # If the list is empty on this process, create an empty tensor with a specific dtype
+        # to ensure consistency across processes.
+        # Using a common dtype like int64.
+        indices_tensor = torch.tensor([], dtype=torch.int64, device=accelerator.device)
+    else:
+        indices_tensor = torch.tensor(indices_list, dtype=torch.int64, device=accelerator.device)
+
+    gathered_indices_tensors = accelerator.gather(indices_tensor)
+
+    # After gathering, gathered_indices_tensors will be a tensor containing all indices from all processes.
+    # Convert this tensor to a set to get unique indices.
+    # Ensure it's moved to CPU if it's not already, before converting to list/set.
+    final_unique_indices_for_epoch = set(gathered_indices_tensors.cpu().tolist())
 
     num_truly_unique_codes = len(final_unique_indices_for_epoch)
     if codebook_size > 0:
