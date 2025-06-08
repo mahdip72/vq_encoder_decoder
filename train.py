@@ -55,11 +55,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
     train_total_loss = 0.0
     train_rec_loss = 0.0
     train_cmt_loss = 0.0
-
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    total_activation = 0.0
+    epoch_unique_indices_collector = set() # Added for collecting unique indices
     counter = 0
     global_step = kwargs.get('global_step', 0)
 
@@ -143,6 +142,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             train_total_loss = train_rec_loss + alpha * train_cmt_loss
 
+            epoch_unique_indices_collector.update(indices.unique().cpu().tolist())
+
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 if global_step % configs.train_settings.gradient_norm_logging_freq == 0:
@@ -171,7 +172,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
-            total_activation += indices.unique().numel() / codebook_size
+            # epoch_unique_indices_collector.update(indices.unique().cpu().tolist()) # Removed from here
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
@@ -191,7 +192,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 "step_loss": loss.detach().item(),
                 "rec_loss": rec_loss.detach().item(),
                 "cmt_loss": commit_loss.detach().item(),
-                "activation": indices.unique().numel() / codebook_size * 100,
                 "global_step": global_step
             }
         )
@@ -204,7 +204,18 @@ def train_loop(net, train_loader, epoch, **kwargs):
     gdtts_score = gdtts.compute().cpu().item()
     tm_score = tm_score_metric.compute().cpu().item()
     avg_cmt_loss = total_cmt_loss / counter
-    avg_activation = total_activation / counter
+
+    # Calculate global unique codebook activation
+    gathered_lists_of_indices = accelerator.gather(list(epoch_unique_indices_collector))
+    # gathered_lists_of_indices is expected to be a flat list of all indices from all processes.
+    # Directly convert this flat list to a set to get unique indices.
+    final_unique_indices_for_epoch = set(gathered_lists_of_indices)
+
+    num_truly_unique_codes = len(final_unique_indices_for_epoch)
+    if codebook_size > 0:
+        avg_activation = num_truly_unique_codes / codebook_size
+    else:
+        avg_activation = 0.0 # Avoid division by zero
 
     # Log the metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
