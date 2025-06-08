@@ -171,7 +171,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
             total_loss += train_total_loss
             total_rec_loss += train_rec_loss
             total_cmt_loss += train_cmt_loss
-            # total_activation += indices.unique().numel() / codebook_size
+            total_activation += indices.unique().numel() / codebook_size
 
             train_total_loss = 0.0
             train_rec_loss = 0.0
@@ -191,7 +191,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 "step_loss": loss.detach().item(),
                 "rec_loss": rec_loss.detach().item(),
                 "cmt_loss": commit_loss.detach().item(),
-                # "activation": indices.unique().numel() / codebook_size * 100,
+                "activation": indices.unique().numel() / codebook_size * 100,
                 "global_step": global_step
             }
         )
@@ -231,6 +231,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "gdtts": gdtts_score,
         "tm_score": tm_score,
         "cmt_loss": avg_cmt_loss,
+        "activation": avg_activation,
         "counter": counter,
         "global_step": global_step
     }
@@ -504,7 +505,8 @@ def main(dict_config, config_file_path):
             f'rmsd {training_loop_reports["rmsd"]:.4f}, '
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
-            f'cmt loss {training_loop_reports["cmt_loss"]:.4f}')
+            f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, ' 
+            f'activation {training_loop_reports["activation"]:.4f}')
 
         global_step = training_loop_reports["global_step"]
         accelerator.wait_for_everyone()
@@ -542,7 +544,7 @@ def main(dict_config, config_file_path):
                 f'mae {valid_loop_reports["mae"]:.4f}, '
                 f'rmsd {valid_loop_reports["rmsd"]:.4f}, '
                 f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
-                f'tm_score {valid_loop_reports["tm_score"]:.4f}' # Add TM-score to console log
+                f'tm_score {valid_loop_reports["tm_score"]:.4f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
             )
 

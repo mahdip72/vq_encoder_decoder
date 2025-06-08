@@ -1,15 +1,10 @@
 import torch.nn as nn
-import torch
-from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from models.encoders import GVPTransformerEncoderWrapper
 from models.vqvae import VQVAETransformer
 from models.decoders import GCPNetDecoder, GeometricDecoder
 from gcpnet.models.gcpnet import GCPNetModel
-# from gcpnet.models.vqvae import CategoricalMixture, PairwisePredictionHead, RegressionHead
-# from gcpnet.utils.structure.predicted_aligned_error import compute_predicted_aligned_error, compute_tm
 from utils.utils import print_trainable_parameters
 from models.utils import merge_features, separate_features
-import time
 
 
 class SuperModel(nn.Module):
@@ -22,16 +17,8 @@ class SuperModel(nn.Module):
         self.configs = configs
         self.max_length = configs.model.max_length
 
-    def pretrained_gcpnet_batch_preprocessing(self, one_batch):
-        return self.encoder.featurise(one_batch["graph"])
-
     def forward(self, batch):
-        dtype = batch["graph"].x_bb.dtype
-        device = batch["graph"].x_bb.device
         batch_index = batch['graph'].batch
-
-        # if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-        #     batch = self.pretrained_gcpnet_batch_preprocessing(batch)
 
         if self.configs.model.encoder.name == "gcpnet":
             if self.configs.model.encoder.pretrained.enabled:
@@ -53,8 +40,7 @@ class SuperModel(nn.Module):
 
         x = self.decoder(x, mask, batch_indices, x_slice_indices)
 
-        # return x, indices, commit_loss
-        return x, torch.Tensor([0]).to(x[0].device), torch.Tensor([0]).to(x[0].device)
+        return x, indices, commit_loss
 
 
 def prepare_model_vqvae(configs, logger, accelerator, **kwargs):

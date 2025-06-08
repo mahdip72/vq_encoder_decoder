@@ -26,16 +26,20 @@ model:
     positional_encoding: True
     causal_attention: False
     vector_quantization:
-      enabled: False
+      enabled: True
       dim: 128
-      decay: 0.8
-      codebook_size: 256
-      commitment_weight: 1.0
+      decay: 0.99
+      codebook_size: 4096
+      commitment_weight: 0.5
+      orthogonal_reg_weight: 10
+      orthogonal_reg_max_codes: 512
+      orthogonal_reg_active_codes_only: True
+      rotation_trick: True
       alpha: 1.0
     encoder:
       dimension: 768
-      num_heads: 8
-      num_blocks: 8
+      num_heads: 12
+      num_blocks: 12
 
 train_settings:
   data_path: ../../datasets/vqvae/uniref_50/

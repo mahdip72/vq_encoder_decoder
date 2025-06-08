@@ -61,6 +61,12 @@ class VQVAETransformer(nn.Module):
                 codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
                 decay=configs.model.vqvae.vector_quantization.decay,
                 commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
+                orthogonal_reg_weight=configs.model.vqvae.vector_quantization.orthogonal_reg_weight,
+                orthogonal_reg_max_codes=configs.model.vqvae.vector_quantization.orthogonal_reg_max_codes,
+                # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
+                orthogonal_reg_active_codes_only=configs.model.vqvae.vector_quantization.orthogonal_reg_active_codes_only,
+                # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
+                rotation_trick=configs.model.vqvae.vector_quantization.rotation_trick,
             )
 
     @staticmethod
@@ -102,13 +108,12 @@ class VQVAETransformer(nn.Module):
 
         if self.vqvae_enabled:
             # Apply vector quantization
-            x = x.permute(0, 2, 1)
-            x, indices, commit_loss = self.vector_quantizer(x)
-            x = x.permute(0, 2, 1)
+            x, indices, commit_loss = self.vector_quantizer(x, mask=~mask)
 
             if return_vq_only:
                 x = x.permute(0, 2, 1)
                 return x, indices, commit_loss
 
-        # return x, indices, commit_loss
-        return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+            return x, indices, commit_loss
+        else:
+            return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
