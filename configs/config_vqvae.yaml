@@ -11,7 +11,7 @@ resume:
   restart_optimizer: True
 
 model:
-  compile_model: False
+  compile_model: True
   max_length: 256
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
   use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
@@ -40,7 +40,7 @@ model:
       heads: 12      # Number of attention heads in the Encoder
       rotary_pos_emb: True
       attn_flash: True # FA-2 if installed
-      attn_kv_heads: 4 # GQA
+      attn_kv_heads: 1 # GQA
       qk_norm: True
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
@@ -55,7 +55,7 @@ train_settings:
   sample_weight: False
   mixed_precision: fp16 # no, fp16, bf16, fp8
   save_pdb_every: 32
-  batch_size: 32
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 16000
