@@ -254,8 +254,6 @@ class GeometricDecoder(nn.Module):
             self,
             structure_tokens: torch.Tensor,
             mask: torch.Tensor,
-            batch_indices: torch.Tensor,  # NOTE: Currently unused
-            x_slice_index: torch.Tensor,  # NOTE: Currently unused
     ):
         # Apply projector_in with appropriate reshaping for NdLinear if needed
         if self.use_ndlinear:
