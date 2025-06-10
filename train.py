@@ -471,8 +471,15 @@ def main(dict_config, config_file_path):
 
     # compile models to train faster and efficiently
     if configs.model.compile_model:
-        net = torch.compile(net)
-        logging.info('compile models is done')
+        from models.decoders import GeometricDecoder
+        logging.info('Compiling specified model components...')
+        if hasattr(net, 'encoder'):  # Compile the "vqvae encoder"
+            net.encoder = torch.compile(net.encoder)
+            logging.info('Encoder compiled.')
+        if hasattr(net, 'decoder') and isinstance(net.decoder, GeometricDecoder): # Compile the "geometric decoder"
+            net.decoder = torch.compile(net.decoder)
+            logging.info('GeometricDecoder compiled.')
+        logging.info('Conditional model compilation step finished.')
 
     if accelerator.is_main_process:
         # initialize tensorboards
