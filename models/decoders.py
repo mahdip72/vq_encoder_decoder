@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch_geometric
 from models.utils import merge_features, separate_features
 from gcpnet.layers.structure_proj import Dim6RotStructureHead
-from gcpnet.layers.transformer_stack import TransformerStack
 from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
 from gcpnet.utils.misc import _normalize, batch_orientations
 from gcpnet.models.gcpnet import GCPNetModel
