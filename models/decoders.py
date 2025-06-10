@@ -191,8 +191,7 @@ class GeometricDecoder(nn.Module):
         self.decoder_channels = decoder_configs.dimension
 
         self.direction_loss_bins = decoder_configs.direction_loss_bins
-        self.pae_bins = decoder_configs.pae_bins
-        
+
         # Store the decoder output scaling factor
         self.decoder_output_scaling_factor = configs.model.decoder_output_scaling_factor
 
