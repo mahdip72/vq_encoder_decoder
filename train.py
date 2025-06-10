@@ -238,7 +238,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('tm_score', tm_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
-        writer.add_scalar('codebook_activation', np.round(avg_activation, 2), epoch)
+        writer.add_scalar('codebook_activation', np.round(avg_activation*100, 1), epoch)
 
     # Reset the metrics for the next epoch
     mae.reset()
@@ -254,7 +254,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "gdtts": gdtts_score,
         "tm_score": tm_score,
         "cmt_loss": avg_cmt_loss,
-        "activation": avg_activation,
+        "activation": np.round(avg_activation*100, 1),
         "counter": counter,
         "global_step": global_step
     }
@@ -536,7 +536,7 @@ def main(dict_config, config_file_path):
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
             f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, ' 
-            f'activation {training_loop_reports["activation"]:.4f}')
+            f'activation {training_loop_reports["activation"]:.1f}')
 
         global_step = training_loop_reports["global_step"]
         accelerator.wait_for_everyone()
