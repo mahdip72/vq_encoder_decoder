@@ -426,9 +426,9 @@ def load_encoder_decoder_configs(configs, result_path):
 
     shutil.copy(encoder_config_file_path, result_path)
 
-    if configs.model.decoder == 'geometric_decoder':
+    if configs.model.vqvae.decoder == 'geometric_decoder':
         decoder_config_file_path = os.path.join('configs', 'config_geometric_decoder.yaml')
-    elif configs.model.decoder == 'gcpnet':
+    elif configs.model.vqvae.decoder == 'gcpnet':
         decoder_config_file_path = os.path.join('configs', 'config_gcpnet_decoder.yaml')
     else:
         raise ValueError('Unknown decoder')
