@@ -39,6 +39,8 @@ class VQVAETransformer(nn.Module):
             attn_layers=Encoder(
                 dim=configs.model.vqvae.encoder.dimension,
                 ff_mult=configs.model.vqvae.encoder.ff_mult,
+                ff_glu=True,  # gate-based feed-forward (GLU family)
+                ff_swish=True,  # use Swish instead of GELU → SwiGLU
                 depth=configs.model.vqvae.encoder.depth,
                 heads=configs.model.vqvae.encoder.heads,
                 rotary_pos_emb=configs.model.vqvae.encoder.rotary_pos_emb,
