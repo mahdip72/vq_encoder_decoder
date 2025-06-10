@@ -73,9 +73,9 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
         configs=configs,
     )
 
-    if configs.model.decoder == "gcpnet":
+    if configs.model.vqvae.decoder == "gcpnet":
         decoder = GCPNetDecoder(configs, decoder_configs=kwargs["decoder_configs"])
-    elif configs.model.decoder == "geometric_decoder":
+    elif configs.model.vqvae.decoder == "geometric_decoder":
         decoder = GeometricDecoder(configs, decoder_configs=kwargs["decoder_configs"])
     else:
         raise ValueError("Invalid decoder model specified!")
