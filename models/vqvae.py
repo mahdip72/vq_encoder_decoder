@@ -11,7 +11,6 @@ class VQVAETransformer(nn.Module):
 
         self.max_length = configs.model.max_length
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
-        self.is_causal = configs.model.vqvae.causal_attention
 
         # Define the number of residual blocks for encoder and decoder
 
