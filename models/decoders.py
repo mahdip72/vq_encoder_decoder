@@ -190,13 +190,6 @@ class GeometricDecoder(nn.Module):
         self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim
         self.decoder_channels = decoder_configs.dimension
 
-        # self.num_heads = decoder_configs.num_heads
-        # self.num_layers = int(decoder_configs.num_blocks / 2)
-
-        # self.is_causal = decoder_configs.causal_attention
-
-        self.special_tokens = decoder_configs.special_tokens
-
         self.direction_loss_bins = decoder_configs.direction_loss_bins
         self.pae_bins = decoder_configs.pae_bins
         
