@@ -1,13 +1,14 @@
-dimension: 1280
-num_heads: 16
-num_blocks: 16
-causal_attention: False
-chi_init_dimension: 2
-xi_init_dimension: 1
-activation_function: gelu
-special_tokens: {}
-max_pae_bin: 31.0
-pae_bins: 64
-plddt_bins: 50
+dimension: 1280  # Used as dim_in and dim_out for ContinuousTransformerWrapper
+ff_mult: 3         # Multiplier for the feedforward dimension
+depth: 10      # Number of layers in the Encoder
+heads: 16      # Number of attention heads in the Encoder
+rotary_pos_emb: True
+attn_flash: True # FA-2 if installed
+attn_kv_heads: 4 # GQA
+qk_norm: True
+pre_norm: True
+residual_attn: False # Set pre_norm to False if residual_attn is True
+num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
+
 direction_loss_bins: 16
 pos_scale_factor: 1.0

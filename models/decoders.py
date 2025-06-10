@@ -8,6 +8,7 @@ from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
 from gcpnet.utils.misc import _normalize, batch_orientations
 from gcpnet.models.gcpnet import GCPNetModel
 from ndlinear import NdLinear
+from x_transformers import ContinuousTransformerWrapper, Encoder
 
 
 class GCPNetDecoder(nn.Module):
@@ -189,13 +190,12 @@ class GeometricDecoder(nn.Module):
         self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim
         self.decoder_channels = decoder_configs.dimension
 
-        self.num_heads = decoder_configs.num_heads
-        self.num_layers = int(decoder_configs.num_blocks / 2)
+        # self.num_heads = decoder_configs.num_heads
+        # self.num_layers = int(decoder_configs.num_blocks / 2)
 
-        self.is_causal = decoder_configs.causal_attention
+        # self.is_causal = decoder_configs.causal_attention
 
         self.special_tokens = decoder_configs.special_tokens
-        self.max_pae_bin = decoder_configs.max_pae_bin
 
         self.direction_loss_bins = decoder_configs.direction_loss_bins
         self.pae_bins = decoder_configs.pae_bins
@@ -214,8 +214,25 @@ class GeometricDecoder(nn.Module):
                 self.vqvae_dimension, self.decoder_channels, bias=False
             )
 
-        self.decoder_stack = TransformerStack(
-            self.decoder_channels, self.num_heads, 1, self.num_layers, scale_residue=False, n_layers_geom=0
+        self.decoder_stack = ContinuousTransformerWrapper(
+            dim_in=decoder_configs.dimension,
+            dim_out=decoder_configs.dimension,
+            max_seq_len=configs.model.max_length,
+            num_memory_tokens=decoder_configs.num_memory_tokens,
+            attn_layers=Encoder(
+                dim=decoder_configs.dimension,
+                ff_mult=decoder_configs.ff_mult,
+                ff_glu=True,  # gate-based feed-forward (GLU family)
+                ff_swish=True,  # use Swish instead of GELU → SwiGLU
+                depth=decoder_configs.depth,
+                heads=decoder_configs.heads,
+                rotary_pos_emb=decoder_configs.rotary_pos_emb,
+                attn_flash=decoder_configs.attn_flash,
+                attn_kv_heads=decoder_configs.attn_kv_heads,
+                attn_qk_norm=decoder_configs.qk_norm,
+                pre_norm=decoder_configs.pre_norm,
+                residual_attn=decoder_configs.residual_attn,
+            )
         )
 
         self.affine_output_projection = Dim6RotStructureHead(
@@ -228,7 +245,6 @@ class GeometricDecoder(nn.Module):
         self.pairwise_bins = [
             64,  # distogram
             self.direction_loss_bins * 6,  # direction bins
-            # self.pae_bins,  # predicted aligned error
         ]
         self.pairwise_classification_head = PairwisePredictionHead(
             self.decoder_channels,
@@ -237,11 +253,6 @@ class GeometricDecoder(nn.Module):
             n_bins=sum(self.pairwise_bins),
             bias=False,
         )
-
-        # self.plddt_head = RegressionHead(
-        #     embed_dim=self.decoder_channels,
-        #     output_dim=configs.model.vqvae.decoder.plddt_bins,
-        # )
 
         self.inverse_folding_head = RegressionHead(
             embed_dim=self.decoder_channels,
@@ -255,26 +266,6 @@ class GeometricDecoder(nn.Module):
             batch_indices: torch.Tensor,  # NOTE: Currently unused
             x_slice_index: torch.Tensor,  # NOTE: Currently unused
     ):
-        sequence_id = mask.bool()
-
-        # not supported for now
-        chain_id = torch.zeros_like(structure_tokens, dtype=torch.int64)
-
-        # # check that BOS and EOS are set correctly
-        # assert (
-        #     structure_tokens[:, 0].eq(self.special_tokens["BOS"]).all()
-        # ), "First token in structure_tokens must be BOS token"
-        # assert (
-        #     structure_tokens[
-        #         torch.arange(structure_tokens.shape[0]), mask.sum(1) - 1
-        #     ]
-        #     .eq(self.special_tokens["EOS"])
-        #     .all()
-        # ), "Last token in structure_tokens must be EOS token"
-        # assert (
-        #     (structure_tokens < 0).sum() == 0
-        # ), "All structure tokens set to -1 should be replaced with BOS, EOS, PAD, or MASK tokens by now, but that isn't the case!"
-
         # Apply projector_in with appropriate reshaping for NdLinear if needed
         if self.use_ndlinear:
             # Apply NdLinear projector
@@ -283,10 +274,7 @@ class GeometricDecoder(nn.Module):
             # Original linear approach
             x = self.projector_in(structure_tokens)
 
-        # !!! NOTE: Attention mask is actually unused here so watch out
-        x, _ = self.decoder_stack.forward(
-            x, affine=None, affine_mask=None, sequence_id=sequence_id, chain_id=chain_id, is_causal=self.is_causal
-        )
+        x = self.decoder_stack(x, mask=mask)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
@@ -294,41 +282,11 @@ class GeometricDecoder(nn.Module):
 
         # plddt_value, ptm, pae = None, None, None
         pairwise_logits = self.pairwise_classification_head(x)
-        # _, _, pae_logits = [
-        #     (o if o.numel() > 0 else None)
-        #     for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
-        # ]
+
         dist_loss_logits, dir_loss_logits = [
             (o if o.numel() > 0 else None)
             for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
         ]
-
-        # special_tokens_mask = structure_tokens >= min(self.special_tokens.values())
-        # pae = compute_predicted_aligned_error(
-        #     pae_logits,  # type: ignore
-        #     aa_mask=~special_tokens_mask,
-        #     sequence_id=sequence_id,
-        #     max_bin=self.max_pae_bin,
-        # )
-        # # NOTE: This might be broken for chainbreak tokens? We might align to the chainbreak
-        # ptm = compute_tm(
-        #     pae_logits,  # type: ignore
-        #     aa_mask=~special_tokens_mask,
-        #     max_bin=self.max_pae_bin,
-        # )
-
-        # plddt_logits = self.plddt_head(x)
-        # plddt_value = CategoricalMixture(
-        #     plddt_logits, bins=plddt_logits.shape[-1]
-        # ).mean()
-
-        # return dict(
-        #     tensor7_affine=tensor7_affine,
-        #     bb_pred=bb_pred,
-        #     plddt=plddt_value,
-        #     ptm=ptm,
-        #     predicted_aligned_error=pae,
-        # )
 
         seq_logits = self.inverse_folding_head(x)
 
