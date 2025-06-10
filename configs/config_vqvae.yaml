@@ -22,7 +22,6 @@ model:
       config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   vqvae:
-    causal_attention: False
     vector_quantization:
       enabled: False
       dim: 512
