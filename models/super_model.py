@@ -8,11 +8,10 @@ from models.utils import merge_features, separate_features
 
 
 class SuperModel(nn.Module):
-    def __init__(self, encoder, vqvae, decoder, configs):
+    def __init__(self, encoder, vqvae, configs):
         super(SuperModel, self).__init__()
         self.encoder = encoder
         self.vqvae = vqvae
-        self.decoder = decoder
 
         self.configs = configs
         self.max_length = configs.model.max_length
@@ -37,8 +36,6 @@ class SuperModel(nn.Module):
         x, mask, batch_indices, x_slice_indices = merge_features(x, self.max_length)
 
         x, indices, commit_loss = self.vqvae(x, mask)
-
-        x = self.decoder(x, mask, batch_indices, x_slice_indices)
 
         return x, indices, commit_loss
 
@@ -69,10 +66,6 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
     else:
         raise ValueError("Invalid encoder model specified!")
 
-    vqvae = VQVAETransformer(
-        configs=configs,
-    )
-
     if configs.model.vqvae.decoder == "gcpnet":
         decoder = GCPNetDecoder(configs, decoder_configs=kwargs["decoder_configs"])
     elif configs.model.vqvae.decoder == "geometric_decoder":
@@ -80,7 +73,12 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
     else:
         raise ValueError("Invalid decoder model specified!")
 
-    vqvae = SuperModel(encoder, vqvae, decoder, configs)
+    vqvae = VQVAETransformer(
+        decoder = decoder,
+        configs=configs,
+    )
+
+    vqvae = SuperModel(encoder, vqvae, configs)
 
     vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
 

@@ -6,7 +6,7 @@ from ndlinear import NdLinear
 
 
 class VQVAETransformer(nn.Module):
-    def __init__(self, configs):
+    def __init__(self, configs, decoder):
         super(VQVAETransformer, self).__init__()
 
         self.max_length = configs.model.max_length
@@ -77,6 +77,8 @@ class VQVAETransformer(nn.Module):
                 rotation_trick=configs.model.vqvae.vector_quantization.rotation_trick,
             )
 
+        self.decoder = decoder
+
     def forward(self, x, mask, return_vq_only=False):
         # Apply input projection
         if self.use_ndlinear:
@@ -98,6 +100,8 @@ class VQVAETransformer(nn.Module):
             x = self.encoder_head(x)
             x = x.permute(0, 2, 1)
 
+        indices, commit_loss = torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+
         if self.vqvae_enabled:
             # Apply vector quantization
             x, indices, commit_loss = self.vector_quantizer(x, mask=mask)
@@ -106,6 +110,5 @@ class VQVAETransformer(nn.Module):
                 x = x.permute(0, 2, 1)
                 return x, indices, commit_loss
 
-            return x, indices, commit_loss
-        else:
-            return x, torch.Tensor([0]).to(x.device), torch.Tensor([0]).to(x.device)
+        x = self.decoder(x, mask)
+        return x, indices, commit_loss
