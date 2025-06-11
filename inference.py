@@ -8,15 +8,11 @@ import functools
 from torch.utils.data import DataLoader
 from box import Box  # add Box for config loading
 from tqdm import tqdm
+from accelerate import Accelerator
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model_vqvae
-
-# Dummy accelerator for compatibility
-class DummyAccelerator:
-    def __init__(self):
-        self.is_main_process = True
 
 
 def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
@@ -92,44 +88,52 @@ def main():
         collate_fn=collate_fn
     )
 
-    # Setup device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Initialize accelerator for mixed precision and multi-GPU
+    accelerator = Accelerator(mixed_precision=infer_cfg['mixed_precision'])
 
     # Prepare model
     logger = logging.getLogger('inference')
     logger.setLevel(logging.INFO)
     model = prepare_model_vqvae(
-        configs, logger, DummyAccelerator(),
+        configs, logger, accelerator,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs
     )
-    model.to(device)
     model.eval()
 
     # Load checkpoint
     checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
     model = load_checkpoints_simple(checkpoint_path, model)
-    model.to(device)
+
+    # Prepare everything with accelerator (model and dataloader)
+    model, list_loader = accelerator.prepare(model, [loader])
+    loader = list_loader[0]  # Unpack the list since we only have one DataLoader
 
     # Inference loop
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch in tqdm(loader, desc="Inference", total=len(loader)):
-            # Move batch elements to device
-            batch['graph'] = batch['graph'].to(device)
-            # Forward pass and unpack tuples
-            net_outputs, _, _ = model(batch, return_vq_layer=False)
-            # net_outputs is a tuple: (bb_pred (B, L, 9), dir_logits, dist_logits, seq_logits) or (x, None, None, None)
-            bb_pred = net_outputs[0]
-            # reshape from (B, L, 9) to (B, L, 3, 3)
-            preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3).detach().cpu()
-            masks = batch['masks'].cpu()
-            pids = batch['pid']  # list of identifiers
+            # Move graph batch onto accelerator device
+            batch['graph'] = batch['graph'].to(accelerator.device)
 
-            for i, pid in enumerate(pids):
-                coords = preds[i]
-                mask = masks[i]
-                prefix = os.path.join(pdb_dir, pid)
-                save_backbone_pdb_inference(coords, mask, prefix)
+             # Forward pass and unpack tuples
+            net_outputs, _, _ = model(batch, return_vq_layer=infer_cfg['return_vq_layer'])
+
+            if infer_cfg['return_vq_layer']:
+                pass
+
+            else:
+                # net_outputs is a tuple: (bb_pred (B, L, 9), dir_logits, dist_logits, seq_logits) or (x, None, None, None)
+                bb_pred = net_outputs[0]
+                # reshape from (B, L, 9) to (B, L, 3, 3)
+                preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3).detach().cpu()
+                masks = batch['masks'].cpu()
+                pids = batch['pid']  # list of identifiers
+
+                for i, pid in enumerate(pids):
+                    coords = preds[i]
+                    mask = masks[i]
+                    prefix = os.path.join(pdb_dir, pid)
+                    save_backbone_pdb_inference(coords, mask, prefix)
 
     logger.info(f"Inference completed. Results are saved in {result_dir}")
 
