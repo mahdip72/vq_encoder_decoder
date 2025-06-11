@@ -3,12 +3,12 @@ import yaml
 import shutil
 import datetime
 import torch
-import logging
 import functools
 from torch.utils.data import DataLoader
 from box import Box  # add Box for config loading
 from tqdm import tqdm
 from accelerate import Accelerator
+from accelerate.logging import get_logger
 import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple
@@ -105,10 +105,10 @@ def main():
 
     # Initialize accelerator for mixed precision and multi-GPU
     accelerator = Accelerator(mixed_precision=infer_cfg['mixed_precision'])
+    # Setup Accelerate logger
+    logger = get_logger(__name__, log_level='INFO')
 
     # Prepare model
-    logger = logging.getLogger('inference')
-    logger.setLevel(logging.INFO)
     model = prepare_model_vqvae(
         configs, logger, accelerator,
         encoder_configs=encoder_configs,
@@ -149,7 +149,9 @@ def main():
                 # save PDBs via helper
                 save_predictions_to_pdb(pids, preds, masks, pdb_dir)
 
-    logger.info(f"Inference completed. Results are saved in {result_dir}")
+    # Only log on main process
+    if accelerator.is_main_process:
+        logger.info(f"Inference completed. Results are saved in {result_dir}")
     # After loop, save indices CSV if requested
     if infer_cfg.get('return_vq_layer', False):
         csv_path = os.path.join(result_dir, 'vq_indices.csv')
