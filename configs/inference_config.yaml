@@ -3,11 +3,10 @@ checkpoint_path: "checkpoints/best_valid.pth"
 config_vqvae: "config_vqvae.yaml"
 config_encoder: "config_gcpnet_encoder.yaml"
 config_decoder: "config_geometric_decoder.yaml"
-data_path: "/home/renjz/data/swissprot_1024_h5"
+data_path: "path/to/inference/h5/data"
 output_base_dir: "inference_results"
 batch_size: 1
 num_workers: 0
 max_task_samples: 1000
-max_length: 128
 tqdm_progress_bar: True
 
