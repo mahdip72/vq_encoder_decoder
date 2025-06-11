@@ -113,12 +113,14 @@ def main():
     # Inference loop
     with torch.no_grad():
         for batch in loader:
-            # Move batch to device
-            # Graph batch inside may hold tensors, assume works
-            # Forward pass
-            outputs, _, _ = model(batch)
-            # outputs: (B, L, 3, 3)
-            preds = outputs.detach().cpu()
+            # Move batch elements to device
+            batch['graph'] = batch['graph'].to(device)
+             # Forward pass and unpack tuples
+            net_outputs, _, _ = model(batch)
+            # net_outputs is a tuple: (bb_pred (B, L, 9), dir_logits, dist_logits, seq_logits) or (x, None, None, None)
+            bb_pred = net_outputs[0]
+            # reshape from (B, L, 9) to (B, L, 3, 3)
+            preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3).detach().cpu()
             masks = batch['masks'].cpu()
             pids = batch['pid']  # list of identifiers
 
@@ -133,4 +135,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
