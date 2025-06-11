@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from box import Box  # add Box for config loading
 from tqdm import tqdm
 
-from utils.utils import load_configs, save_backbone_pdb, load_checkpoints_simple
+from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model_vqvae
 
@@ -129,7 +129,7 @@ def main():
                 coords = preds[i]
                 mask = masks[i]
                 prefix = os.path.join(pdb_dir, pid)
-                save_backbone_pdb(coords, mask, prefix)
+                save_backbone_pdb_inference(coords, mask, prefix)
 
     logger.info(f"Inference completed. Results are saved in {result_dir}")
 

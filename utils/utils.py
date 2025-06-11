@@ -547,6 +547,69 @@ def save_backbone_pdb(
             fh.write("TER\nEND\n")
 
 
+def save_backbone_pdb_inference(
+        coords,
+        masks,
+        save_path_prefix,
+        atom_names=("N", "CA", "C"),
+        chain_id="A",
+):
+    """
+    Save a single backbone PDB file without sample suffix.
+    coords: Tensor of shape (L,3,3) or (1,L,3,3).
+    masks: Tensor of shape (L,) or (1,L).
+    save_path_prefix: path prefix; '.pdb' is appended if missing.
+    """
+
+    # Ensure batch dimension exists
+    if coords.dim() == 3:
+        coords = coords.unsqueeze(0)
+        masks = masks.unsqueeze(0)
+
+    B, L = coords.shape[:2]
+
+    for b in range(B):
+        # determine output path
+        if save_path_prefix.lower().endswith('.pdb'):
+            out_path = save_path_prefix
+        else:
+            out_path = f"{save_path_prefix}.pdb"
+
+        with open(out_path, "w") as fh:
+            serial = 1
+            for r in range(L):
+                if masks[b, r].item() != 1:
+                    continue
+
+                for a_idx, atom_name in enumerate(atom_names):
+                    x, y, z = coords[b, r, a_idx].tolist()
+                    element = atom_name[0].upper()
+
+                    fh.write(
+                        f"ATOM  "
+                        f"{serial:5d} "
+                        f"{atom_name:>4s}"
+                        f" "
+                        f"UNK"
+                        f" "
+                        f"{chain_id}"
+                        f"{r + 1:4d}"
+                        f" "
+                        f"   "
+                        f"{x:8.3f}"
+                        f"{y:8.3f}"
+                        f"{z:8.3f}"
+                        f"{1.00:6.2f}"
+                        f"{0.00:6.2f}"
+                        f"          "
+                        f"{element:>2s}"
+                        "\n"
+                    )
+                    serial += 1
+
+            fh.write("TER\nEND\n")
+
+
 if __name__ == "__main__":
 
     bsz = 1
