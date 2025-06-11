@@ -5,7 +5,7 @@ import datetime
 import torch
 import functools
 from torch.utils.data import DataLoader
-from box import Box  # add Box for config loading
+from box import Box
 from tqdm import tqdm
 from accelerate import Accelerator
 import csv
