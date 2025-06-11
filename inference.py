@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from box import Box  # add Box for config loading
 from tqdm import tqdm
 from accelerate import Accelerator
+import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
@@ -26,6 +27,20 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     decoder_configs = Box(dec_cfg)
 
     return encoder_configs, decoder_configs
+
+
+def record_indices(pids, indices_tensor, records):
+    """Append pid-index pairs to records list."""
+    cpu_inds = indices_tensor.detach().cpu().tolist()
+    for pid, idx_list in zip(pids, cpu_inds):
+        records.append({'pid': pid, 'indices': idx_list})
+
+
+def save_predictions_to_pdb(pids, preds, masks, pdb_dir):
+    """Save backbone PDB files for each sample in the batch."""
+    for pid, coord, mask in zip(pids, preds, masks):
+        prefix = os.path.join(pdb_dir, pid)
+        save_backbone_pdb_inference(coord, mask, prefix)
 
 
 def main():
@@ -109,33 +124,40 @@ def main():
     model, list_loader = accelerator.prepare(model, [loader])
     loader = list_loader[0]  # Unpack the list since we only have one DataLoader
 
+    # Prepare for optional VQ index recording
+    indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
+
     # Inference loop
     with torch.inference_mode():
         for batch in tqdm(loader, desc="Inference", total=len(loader)):
             # Move graph batch onto accelerator device
             batch['graph'] = batch['graph'].to(accelerator.device)
 
-             # Forward pass and unpack tuples
-            net_outputs, _, _ = model(batch, return_vq_layer=infer_cfg['return_vq_layer'])
-
+            # Forward pass: get either decoded outputs or VQ layer outputs
+            output, indices, _ = model(batch, return_vq_layer=infer_cfg['return_vq_layer'])
+            pids = batch['pid']  # list of identifiers
             if infer_cfg['return_vq_layer']:
-                pass
+                # record indices per sample
+                record_indices(pids, indices, indices_records)
 
             else:
-                # net_outputs is a tuple: (bb_pred (B, L, 9), dir_logits, dist_logits, seq_logits) or (x, None, None, None)
-                bb_pred = net_outputs[0]
+                # output is tuple of (bb_pred, ...)
+                bb_pred = output[0]
                 # reshape from (B, L, 9) to (B, L, 3, 3)
                 preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3).detach().cpu()
                 masks = batch['masks'].cpu()
-                pids = batch['pid']  # list of identifiers
-
-                for i, pid in enumerate(pids):
-                    coords = preds[i]
-                    mask = masks[i]
-                    prefix = os.path.join(pdb_dir, pid)
-                    save_backbone_pdb_inference(coords, mask, prefix)
+                # save PDBs via helper
+                save_predictions_to_pdb(pids, preds, masks, pdb_dir)
 
     logger.info(f"Inference completed. Results are saved in {result_dir}")
+    # After loop, save indices CSV if requested
+    if infer_cfg.get('return_vq_layer', False):
+        csv_path = os.path.join(result_dir, 'vq_indices.csv')
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['pid', 'indices'])
+            for rec in indices_records:
+                writer.writerow([rec['pid'], ' '.join(map(str, rec['indices']))])
 
 
 if __name__ == '__main__':
