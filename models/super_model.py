@@ -16,7 +16,18 @@ class SuperModel(nn.Module):
         self.configs = configs
         self.max_length = configs.model.max_length
 
-    def forward(self, batch):
+    def forward(self, batch, **kwargs):
+        """
+        Forward pass through encoder, VQ layer, and decoder.
+
+        Args:
+            batch (dict): Input batch containing 'graph'.
+            return_vq_layer (bool, optional): If True, skip the decoder and return the VQ layer outputs (quantized embeddings, indices, commit loss) instead of decoded outputs.
+            **kwargs: Additional arguments passed to VQVAETransformer.
+
+        Returns:
+            tuple: (output, indices, commit_loss), where output is either decoded coordinates or quantized embeddings when return_vq_layer=True.
+        """
         batch_index = batch['graph'].batch
 
         if self.configs.model.encoder.name == "gcpnet":
@@ -35,7 +46,8 @@ class SuperModel(nn.Module):
 
         x, mask, batch_indices, x_slice_indices = merge_features(x, self.max_length)
 
-        x, indices, commit_loss = self.vqvae(x, mask)
+        # give kwargs to vqvae
+        x, indices, commit_loss = self.vqvae(x, mask, **kwargs)
 
         return x, indices, commit_loss
 

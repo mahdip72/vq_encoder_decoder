@@ -79,7 +79,7 @@ class VQVAETransformer(nn.Module):
 
         self.decoder = decoder
 
-    def forward(self, x, mask, return_vq_only=False):
+    def forward(self, x, mask, **kwargs):
         # Apply input projection
         if self.use_ndlinear:
             # Apply encoder_tail NdLinear
@@ -106,8 +106,7 @@ class VQVAETransformer(nn.Module):
             # Apply vector quantization
             x, indices, commit_loss = self.vector_quantizer(x, mask=mask)
 
-            if return_vq_only:
-                x = x.permute(0, 2, 1)
+            if kwargs.get('return_vq_layer', False):
                 return x, indices, commit_loss
 
         x = self.decoder(x, mask)
