@@ -29,10 +29,16 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
 
 
 def record_indices(pids, indices_tensor, records):
-    """Append pid-index pairs to records list."""
+    """Append pid-index pairs to records list, ensuring indices is always a list."""
     cpu_inds = indices_tensor.detach().cpu().tolist()
-    for pid, idx_list in zip(pids, cpu_inds):
-        records.append({'pid': pid, 'indices': idx_list})
+    # Handle scalar to list
+    if not isinstance(cpu_inds, list):
+        cpu_inds = [cpu_inds]
+    for pid, idx in zip(pids, cpu_inds):
+        # wrap non-list idx into list
+        if not isinstance(idx, list):
+            idx = [idx]
+        records.append({'pid': pid, 'indices': idx})
 
 
 def save_predictions_to_pdb(pids, preds, masks, pdb_dir):
@@ -156,7 +162,12 @@ def main():
             writer = csv.writer(f)
             writer.writerow(['pid', 'indices'])
             for rec in indices_records:
-                writer.writerow([rec['pid'], ' '.join(map(str, rec['indices']))])
+                pid = rec['pid']
+                inds = rec['indices']
+                # ensure a list for joining
+                if not isinstance(inds, (list, tuple)):
+                    inds = [inds]
+                writer.writerow([pid, ' '.join(map(str, inds))])
 
 
 if __name__ == '__main__':
