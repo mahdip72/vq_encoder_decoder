@@ -7,6 +7,7 @@ import logging
 import functools
 from torch.utils.data import DataLoader
 from box import Box  # add Box for config loading
+from tqdm import tqdm
 
 from utils.utils import load_configs, save_backbone_pdb, load_checkpoints_simple
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
@@ -112,10 +113,10 @@ def main():
 
     # Inference loop
     with torch.no_grad():
-        for batch in loader:
+        for batch in tqdm(loader, desc="Inference", total=len(loader)):
             # Move batch elements to device
             batch['graph'] = batch['graph'].to(device)
-             # Forward pass and unpack tuples
+            # Forward pass and unpack tuples
             net_outputs, _, _ = model(batch)
             # net_outputs is a tuple: (bb_pred (B, L, 9), dir_logits, dist_logits, seq_logits) or (x, None, None, None)
             bb_pred = net_outputs[0]
