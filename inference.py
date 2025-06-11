@@ -134,7 +134,10 @@ def main():
 
     # Inference loop
     with torch.inference_mode():
-        for batch in tqdm(loader, desc="Inference", total=len(loader)):
+        # enable or disable progress bar
+        iterator = (tqdm(loader, desc="Inference", total=len(loader))
+                    if infer_cfg.get('tqdm_progress_bar', True) else loader)
+        for batch in iterator:
             # Move graph batch onto accelerator device
             batch['graph'] = batch['graph'].to(accelerator.device)
 
