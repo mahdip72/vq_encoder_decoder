@@ -117,7 +117,7 @@ def main():
             # Move batch elements to device
             batch['graph'] = batch['graph'].to(device)
             # Forward pass and unpack tuples
-            net_outputs, _, _ = model(batch)
+            net_outputs, _, _ = model(batch, return_vq_layer=False)
             # net_outputs is a tuple: (bb_pred (B, L, 9), dir_logits, dist_logits, seq_logits) or (x, None, None, None)
             bb_pred = net_outputs[0]
             # reshape from (B, L, 9) to (B, L, 3, 3)
