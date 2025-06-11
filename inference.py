@@ -8,10 +8,9 @@ from torch.utils.data import DataLoader
 from box import Box  # add Box for config loading
 from tqdm import tqdm
 from accelerate import Accelerator
-from accelerate.logging import get_logger
 import csv
 
-from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple
+from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model_vqvae
 
@@ -105,8 +104,8 @@ def main():
 
     # Initialize accelerator for mixed precision and multi-GPU
     accelerator = Accelerator(mixed_precision=infer_cfg['mixed_precision'])
-    # Setup Accelerate logger
-    logger = get_logger(__name__, log_level='INFO')
+    # Setup file logger in result directory
+    logger = get_logging(result_dir, configs)
 
     # Prepare model
     model = prepare_model_vqvae(
