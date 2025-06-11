@@ -148,9 +148,7 @@ def main():
                 # save PDBs via helper
                 save_predictions_to_pdb(pids, preds, masks, pdb_dir)
 
-    # Only log on main process
-    if accelerator.is_main_process:
-        logger.info(f"Inference completed. Results are saved in {result_dir}")
+    logger.info(f"Inference completed. Results are saved in {result_dir}")
     # After loop, save indices CSV if requested
     if infer_cfg.get('return_vq_layer', False):
         csv_path = os.path.join(result_dir, 'vq_indices.csv')
