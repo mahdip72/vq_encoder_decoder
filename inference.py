@@ -18,16 +18,16 @@ class DummyAccelerator:
         self.is_main_process = True
 
 
-def load_saved_encoder_decoder_configs(trained_model_dir, encoder_config_name, decoder_config_name):
+def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     # Load encoder and decoder configs from a saved result directory
-    encoder_cfg_path = os.path.join(trained_model_dir, encoder_config_name)
     with open(encoder_cfg_path) as f:
         enc_cfg = yaml.full_load(f)
     encoder_configs = Box(enc_cfg)
-    decoder_cfg_path = os.path.join(trained_model_dir, decoder_config_name)
+
     with open(decoder_cfg_path) as f:
         dec_cfg = yaml.full_load(f)
     decoder_configs = Box(dec_cfg)
+
     return encoder_configs, decoder_configs
 
 
@@ -47,9 +47,9 @@ def main():
     shutil.copy("configs/inference_config.yaml", result_dir)
 
     # Paths to training configs
-    vqvae_cfg_path = os.path.join("configs", infer_cfg['config_vqvae'])
-    encoder_cfg_path = os.path.join("configs", infer_cfg['config_encoder'])
-    decoder_cfg_path = os.path.join("configs", infer_cfg['config_decoder'])
+    vqvae_cfg_path = os.path.join(infer_cfg["trained_model_dir"], infer_cfg['config_vqvae'])
+    encoder_cfg_path = os.path.join(infer_cfg["trained_model_dir"], infer_cfg['config_encoder'])
+    decoder_cfg_path = os.path.join(infer_cfg["trained_model_dir"], infer_cfg['config_decoder'])
 
     # Load main config
     with open(vqvae_cfg_path) as f:
@@ -62,9 +62,8 @@ def main():
 
     # Load encoder/decoder configs from saved results instead of default utils
     encoder_configs, decoder_configs = load_saved_encoder_decoder_configs(
-        infer_cfg['trained_model_dir'],
-        infer_cfg['config_encoder'],
-        infer_cfg['config_decoder']
+        encoder_cfg_path,
+        decoder_cfg_path
     )
 
     # Prepare dataset and dataloader
