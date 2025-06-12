@@ -215,6 +215,7 @@ class GeometricDecoder(nn.Module):
                 ff_mult=decoder_configs.ff_mult,
                 ff_glu=True,  # gate-based feed-forward (GLU family)
                 ff_swish=True,  # use Swish instead of GELU → SwiGLU
+                no_bias=True,
                 depth=decoder_configs.depth,
                 heads=decoder_configs.heads,
                 rotary_pos_emb=decoder_configs.rotary_pos_emb,
