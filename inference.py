@@ -119,6 +119,10 @@ def main():
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs
     )
+    # Freeze all model parameters
+    for param in model.parameters():
+        param.requires_grad = False
+
     model.eval()
 
     # Load checkpoint
