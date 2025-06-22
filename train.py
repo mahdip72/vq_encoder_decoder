@@ -64,7 +64,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
     # Initialize the progress bar using tqdm
     progress_bar = tqdm(range(0, int(np.ceil(len(train_loader) / accum_iter))),
-                        leave=False, disable=not configs.tqdm_progress_bar)
+                        leave=False, disable=not (configs.tqdm_progress_bar and accelerator.is_main_process))
     progress_bar.set_description(f"Epoch {epoch}")
 
     net.train()
@@ -142,7 +142,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             train_total_loss = train_rec_loss + alpha * train_cmt_loss
 
-            epoch_unique_indices_collector.update(indices.unique().cpu().tolist())
+            gathered_indices = accelerator.gather(indices)
+            epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -206,24 +207,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     avg_cmt_loss = total_cmt_loss / counter
 
     # Calculate global unique codebook activation
-    # Convert the set to a list, then to a tensor for gathering
-    indices_list = list(epoch_unique_indices_collector)
-    if not indices_list:  # Handle empty list case
-        # If the list is empty on this process, create an empty tensor with a specific dtype
-        # to ensure consistency across processes.
-        # Using a common dtype like int64.
-        indices_tensor = torch.tensor([], dtype=torch.int64, device=accelerator.device)
-    else:
-        indices_tensor = torch.tensor(indices_list, dtype=torch.int64, device=accelerator.device)
-
-    gathered_indices_tensors = accelerator.gather(indices_tensor)
-
-    # After gathering, gathered_indices_tensors will be a tensor containing all indices from all processes.
-    # Convert this tensor to a set to get unique indices.
-    # Ensure it's moved to CPU if it's not already, before converting to list/set.
-    final_unique_indices_for_epoch = set(gathered_indices_tensors.cpu().tolist())
-
-    num_truly_unique_codes = len(final_unique_indices_for_epoch)
+    num_truly_unique_codes = len(epoch_unique_indices_collector)
     if codebook_size > 0:
         avg_activation = num_truly_unique_codes / codebook_size
     else:
@@ -286,7 +270,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     # Initialize the progress bar using tqdm
     progress_bar = tqdm(range(0, int(len(valid_loader))),
-                        leave=False, disable=not configs.tqdm_progress_bar)
+                        leave=False, disable=not (configs.tqdm_progress_bar and accelerator.is_main_process))
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     net.eval()
@@ -598,6 +582,7 @@ def main(dict_config, config_file_path):
 
             accelerator.wait_for_everyone()
             # Visualize the embeddings using T-SNE
+            logging.info(f'Calling compute_visualization for epoch {epoch}')
             compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch,
                                   optimizer)
 
