@@ -11,8 +11,8 @@ resume:
   restart_optimizer: True
 
 model:
-  compile_model: True
-  max_length: 256
+  compile_model: False
+  max_length: 512
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
   use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
   encoder:
@@ -23,7 +23,7 @@ model:
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   vqvae:
     vector_quantization:
-      enabled: False
+      enabled: True
       dim: 512
       decay: 0.99
       codebook_size: 4096
@@ -32,6 +32,9 @@ model:
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
       rotation_trick: True
+      threshold_ema_dead_code: 2
+      kmeans_init: True
+      kmeans_iters: 10
       alpha: 1.0
     encoder:
       dimension: 768  # Used as dim_in and dim_out for ContinuousTransformerWrapper
@@ -93,7 +96,7 @@ train_settings:
 
 valid_settings:
   data_path: ../../datasets/vqvae/validation_set_2048_h5
-  do_every: 8
+  do_every: 1
   save_pdb_every: 32
   batch_size: 16
   num_workers: 0

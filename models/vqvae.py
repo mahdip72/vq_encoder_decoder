@@ -76,6 +76,9 @@ class VQVAETransformer(nn.Module):
                 orthogonal_reg_active_codes_only=configs.model.vqvae.vector_quantization.orthogonal_reg_active_codes_only,
                 # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
                 rotation_trick=configs.model.vqvae.vector_quantization.rotation_trick,
+                threshold_ema_dead_code=configs.model.vqvae.vector_quantization.threshold_ema_dead_code,
+                kmeans_init=configs.model.vqvae.vector_quantization.kmeans_init,
+                kmeans_iters=configs.model.vqvae.vector_quantization.kmeans_iters  # number of kmeans iterations to calculate the centroids for the codebook on init
             )
 
         self.decoder = decoder
