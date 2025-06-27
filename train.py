@@ -452,6 +452,9 @@ def main(dict_config, config_file_path):
         dataloader_config=dataloader_config
     )
 
+    # Initialize paths to avoid unassigned variable warnings
+    result_path, checkpoint_path = None, None
+
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         result_path, checkpoint_path = prepare_saving_dir(configs, config_file_path)
