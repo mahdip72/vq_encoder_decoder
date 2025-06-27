@@ -1109,28 +1109,29 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
         x_predicted, x_true, masks, alignment_strategy=alignment_strategy)
     device = x_predicted.device
-    # Prepare loss dict with weighted components or NaN if disabled
+
+    # Prepare loss dict with weighted components or 0.0 if disabled
     loss_dict = {}
     # MSE reconstruction
     if configs.train_settings.losses.mse.enabled:
         w = configs.train_settings.losses.mse.weight
         loss_dict['mse_loss'] = mse_raw.mean() * w
     else:
-        loss_dict['mse_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['mse_loss'] = torch.tensor(0.0, device=device)
     # Backbone distance
     if configs.train_settings.losses.backbone_distance.enabled:
         w = configs.train_settings.losses.backbone_distance.weight
         loss_dict['backbone_distance_loss'] = calculate_backbone_distance_loss(
             x_pred_aligned, x_true_aligned, masks).mean() * w
     else:
-        loss_dict['backbone_distance_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['backbone_distance_loss'] = torch.tensor(0.0, device=device)
     # Backbone direction
     if configs.train_settings.losses.backbone_direction.enabled:
         w = configs.train_settings.losses.backbone_direction.weight
         loss_dict['backbone_direction_loss'] = calculate_backbone_direction_loss(
             x_pred_aligned, x_true_aligned, masks).mean() * w
     else:
-        loss_dict['backbone_direction_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['backbone_direction_loss'] = torch.tensor(0.0, device=device)
     # Binned direction classification
     if configs.train_settings.losses.binned_direction_classification.enabled:
         w = configs.train_settings.losses.binned_direction_classification.weight
@@ -1139,7 +1140,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
                                                                                                             device=device)
         loss_dict['binned_direction_classification_loss'] = val * w
     else:
-        loss_dict['binned_direction_classification_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['binned_direction_classification_loss'] = torch.tensor(0.0, device=device)
     # Binned distance classification
     if configs.train_settings.losses.binned_distance_classification.enabled:
         w = configs.train_settings.losses.binned_distance_classification.weight
@@ -1148,7 +1149,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
                                                                                                               device=device)
         loss_dict['binned_distance_classification_loss'] = val * w
     else:
-        loss_dict['binned_distance_classification_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['binned_distance_classification_loss'] = torch.tensor(0.0, device=device)
     # Inverse folding
     if configs.train_settings.losses.inverse_folding.enabled:
         w = configs.train_settings.losses.inverse_folding.weight
@@ -1156,7 +1157,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
             0.0, device=device)
         loss_dict['inverse_folding_loss'] = val * w
     else:
-        loss_dict['inverse_folding_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['inverse_folding_loss'] = torch.tensor(0.0, device=device)
     # FAPE
     if configs.train_settings.losses.fape.enabled:
         w = configs.train_settings.losses.fape.weight
@@ -1166,9 +1167,13 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
             length_scale=configs.train_settings.losses.fape.length_scale).mean()
         loss_dict['fape_loss'] = val * w
     else:
-        loss_dict['fape_loss'] = torch.tensor(float('nan'), device=device)
+        loss_dict['fape_loss'] = torch.tensor(0.0, device=device)
     # Sum reconstruction components
-    loss_dict['rec_loss'] = sum([v for k, v in loss_dict.items() if 'loss' in k and k != 'rec_loss'])
+    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and k != 'rec_loss' and not torch.isnan(v)]
+    if not valid_losses:
+        loss_dict['rec_loss'] = torch.tensor(0.0, device=device)
+    else:
+        loss_dict['rec_loss'] = sum(valid_losses)
     return loss_dict, x_pred_aligned, x_true_aligned
 
 
