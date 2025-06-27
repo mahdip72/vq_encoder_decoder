@@ -340,9 +340,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         progress_bar.update(1)
         counter += 1
 
-        total_loss += loss.item()
-        total_rec_loss += rec_loss.item()
-        total_cmt_loss += commit_loss.item()
+        batch_size = data['target_coords'].shape[0]
+        total_loss += accelerator.gather(loss.repeat(batch_size)).mean().item()
+        total_rec_loss += accelerator.gather(rec_loss.repeat(batch_size)).mean().item()
+        total_cmt_loss += accelerator.gather(commit_loss.repeat(batch_size)).mean().item()
 
         progress_bar.set_description(f"validation epoch {epoch} "
                                      + f"[loss: {total_loss / counter:.3f}, "
