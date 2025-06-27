@@ -3,7 +3,7 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.custom_losses import calculate_decoder_loss
+from utils.custom_losses import calculate_decoder_loss, compute_grad_norm
 from utils.utils import (
     save_backbone_pdb,
     load_configs,
@@ -89,8 +89,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
 
             outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
-            # Compute the loss
-            rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
+            # Compute the loss components
+            loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
                 x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks=masks.float(),
@@ -101,8 +101,35 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 seq_logits=seq_logits,
                 alignment_strategy=alignment_strategy
             )
-
+            rec_loss = loss_dict['rec_loss']
             loss = rec_loss + alpha * commit_loss
+            # Log per-loss gradient norms before backward
+            if accelerator.sync_gradients and accelerator.is_main_process and global_step % configs.train_settings.gradient_norm_logging_freq == 0 and configs.tensorboard_log:
+                # reconstruction components
+                if configs.train_settings.losses.mse.enabled:
+                    gn = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/mse', gn.item(), global_step)
+                if configs.train_settings.losses.backbone_distance.enabled:
+                    gn = compute_grad_norm(loss_dict['backbone_distance_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/backbone_distance', gn.item(), global_step)
+                if configs.train_settings.losses.backbone_direction.enabled:
+                    gn = compute_grad_norm(loss_dict['backbone_direction_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/backbone_direction', gn.item(), global_step)
+                if configs.train_settings.losses.binned_direction_classification.enabled:
+                    gn = compute_grad_norm(loss_dict['binned_direction_classification_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/binned_direction_classification', gn.item(), global_step)
+                if configs.train_settings.losses.binned_distance_classification.enabled:
+                    gn = compute_grad_norm(loss_dict['binned_distance_classification_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/binned_distance_classification', gn.item(), global_step)
+                if configs.train_settings.losses.inverse_folding.enabled:
+                    gn = compute_grad_norm(loss_dict['inverse_folding_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/inverse_folding', gn.item(), global_step)
+                if configs.train_settings.losses.fape.enabled:
+                    gn = compute_grad_norm(loss_dict['fape_loss'], net.parameters())
+                    writer.add_scalar('gradient norm/fape', gn.item(), global_step)
+                # commitment loss
+                gn = compute_grad_norm(alpha * commit_loss, net.parameters())
+                writer.add_scalar('gradient norm/commit', gn.item(), global_step)
 
             if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for training data in epoch {epoch}")
@@ -153,7 +180,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                         torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None]),
                         2)
                     if accelerator.is_main_process and configs.tensorboard_log:
-                        writer.add_scalar('gradient norm', grad_norm.item(), global_step)
+                        writer.add_scalar('gradient norm/total', grad_norm.item(), global_step)
 
                 if optimizer_name != 'schedulerfree':
                     accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
@@ -291,8 +318,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
-            # Compute the loss
-            rec_loss, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
+            # Compute the loss components
+            loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
                 x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
                 x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks=masks.float(),
@@ -303,7 +330,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 seq_logits=seq_logits,
                 alignment_strategy=alignment_strategy
             )
-
+            rec_loss = loss_dict['rec_loss']
             loss = rec_loss + alpha * commit_loss
 
             if accelerator.is_main_process and epoch % configs.valid_settings.save_pdb_every == 0 and epoch != 0 and i == 0:

@@ -7,6 +7,32 @@ from graphein.protein.tensor.geometry import kabsch, quaternion_to_matrix
 from scipy.spatial.transform import Rotation
 
 
+def compute_grad_norm(loss, parameters, norm_type=2):
+    """
+    Compute the gradient norm for a given loss and model parameters without altering existing gradients.
+
+    Args:
+        loss (torch.Tensor): The loss tensor.
+        parameters (iterable): Iterable of model parameters.
+        norm_type (float): The type of norm (default 2 for L2 norm).
+
+    Returns:
+        torch.Tensor: The gradient norm.
+    """
+    grads = torch.autograd.grad(
+        loss,
+        [p for p in parameters if p.requires_grad],
+        retain_graph=True,
+        create_graph=False,
+        allow_unused=True
+    )
+    grads = [g for g in grads if g is not None]
+    if not grads:
+        return torch.tensor(0.0)
+    norm = torch.norm(torch.stack([torch.norm(g.detach(), norm_type) for g in grads]), norm_type)
+    return norm
+
+
 class MultiTaskLossWrapper(nn.Module):
     def __init__(self, num_losses):
         super(MultiTaskLossWrapper, self).__init__()
@@ -391,10 +417,12 @@ def test_aligned_mse_loss():
     rot = quaternion_to_matrix(quat)
 
     x_scale_factor = 4
-    x_true_perturbed = rot.bmm(x_true.flatten(1, 2).mT).mT.reshape_as(x_true) + torch.rand(batch_size, 1, 1, 1) * x_scale_factor
+    x_true_perturbed = rot.bmm(x_true.flatten(1, 2).mT).mT.reshape_as(x_true) + torch.rand(batch_size, 1, 1,
+                                                                                           1) * x_scale_factor
 
     # Calculate the aligned MSE loss
-    loss, x_true_perturbed_aligned, x_true_aligned = calculate_aligned_mse_loss(x_true_perturbed, x_true, masks, alignment_strategy='kbasch')
+    loss, x_true_perturbed_aligned, x_true_aligned = calculate_aligned_mse_loss(x_true_perturbed, x_true, masks,
+                                                                                alignment_strategy='kbasch')
     rmsd = (x_true_perturbed_aligned - x_true_aligned).square().mean((-1, -2, -3)).sqrt()
 
     print(f"Aligned MSE Loss: {loss.mean().item()} (RMSD: {rmsd.mean().item()})")
@@ -497,12 +525,12 @@ def compute_quaternion_alignment(x_pred, x_tru, mask):
     if t.dim() == 3 and t.shape[1] == 3 and t.shape[2] != 1:
         # If t is [1, 3, 3] or similar, extract the translation vector
         t = t[:, :, 0].unsqueeze(2)  # Shape: [1, 3, 1]
-    
+
     # Now properly reshape for broadcasting
     t = t.transpose(1, 2)  # Shape: [1, 1, 3]
     # Expand t to match the shape of rotated
     t_broadcasted = t.expand_as(rotated)  # Shape: [1, seq_len*num_atoms, 3]
-    
+
     # Add the translation to the rotated coordinates
     x_true_aligned = (rotated + t_broadcasted).squeeze(0).reshape_as(x_tru)  # Shape: [seq_len, num_atoms, 3]
 
@@ -533,12 +561,12 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
     for i in range(batch_size):
         mask = masks[i].bool()  # Convert to boolean mask
         x_pred = x_predicted[i]  # [seq_len, num_atoms, 3]
-        x_tru = x_true[i] # [seq_len, num_atoms, 3]
+        x_tru = x_true[i]  # [seq_len, num_atoms, 3]
 
         with torch.no_grad():
             if alignment_strategy == 'kabsch':
                 # Extract valid residues (each with multiple atoms) based on mask
-                x_tru_valid = x_tru[mask]        # Shape: (num_valid_residues, num_atoms, 3)
+                x_tru_valid = x_tru[mask]  # Shape: (num_valid_residues, num_atoms, 3)
                 x_pred_valid = x_pred[mask]
                 # Clone full true coords to fill in aligned residues
                 x_true_aligned = x_tru.clone()
@@ -559,7 +587,7 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
 
             elif alignment_strategy == 'quaternion':
                 x_true_aligned = compute_quaternion_alignment(x_pred, x_tru, mask).detach()
-            
+
             elif alignment_strategy == 'no':
                 # No alignment, use original true coordinates directly
                 x_true_aligned = x_tru.detach()
@@ -605,7 +633,7 @@ def calculate_backbone_distance_loss(x_predicted, x_true, masks):
         distance_diff = (D_pred - D_true) ** 2
 
         # Clamp the maximum error to (5 Å)^2
-        clamped_diff = torch.clamp(distance_diff, max=5**2)
+        clamped_diff = torch.clamp(distance_diff, max=5 ** 2)
 
         # Take the mean of the clamped differences
         loss = clamped_diff.mean()
@@ -907,11 +935,11 @@ def compute_local_frames(coords):
     """
     # Check if we have a batch dimension
     has_batch_dim = coords.dim() == 4
-    
+
     # If no batch dimension, add one for consistent processing
     if not has_batch_dim:
         coords = coords.unsqueeze(0)  # Add batch dim of 1
-    
+
     # Extract backbone atoms (N, CA, C)
     N = coords[:, :, 0, :]  # [batch_size, seq_len, 3]
     CA = coords[:, :, 1, :]  # [batch_size, seq_len, 3]
@@ -943,7 +971,7 @@ def compute_local_frames(coords):
 
     # Translation is the CA coordinate (origin of the frame)
     translation = CA  # Shape: [batch_size, seq_len, 3]
-    
+
     # Remove batch dimension if input didn't have one
     if not has_batch_dim:
         rotation = rotation.squeeze(0)
@@ -972,18 +1000,18 @@ def fape_loss_simplified(pred_coords, true_coords, clamp_distance=10.0, length_s
     """
     # Check if inputs have batch dimension
     has_batch_dim = pred_coords.dim() == 4 and true_coords.dim() == 4
-    
+
     # Add batch dimension if missing
     if not has_batch_dim:
         pred_coords = pred_coords.unsqueeze(0)
         true_coords = true_coords.unsqueeze(0)
-        
+
     # Handle case where we might have fewer than 3 backbone atoms
     # Make sure we have at least N, CA, C atoms (indices 0, 1, 2)
     if pred_coords.shape[2] < 3 or true_coords.shape[2] < 3:
         # Return zero loss if we don't have enough atoms for frame computation
         return torch.tensor(0.0, device=pred_coords.device)
-    
+
     # Compute local frames for true and predicted coordinates
     # Detach true_coords frames as they are targets, not to be optimized through
     try:
@@ -1007,14 +1035,14 @@ def fape_loss_simplified(pred_coords, true_coords, clamp_distance=10.0, length_s
         pred_coords_local = torch.einsum('blij,blmj->blmi', pred_rotation_inv, pred_coords_centered)
 
         # Compute L2 distance error in the local frame
-        distances = torch.sqrt(torch.sum((pred_coords_local - true_coords_local)**2, dim=-1) + epsilon)
+        distances = torch.sqrt(torch.sum((pred_coords_local - true_coords_local) ** 2, dim=-1) + epsilon)
 
         # Clamp distances
         clamped_distances = torch.clamp(distances, max=clamp_distance)
 
         # Compute the mean loss and scale it (divide by scale factor)
         loss = clamped_distances.mean() / length_scale
-        
+
     except Exception as e:
         # If anything goes wrong (like degenerate frames), return a zero loss
         print(f"Warning: FAPE loss calculation failed with error: {e}")
@@ -1045,20 +1073,20 @@ def calculate_fape_loss(x_predicted, x_true, masks, clamp_distance=10.0, length_
         if (mask.sum() == 0):  # Skip if no valid residues
             loss_list.append(torch.tensor(0.0, device=x_predicted.device))
             continue
-            
+
         # Extract only the valid residues
         x_pred = x_predicted[i][mask]  # [num_valid, num_atoms, 3]
-        x_tru = x_true[i][mask]        # [num_valid, num_atoms, 3]
-        
+        x_tru = x_true[i][mask]  # [num_valid, num_atoms, 3]
+
         # Ensure we have at least one residue
         if x_pred.shape[0] == 0:
             loss_list.append(torch.tensor(0.0, device=x_predicted.device))
             continue
-            
+
         # Add batch dimension for the FAPE calculation
         x_pred = x_pred.unsqueeze(0)  # [1, num_valid, num_atoms, 3]
-        x_tru = x_tru.unsqueeze(0)    # [1, num_valid, num_atoms, 3]
-        
+        x_tru = x_tru.unsqueeze(0)  # [1, num_valid, num_atoms, 3]
+
         try:
             loss = fape_loss_simplified(
                 x_pred,
@@ -1077,46 +1105,71 @@ def calculate_fape_loss(x_predicted, x_true, masks, clamp_distance=10.0, length_
 
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
                            seq_logits=None, alignment_strategy='kabsch'):
-    mse_loss, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(x_predicted, x_true, masks,
-                                                                          alignment_strategy=alignment_strategy)
-
-    losses = []
+    # Compute aligned MSE foundation
+    mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
+        x_predicted, x_true, masks, alignment_strategy=alignment_strategy)
+    device = x_predicted.device
+    # Prepare loss dict with weighted components or NaN if disabled
+    loss_dict = {}
+    # MSE reconstruction
     if configs.train_settings.losses.mse.enabled:
-        losses.append(mse_loss.mean()*configs.train_settings.losses.mse.weight)
-
+        w = configs.train_settings.losses.mse.weight
+        loss_dict['mse_loss'] = mse_raw.mean() * w
+    else:
+        loss_dict['mse_loss'] = torch.tensor(float('nan'), device=device)
+    # Backbone distance
     if configs.train_settings.losses.backbone_distance.enabled:
-        backbone_dist_loss = calculate_backbone_distance_loss(x_pred_aligned, x_true_aligned, masks).mean()
-        losses.append(backbone_dist_loss*configs.train_settings.losses.backbone_distance.weight)
-
+        w = configs.train_settings.losses.backbone_distance.weight
+        loss_dict['backbone_distance_loss'] = calculate_backbone_distance_loss(
+            x_pred_aligned, x_true_aligned, masks).mean() * w
+    else:
+        loss_dict['backbone_distance_loss'] = torch.tensor(float('nan'), device=device)
+    # Backbone direction
     if configs.train_settings.losses.backbone_direction.enabled:
-        backbone_dir_loss = calculate_backbone_direction_loss(x_pred_aligned, x_true_aligned, masks).mean()
-        losses.append(backbone_dir_loss*configs.train_settings.losses.backbone_direction.weight)
-
+        w = configs.train_settings.losses.backbone_direction.weight
+        loss_dict['backbone_direction_loss'] = calculate_backbone_direction_loss(
+            x_pred_aligned, x_true_aligned, masks).mean() * w
+    else:
+        loss_dict['backbone_direction_loss'] = torch.tensor(float('nan'), device=device)
+    # Binned direction classification
     if configs.train_settings.losses.binned_direction_classification.enabled:
-        binned_dir_class_loss = calculate_binned_direction_classification_loss(dir_loss_logits, x_true_aligned, masks).mean() if dir_loss_logits is not None else 0.0
-        losses.append(binned_dir_class_loss*configs.train_settings.losses.binned_direction_classification.weight)
-
+        w = configs.train_settings.losses.binned_direction_classification.weight
+        val = calculate_binned_direction_classification_loss(
+            dir_loss_logits, x_true_aligned, masks).mean() if dir_loss_logits is not None else torch.tensor(0.0,
+                                                                                                            device=device)
+        loss_dict['binned_direction_classification_loss'] = val * w
+    else:
+        loss_dict['binned_direction_classification_loss'] = torch.tensor(float('nan'), device=device)
+    # Binned distance classification
     if configs.train_settings.losses.binned_distance_classification.enabled:
-        binned_dist_class_loss = calculate_binned_distance_classification_loss(dist_loss_logits, x_true_aligned, masks).mean() if dist_loss_logits is not None else 0.0
-        losses.append(binned_dist_class_loss*configs.train_settings.losses.binned_distance_classification.weight)
-
+        w = configs.train_settings.losses.binned_distance_classification.weight
+        val = calculate_binned_distance_classification_loss(
+            dist_loss_logits, x_true_aligned, masks).mean() if dist_loss_logits is not None else torch.tensor(0.0,
+                                                                                                              device=device)
+        loss_dict['binned_distance_classification_loss'] = val * w
+    else:
+        loss_dict['binned_distance_classification_loss'] = torch.tensor(float('nan'), device=device)
+    # Inverse folding
     if configs.train_settings.losses.inverse_folding.enabled:
-        seq_loss = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else 0.0
-        losses.append(seq_loss*configs.train_settings.losses.inverse_folding.weight)
-        
+        w = configs.train_settings.losses.inverse_folding.weight
+        val = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else torch.tensor(
+            0.0, device=device)
+        loss_dict['inverse_folding_loss'] = val * w
+    else:
+        loss_dict['inverse_folding_loss'] = torch.tensor(float('nan'), device=device)
+    # FAPE
     if configs.train_settings.losses.fape.enabled:
-        fape_loss = calculate_fape_loss(
-            x_predicted, 
-            x_true, 
-            masks,
+        w = configs.train_settings.losses.fape.weight
+        val = calculate_fape_loss(
+            x_predicted, x_true, masks,
             clamp_distance=configs.train_settings.losses.fape.clamp_distance,
-            length_scale=configs.train_settings.losses.fape.length_scale
-        ).mean()
-        losses.append(fape_loss*configs.train_settings.losses.fape.weight)
-
-    loss = sum(losses)
-
-    return loss, x_pred_aligned, x_true_aligned
+            length_scale=configs.train_settings.losses.fape.length_scale).mean()
+        loss_dict['fape_loss'] = val * w
+    else:
+        loss_dict['fape_loss'] = torch.tensor(float('nan'), device=device)
+    # Sum reconstruction components
+    loss_dict['rec_loss'] = sum([v for k, v in loss_dict.items() if 'loss' in k and k != 'rec_loss'])
+    return loss_dict, x_pred_aligned, x_true_aligned
 
 
 if __name__ == '__main__':
@@ -1127,4 +1180,3 @@ if __name__ == '__main__':
     test_bond_lengths_loss()
     test_bond_angles_loss()
     test_aligned_mse_loss()
-
