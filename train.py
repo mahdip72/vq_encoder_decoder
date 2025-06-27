@@ -58,7 +58,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
-    epoch_unique_indices_collector = set() # Added for collecting unique indices
+    epoch_unique_indices_collector = set()  # Added for collecting unique indices
     counter = 0
     global_step = kwargs.get('global_step', 0)
 
@@ -102,7 +102,9 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 alignment_strategy=alignment_strategy
             )
             rec_loss = loss_dict['rec_loss']
+
             loss = rec_loss + alpha * commit_loss
+
             # Log per-loss gradient norms before backward
             if accelerator.sync_gradients and accelerator.is_main_process and global_step % configs.train_settings.gradient_norm_logging_freq == 0 and configs.tensorboard_log:
                 # reconstruction components
@@ -238,7 +240,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
     if codebook_size > 0:
         avg_activation = num_truly_unique_codes / codebook_size
     else:
-        avg_activation = 0.0 # Avoid division by zero
+        avg_activation = 0.0  # Avoid division by zero
 
     # Log the metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
@@ -249,7 +251,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('tm_score', tm_score, epoch)
         writer.add_scalar('cmt_loss', avg_cmt_loss, epoch)
-        writer.add_scalar('codebook_activation', np.round(avg_activation*100, 1), epoch)
+        writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
 
     # Reset the metrics for the next epoch
     mae.reset()
@@ -265,7 +267,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "gdtts": gdtts_score,
         "tm_score": tm_score,
         "cmt_loss": avg_cmt_loss,
-        "activation": np.round(avg_activation*100, 1),
+        "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
         "global_step": global_step
     }
@@ -287,7 +289,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     mae_metric_val = torchmetrics.MeanAbsoluteError().to(accelerator.device)
     rmsd_metric_val = torchmetrics.MeanSquaredError(squared=False).to(accelerator.device)
     gdtts_metric_val = GDTTS().to(accelerator.device)
-    tm_score_metric_val = TMScore().to(accelerator.device) # Ensure TMScore is initialized
+    tm_score_metric_val = TMScore().to(accelerator.device)  # Ensure TMScore is initialized
 
     total_loss = 0.0
     total_rec_loss = 0.0
@@ -355,14 +357,14 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # For GDTTS (and TM-score if used), use C-alpha coordinates
             pred_ca_coords_val = trans_pred_coords[:, :, 1, :].detach()  # Shape: (B, L, 3)
             true_ca_coords_val = trans_true_coords[:, :, 1, :].detach()  # Shape: (B, L, 3)
-            current_masks_val = masks.detach() # Shape: (B, L)
+            current_masks_val = masks.detach()  # Shape: (B, L)
 
             if pred_ca_coords_val.numel() > 0 and true_ca_coords_val.numel() > 0:
                 # Apply masks to C-alpha coordinates before GDTTS update
-                masked_pred_ca_val = pred_ca_coords_val[current_masks_val] # Shape: (M, 3)
-                masked_true_ca_val = true_ca_coords_val[current_masks_val] # Shape: (M, 3)
+                masked_pred_ca_val = pred_ca_coords_val[current_masks_val]  # Shape: (M, 3)
+                masked_true_ca_val = true_ca_coords_val[current_masks_val]  # Shape: (M, 3)
 
-                if masked_pred_ca_val.numel() > 0: # Ensure there are residues after masking
+                if masked_pred_ca_val.numel() > 0:  # Ensure there are residues after masking
                     gdtts_metric_val.update(masked_pred_ca_val, masked_true_ca_val)
 
                 # Update TMScore with C-alpha coordinates and original masks
@@ -398,13 +400,13 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     denormalized_rec_mae = mae_metric_val.compute().cpu().item()
     denormalized_rec_rmsd = rmsd_metric_val.compute().cpu().item()
     gdtts_score = gdtts_metric_val.compute().cpu().item()
-    tm_score_val = tm_score_metric_val.compute().cpu().item() # Compute TM-score
+    tm_score_val = tm_score_metric_val.compute().cpu().item()  # Compute TM-score
 
     # Reset metrics for the next epoch
     mae_metric_val.reset()
     rmsd_metric_val.reset()
     gdtts_metric_val.reset()
-    tm_score_metric_val.reset() # Reset TM-score metric
+    tm_score_metric_val.reset()  # Reset TM-score metric
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
@@ -413,7 +415,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('mae', denormalized_rec_mae, epoch)
         writer.add_scalar('rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
-        writer.add_scalar('tm_score', tm_score_val, epoch) # Log TM-score
+        writer.add_scalar('tm_score', tm_score_val, epoch)  # Log TM-score
         writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
 
     return_dict = {
@@ -422,7 +424,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "mae": denormalized_rec_mae,
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
-        "tm_score": tm_score_val, # Add TM-score to return dict
+        "tm_score": tm_score_val,  # Add TM-score to return dict
         "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
     }
@@ -558,7 +560,7 @@ def main(dict_config, config_file_path):
             f'rmsd {training_loop_reports["rmsd"]:.4f}, '
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
-            f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, ' 
+            f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, '
             f'activation {training_loop_reports["activation"]:.1f}')
 
         global_step = training_loop_reports["global_step"]
