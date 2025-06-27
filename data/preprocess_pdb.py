@@ -130,7 +130,7 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     return processed_chains
 
 
-def preprocess_file(file_path, max_len, save_path, dictn, report_dict):
+def preprocess_file(file_index, file_path, max_len, save_path, dictn, report_dict):
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure('protein', file_path)
 
@@ -183,10 +183,11 @@ def preprocess_file(file_path, max_len, save_path, dictn, report_dict):
 
         if len(protein_seq) > max_len:
             continue
+        basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
-            outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + f"_chain_id_{chain_id}.h5")
+            outputfile = os.path.join(save_path, f"{file_index}_{basename}_chain_id_{chain_id}.h5")
         else:
-            outputfile = os.path.join(save_path, os.path.splitext(os.path.basename(file_path))[0] + ".h5")
+            outputfile = os.path.join(save_path, f"{file_index}_{basename}.h5")
         report_dict['h5_processed'] += 1
         write_h5_file(outputfile, protein_seq, pos, plddt_scores)
 
@@ -216,7 +217,7 @@ def main():
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
                                     'single_amino_acid': 0, 'error': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-            futures = {executor.submit(preprocess_file, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for file_path in data_path}
+            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for i, file_path in enumerate(data_path)}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
                 file_path = futures[future]
                 try:
