@@ -253,6 +253,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     writer = kwargs.pop('writer')
     logging = kwargs.pop('logging')
     alpha = configs.model.vqvae.vector_quantization.alpha
+    codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     alignment_strategy = configs.train_settings.losses.alignment_strategy
 
     # Prepare metrics for evaluation, initialized once for the validation epoch
@@ -264,6 +265,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     total_loss = 0.0
     total_rec_loss = 0.0
     total_cmt_loss = 0.0
+    epoch_unique_indices_collector = set()
     counter = 0
 
     optimizer.zero_grad()
@@ -283,6 +285,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
+
+            gathered_indices = accelerator.gather(indices)
+            epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
 
             outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
 
@@ -355,6 +360,13 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
 
+    # Calculate global unique codebook activation
+    num_truly_unique_codes = len(epoch_unique_indices_collector)
+    if codebook_size > 0:
+        avg_activation = num_truly_unique_codes / codebook_size
+    else:
+        avg_activation = 0.0  # Avoid division by zero
+
     # Compute final metrics using torchmetrics objects
     denormalized_rec_mae = mae_metric_val.compute().cpu().item()
     denormalized_rec_rmsd = rmsd_metric_val.compute().cpu().item()
@@ -375,6 +387,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
         writer.add_scalar('tm_score', tm_score_val, epoch) # Log TM-score
+        writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
 
     return_dict = {
         "loss": avg_loss,
@@ -383,6 +396,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
         "tm_score": tm_score_val, # Add TM-score to return dict
+        "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
     }
     return return_dict
@@ -553,7 +567,8 @@ def main(dict_config, config_file_path):
                 f'mae {valid_loop_reports["mae"]:.4f}, '
                 f'rmsd {valid_loop_reports["rmsd"]:.4f}, '
                 f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
-                f'tm_score {valid_loop_reports["tm_score"]:.4f}'
+                f'tm_score {valid_loop_reports["tm_score"]:.4f}, '
+                f'activation {valid_loop_reports["activation"]:.1f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
             )
 
