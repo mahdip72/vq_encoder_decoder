@@ -136,12 +136,13 @@ def main():
     # Prepare for optional VQ index recording
     indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
 
-    # Inference loop
-    with torch.inference_mode():
-        # enable or disable progress bar
-        iterator = (tqdm(loader, desc="Inference", total=len(loader))
-                    if infer_cfg.get('tqdm_progress_bar', True) else loader)
-        for batch in iterator:
+
+    # enable or disable progress bar
+    iterator = (tqdm(loader, desc="Inference", total=len(loader))
+                if infer_cfg.get('tqdm_progress_bar', True) else loader)
+    for batch in iterator:
+        # Inference loop
+        with torch.inference_mode():
             # Move graph batch onto accelerator device
             batch['graph'] = batch['graph'].to(accelerator.device)
 
