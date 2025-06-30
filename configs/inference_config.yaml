@@ -10,5 +10,6 @@ num_workers: 0
 max_task_samples: 1000
 tqdm_progress_bar: True
 return_vq_layer: False
-mixed_precision: "fp16"  # no, fp16, bf16, fp8
-
+alignment_strategy: "kabsch"  # kabsch, kabsch_old, quaternion, no
+save_original_pdb: True # whether to save original pdbs
+mixed_precision: "bf16"  # no, fp16, bf16, fp8

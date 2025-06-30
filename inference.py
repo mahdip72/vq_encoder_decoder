@@ -11,6 +11,7 @@ from accelerate import Accelerator
 import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
+from utils.custom_losses import calculate_aligned_mse_loss
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model_vqvae
 
@@ -59,6 +60,10 @@ def main():
     os.makedirs(result_dir, exist_ok=True)
     pdb_dir = os.path.join(result_dir, 'pdb_files')
     os.makedirs(pdb_dir, exist_ok=True)
+
+    if infer_cfg.get('save_original_pdb', False):
+        original_pdb_dir = os.path.join(result_dir, 'original_pdb_files')
+        os.makedirs(original_pdb_dir, exist_ok=True)
 
     # Copy inference config for reference
     shutil.copy("configs/inference_config.yaml", result_dir)
@@ -157,10 +162,23 @@ def main():
                 # output is tuple of (bb_pred, ...)
                 bb_pred = output[0]
                 # reshape from (B, L, 9) to (B, L, 3, 3)
-                preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3).detach().cpu()
-                masks = batch['masks'].cpu()
+                preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
+                masks = batch['masks']
+                true_coords = batch['target_coords'].view(preds.shape[0], preds.shape[1], 3, 3)
+
+                # Align predicted coordinates to true coordinates
+                _, preds_aligned, trues_aligned = calculate_aligned_mse_loss(
+                    x_predicted=preds,
+                    x_true=true_coords.to(accelerator.device),
+                    masks=masks.to(accelerator.device),
+                    alignment_strategy=infer_cfg.get('alignment_strategy', 'kabsch')
+                )
                 # save PDBs via helper
-                save_predictions_to_pdb(pids, preds, masks, pdb_dir)
+                save_predictions_to_pdb(pids, preds_aligned.detach().cpu(), masks.cpu(), pdb_dir)
+
+                if infer_cfg.get('save_original_pdb', False):
+                    # The ground truth coordinates are now aligned and can be saved
+                    save_predictions_to_pdb(pids, trues_aligned.detach().cpu(), masks.cpu(), original_pdb_dir)
 
     logger.info(f"Inference completed. Results are saved in {result_dir}")
     # After loop, save indices CSV if requested
