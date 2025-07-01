@@ -3,8 +3,8 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
-from graphein.protein.tensor.geometry import kabsch, quaternion_to_matrix
-from scipy.spatial.transform import Rotation
+from graphein.protein.tensor.geometry import quaternion_to_matrix
+from utils.alignment import kabsch
 
 
 def compute_grad_norm(loss, parameters, norm_type=2):
@@ -575,7 +575,7 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
                 coords_pred_flat = x_pred_valid.reshape(-1, 3)
                 # Perform Kabsch alignment on flattened points
                 aligned_flat = kabsch(coords_true_flat, coords_pred_flat,
-                                      allow_reflections=True).detach()
+                                      allow_reflections=False).detach()
                 # Reshape back to per-residue atom layout
                 aligned_valid = aligned_flat.reshape_as(x_tru_valid)
                 # Assign aligned residues back into the full tensor
