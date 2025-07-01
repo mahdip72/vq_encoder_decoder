@@ -174,7 +174,12 @@ def kabsch(
 ]:
     """
     Computes registration between two (2D or 3D) point clouds with known
-    correspondences using Kabsch algorithm.
+    correspondences using Kabsch algorithm for optimal rigid body alignment.
+
+    This implementation handles both AtomTensor (full protein structures) and
+    CoordTensor (coordinate arrays) inputs. When using AtomTensor with ca_only=True,
+    the algorithm extracts C-alpha coordinates for alignment computation but
+    applies the resulting transformation to the entire protein structure.
 
     Registration occurs in the zero centered coordinate system, and then
     must be transported back.
@@ -186,16 +191,42 @@ def kabsch(
         Based on implementation by Guillaume Bouvier (@bougui505):
         https://gist.github.com/bougui505/e392a371f5bab095a3673ea6f4976cc8
 
-    :param A: Torch tensor of shape ``(N,D)`` -- Point Cloud to Align (source)
-    :param B: Torch tensor of shape ``(N,D)`` -- Reference Point Cloud (target)
-    :param ca_only: Whether to use only C-alpha atoms for alignment, defaults to
-        ``True``. If ``False``, all atoms are used.
-    :param fill_value: Value to fill in for missing atoms, defaults to ``1e-5``.
-        Only relevant if ``ca_only=False``.
-    :return: Torch tensor of shape ``(N,D)`` -- Aligned Point Cloud or Optimal
-        rotation and translation. Rotation matrix is of shape ``(D,D)`` and for
-        multiplication from the right.
-    :rtype: Union[graphein.protein.tensor.types.CoordTensor, Tuple[torch.Tensor, torch.Tensor]]
+        Enhanced to handle AtomTensor inputs with proper coordinate extraction
+        and improved reflection prevention for protein structure alignment.
+
+    :param A: Point Cloud to Align (source). Can be AtomTensor of shape
+        ``(N_residues, 37, 3)`` or CoordTensor of shape ``(N_points, 3)``
+    :type A: Union[AtomTensor, CoordTensor]
+    :param B: Reference Point Cloud (target). Same format as A.
+    :type B: Union[AtomTensor, CoordTensor]
+    :param ca_only: Whether to use only C-alpha atoms for alignment when input
+        is AtomTensor. If True, alignment is computed using C-alpha atoms but
+        transformation is applied to the full structure. Defaults to ``True``.
+    :type ca_only: bool
+    :param residue_wise: Whether to perform residue-wise alignment. Defaults to ``False``.
+    :type residue_wise: bool
+    :param fill_value: Value used to denote missing atoms in AtomTensor.
+        Only relevant when ``ca_only=False``. Defaults to ``1e-5``.
+    :type fill_value: float
+    :param return_transformed: If True, returns the transformed coordinates.
+        If False, returns the rotation matrix and translation vector.
+        Defaults to ``True``.
+    :type return_transformed: bool
+    :param allow_reflections: Whether to allow reflections in the transformation.
+        If False, ensures proper rotations (det(R) = +1) to preserve chirality.
+        Important for protein structures. Defaults to ``False``.
+    :type allow_reflections: bool
+    :return: Either the aligned point cloud (if return_transformed=True) or
+        a tuple of (rotation_matrix, translation_vector). For AtomTensor inputs
+        with ca_only=True, returns the full transformed protein structure.
+    :rtype: Union[CoordTensor, AtomTensor, Tuple[RotationMatrix, torch.Tensor]]
+
+    .. note::
+        When ca_only=True and input is AtomTensor:
+        - Alignment is computed using only C-alpha atoms (index 1)
+        - Resulting transformation is applied to the full protein structure
+        - This preserves the protein's complete atomic structure while using
+          C-alpha atoms for optimal alignment computation
     """
 
     # Extract coordinates for alignment
