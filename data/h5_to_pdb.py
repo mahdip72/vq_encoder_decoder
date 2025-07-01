@@ -29,8 +29,8 @@ def convert_h5_to_pdb(h5_path, pdb_dir):
 
         # We only need N, CA, C coordinates for the backbone PDB.
         backbone_coords = torch.from_numpy(n_ca_c_o_coord[:, :3, :])
-        seq_len = backbone_coords.shape[0]
-        mask = torch.ones(seq_len, dtype=torch.int)
+        # build mask: skip residues with any NaN coordinates
+        mask = (~torch.isnan(backbone_coords).any(dim=(1, 2))).to(dtype=torch.int)
 
         base_name = os.path.splitext(os.path.basename(h5_path))[0]
         pdb_path = os.path.join(pdb_dir, f"{base_name}.pdb")
@@ -63,4 +63,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

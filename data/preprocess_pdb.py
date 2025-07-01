@@ -147,47 +147,57 @@ def preprocess_file(file_index, file_path, max_len, save_path, dictn, report_dic
         model = structure[0]
         chain = model[chain_id]
 
-        protein_seq = ''
-        pos = []
-        plddt_scores = []
+        # build mapping of modeled residues and detect ambiguous ones
         has_ambiguous_residue = False
-
-        for residue_index, residue in enumerate(chain):
-            if residue.id[0] == ' ' and residue.resname in dictn:
+        modeled = {}
+        for residue in chain:
+            if residue.id[0] == ' ':
                 if residue.resname not in dictn:
                     has_ambiguous_residue = True
                     break
-
-                protein_seq += dictn[residue.resname]
-
-                pos_N_CA_C_O = []
-                try:
-                    plddt_scores.append(residue["CA"].get_bfactor())
-                except KeyError:
-                    plddt_scores.append(0)
-
-                for key in ['N', 'CA', 'C', 'O']:
-                    if key in residue:
-                        pos_N_CA_C_O.append(list(residue[key].coord))
-                    else:
-                        pos_N_CA_C_O.append([math.nan, math.nan, math.nan])
-                pos.append(pos_N_CA_C_O)
-
-                if len(pos) == max_len:
-                    break
-            elif residue.id[0] != ' ':
-                continue
-
+                modeled[residue.id[1]] = residue
         if has_ambiguous_residue:
             continue
-
-        if len(protein_seq) > max_len:
+        resnums = sorted(modeled.keys())
+        if not resnums:
             continue
+        first, last = resnums[0], resnums[-1]
+        span = list(range(first, last + 1))
+        # skip if full span exceeds max_len
+        if len(span) > max_len:
+            continue
+
+        protein_seq = ''
+        pos = []
+        plddt_scores = []
+        for resnum in span:
+            if resnum in modeled:
+                residue = modeled[resnum]
+                protein_seq += dictn[residue.resname]
+                try:
+                    plddt_scores.append(residue['CA'].get_bfactor())
+                except KeyError:
+                    plddt_scores.append(math.nan)
+                coords = []
+                for key in ['N', 'CA', 'C', 'O']:
+                    if key in residue:
+                        coords.append(list(residue[key].coord))
+                    else:
+                        coords.append([math.nan, math.nan, math.nan])
+                pos.append(coords)
+            else:
+                protein_seq += 'X'
+                plddt_scores.append(math.nan)
+                pos.append([[math.nan, math.nan, math.nan] for _ in range(4)])
+
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
             outputfile = os.path.join(save_path, f"{file_index}_{basename}_chain_id_{chain_id}.h5")
         else:
             outputfile = os.path.join(save_path, f"{file_index}_{basename}.h5")
+        # count missing (padded) residues marked as 'X'
+        missing_count = protein_seq.count('X')
+        report_dict['missing_residues'] = report_dict['missing_residues'] + missing_count
         report_dict['h5_processed'] += 1
         write_h5_file(outputfile, protein_seq, pos, plddt_scores)
 
@@ -215,7 +225,7 @@ def main():
 
     with Manager() as manager:
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                    'single_amino_acid': 0, 'error': 0})
+                                    'single_amino_acid': 0, 'error': 0, 'missing_residues': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
             futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for i, file_path in enumerate(data_path)}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
