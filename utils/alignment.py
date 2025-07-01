@@ -198,16 +198,35 @@ def kabsch(
     :rtype: Union[graphein.protein.tensor.types.CoordTensor, Tuple[torch.Tensor, torch.Tensor]]
     """
 
+    # Extract coordinates for alignment
     if residue_wise:
-        centroid_A = A[:, 1, :].view(-1, 1, 3)
-        centroid_B = B[:, 1, :].view(-1, 1, 3)
+        coords_A = A[:, 1, :].view(-1, 1, 3)
+        coords_B = B[:, 1, :].view(-1, 1, 3)
+        centroid_A = coords_A.mean(dim=0, keepdim=True)
+        centroid_B = coords_B.mean(dim=0, keepdim=True)
     else:
-        # Get center of mass
-        centroid_A = get_center(A, ca_only=ca_only, fill_value=fill_value)
-        centroid_B = get_center(B, ca_only=ca_only, fill_value=fill_value)
+        # Extract the coordinates to use for alignment
+        if ca_only and A.ndim == 3:  # AtomTensor case
+            coords_A = get_c_alpha(A)  # Shape: [residues, 3]
+            coords_B = get_c_alpha(B)  # Shape: [residues, 3]
+        elif not ca_only and A.ndim == 3:  # Full atom case
+            coords_A, _, _ = get_full_atom_coords(A, fill_value=fill_value)
+            coords_B, _, _ = get_full_atom_coords(B, fill_value=fill_value)
+        else:  # Already CoordTensor
+            coords_A = A
+            coords_B = B
 
-    AA = A - centroid_A
-    BB = B - centroid_B
+        # Get center of mass
+        centroid_A = coords_A.mean(dim=0)
+        centroid_B = coords_B.mean(dim=0)
+
+    # Center the coordinates
+    if residue_wise:
+        AA = coords_A - centroid_A
+        BB = coords_B - centroid_B
+    else:
+        AA = coords_A - centroid_A
+        BB = coords_B - centroid_B
 
     # Covariance matrix
     H = AA.mT @ BB if residue_wise else AA.T @ BB
@@ -225,11 +244,29 @@ def kabsch(
         if residue_wise:
             Vt_ = Vt.clone()
             Vt_[sign_flip, -1, :] *= -1
-
-    R = Vt_ @ U.mT if residue_wise else Vt @ U.T
-
-    t = centroid_B if residue_wise else centroid_B - R @ centroid_A
-    if residue_wise:
-        return (R @ AA.mT).mT + t if return_transformed else (R, t)
+        else:
+            Vt_ = Vt
     else:
-        return R.mm(A.T).T + t.T if return_transformed else (R, t)
+        # When reflections are allowed, no modification needed
+        Vt_ = Vt
+
+    R = Vt_ @ U.mT if residue_wise else Vt_ @ U.T
+
+    if residue_wise:
+        t = centroid_B
+        if return_transformed:
+            return (R @ AA.mT).mT + t
+        else:
+            return (R, t)
+    else:
+        t = centroid_B - R @ centroid_A
+        if return_transformed:
+            # Apply transformation to the original coordinates
+            if ca_only and A.ndim == 3:  # Transform the full AtomTensor
+                A_transformed = A.clone()
+                A_transformed[:, 1, :] = (R @ coords_A.T).T + t
+                return A_transformed
+            else:  # Transform CoordTensor or full atoms
+                return (R @ coords_A.T).T + t
+        else:
+            return (R, t)
