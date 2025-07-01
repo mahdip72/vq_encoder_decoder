@@ -3,7 +3,7 @@ import numpy as np
 import os
 import glob
 from typing import List, Dict, Tuple, Optional
-from alignment import kabsch, get_c_alpha
+from alignment import kabsch
 import math
 from pathlib import Path
 from tqdm import tqdm
@@ -17,7 +17,7 @@ def parse_pdb_backbone(pdb_file: str) -> Optional[torch.Tensor]:
         pdb_file: Path to PDB file
 
     Returns:
-        AtomTensor of shape (n_residues, 37, 3) with only backbone atoms filled
+        CoordTensor of shape (n_residues*3, 3) with backbone atoms in order [N, CA, C] for each residue
         Returns None if parsing fails or no backbone atoms found
     """
     backbone_atoms = {'N': 0, 'CA': 1, 'C': 2}  # Standard atom indices
@@ -52,16 +52,17 @@ def parse_pdb_backbone(pdb_file: str) -> Optional[torch.Tensor]:
         if len(complete_residues) < 3:  # Need at least 3 residues for meaningful alignment
             return None
 
-        # Create AtomTensor format (n_residues, 37, 3)
+        # Create CoordTensor with backbone atoms in order [N, CA, C] for each residue
         n_residues = len(complete_residues)
-        atom_tensor = torch.full((n_residues, 37, 3), 1e-5, dtype=torch.float32)
+        backbone_coords = torch.zeros((n_residues * 3, 3), dtype=torch.float32)
 
         for i, res_num in enumerate(complete_residues):
-            for atom_name, atom_idx in backbone_atoms.items():
+            for atom_name, atom_offset in backbone_atoms.items():
                 coords = residue_coords[res_num][atom_name]
-                atom_tensor[i, atom_idx, :] = torch.tensor(coords, dtype=torch.float32)
+                coord_idx = i * 3 + atom_offset  # N=0, CA=1, C=2 for each residue
+                backbone_coords[coord_idx, :] = torch.tensor(coords, dtype=torch.float32)
 
-        return atom_tensor
+        return backbone_coords
 
     except Exception as e:
         print(f"Error parsing {pdb_file}: {e}")
@@ -69,14 +70,15 @@ def parse_pdb_backbone(pdb_file: str) -> Optional[torch.Tensor]:
 
 
 def apply_known_transformation(coords: torch.Tensor,
-                             rotation_angle: float = math.pi/4,
-                             rotation_axis: str = 'z',
-                             translation: List[float] = [2.0, 3.0, 1.0]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                               rotation_angle: float = math.pi / 4,
+                               rotation_axis: str = 'z',
+                               translation: List[float] = [2.0, 3.0, 1.0]) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Apply a known rotation and translation to coordinates.
+    Apply a known rotation and translation to backbone coordinates.
 
     Args:
-        coords: Input coordinates tensor
+        coords: Input backbone coordinates tensor of shape (n_residues*3, 3)
         rotation_angle: Rotation angle in radians
         rotation_axis: Rotation axis ('x', 'y', or 'z')
         translation: Translation vector [x, y, z]
@@ -108,21 +110,17 @@ def apply_known_transformation(coords: torch.Tensor,
 
     t = torch.tensor(translation, dtype=torch.float32)
 
-    # Apply transformation: coords_new = R @ coords + t
-    ca_coords = get_c_alpha(coords)  # Extract C-alpha coordinates
-    ca_transformed = (R @ ca_coords.T).T + t
-
-    # Create transformed AtomTensor
-    coords_transformed = coords.clone()
-    coords_transformed[:, 1, :] = ca_transformed  # Update C-alpha coordinates
+    # Apply transformation to all backbone coordinates: coords_new = R @ coords + t
+    coords_transformed = (R @ coords.T).T + t
 
     return coords_transformed, R, t
 
 
 def benchmark_single_pdb(pdb_file: str,
-                        rotation_angles: List[float] = [math.pi/6, math.pi/4, math.pi/3],
-                        rotation_axes: List[str] = ['x', 'y', 'z'],
-                        translations: List[List[float]] = [[1.0, 2.0, 0.5], [2.0, 3.0, 1.0], [-1.5, 1.0, -2.0]]) -> Dict:
+                         rotation_angles: List[float] = [math.pi / 6, math.pi / 4, math.pi / 3],
+                         rotation_axes: List[str] = ['x', 'y', 'z'],
+                         translations: List[List[float]] = [[1.0, 2.0, 0.5], [2.0, 3.0, 1.0],
+                                                            [-1.5, 1.0, -2.0]]) -> Dict:
     """
     Benchmark Kabsch alignment on a single PDB file with multiple transformations.
 
@@ -142,7 +140,8 @@ def benchmark_single_pdb(pdb_file: str,
 
     results = {
         'pdb_file': os.path.basename(pdb_file),
-        'n_residues': original_coords.shape[0],
+        'n_backbone_atoms': original_coords.shape[0],
+        'n_residues': original_coords.shape[0] // 3,
         'transformations': [],
         'rotation_errors': [],
         'translation_errors': [],
@@ -168,9 +167,10 @@ def benchmark_single_pdb(pdb_file: str,
                     )
 
                     # Perform Kabsch alignment to recover the transformation
+                    # Since we're now using CoordTensor (all 3 backbone atoms), set ca_only=False
                     recovered_R, recovered_t = kabsch(
                         transformed_coords, original_coords,
-                        ca_only=True,
+                        ca_only=False,  # Use all backbone atoms for alignment
                         allow_reflections=False,
                         return_transformed=False
                     )
@@ -183,17 +183,16 @@ def benchmark_single_pdb(pdb_file: str,
                     rotation_error = torch.norm(recovered_R - expected_R_inv).item()
                     translation_error = torch.norm(recovered_t - expected_t_inv).item()
 
-                    # Calculate RMSD after alignment
+                    # Calculate RMSD after alignment using all backbone atoms
                     aligned_coords = kabsch(
                         transformed_coords, original_coords,
-                        ca_only=True,
+                        ca_only=False,  # Use all backbone atoms for alignment
                         allow_reflections=False,
                         return_transformed=True
                     )
 
-                    ca_original = get_c_alpha(original_coords)
-                    ca_aligned = get_c_alpha(aligned_coords.view_as(original_coords))
-                    rmsd_error = torch.sqrt(torch.mean((ca_aligned - ca_original) ** 2)).item()
+                    # Calculate RMSD using all backbone atoms
+                    rmsd_error = torch.sqrt(torch.mean((aligned_coords - original_coords) ** 2)).item()
 
                     # Store results
                     transformation_info = {
@@ -230,8 +229,8 @@ def benchmark_single_pdb(pdb_file: str,
 
 
 def benchmark_pdb_directory(pdb_directory: str,
-                           max_files: Optional[int] = None,
-                           verbose: bool = True) -> Dict:
+                            max_files: Optional[int] = None,
+                            verbose: bool = True) -> Dict:
     """
     Benchmark Kabsch alignment on all PDB files in a directory.
 
@@ -329,8 +328,10 @@ def print_benchmark_summary(results: Dict):
         return
 
     print(f"\n📈 OVERALL ACCURACY METRICS:")
-    print(f"   Average Rotation Error:    {results['overall_avg_rotation_error']:.8f} ± {results['rotation_error_std']:.8f}")
-    print(f"   Average Translation Error: {results['overall_avg_translation_error']:.8f} ± {results['translation_error_std']:.8f}")
+    print(
+        f"   Average Rotation Error:    {results['overall_avg_rotation_error']:.8f} ± {results['rotation_error_std']:.8f}")
+    print(
+        f"   Average Translation Error: {results['overall_avg_translation_error']:.8f} ± {results['translation_error_std']:.8f}")
     print(f"   Average RMSD Error:        {results['overall_avg_rmsd_error']:.8f} ± {results['rmsd_error_std']:.8f}")
 
     # Quality assessment
@@ -350,10 +351,10 @@ def print_benchmark_summary(results: Dict):
 
 if __name__ == "__main__":
 
-    PDB_DIRECTORY = "/mnt/hdd8/mehdi/datasets/vqvae/unirpot_swissprot_pdbs/test_case_b/Acidimicrobiaceae_bacterium/"
+    PDB_DIRECTORY = "/mnt/hdd8/mehdi/datasets/vqvae/cameo"
 
     # Optional: Limit number of files for testing
-    MAX_FILES = 200  # Set to None to process all files
+    MAX_FILES = 600  # Set to None to process all files
 
     print("🧪 Starting Kabsch Alignment Benchmark on PDB Files")
     print(f"📁 Target directory: {PDB_DIRECTORY}")
@@ -376,6 +377,7 @@ if __name__ == "__main__":
 
     # Optional: Save results to file
     import json
+
     output_file = f"kabsch_benchmark_results_{Path(PDB_DIRECTORY).name}.json"
     with open(output_file, 'w') as f:
         # Convert numpy types to native Python types for JSON serialization
