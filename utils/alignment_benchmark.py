@@ -376,8 +376,8 @@ def print_benchmark_summary(results: Dict):
 
 
 if __name__ == "__main__":
-    # TODO: Set your PDB directory path here
-    PDB_DIRECTORY = "/mnt/hdd8/mehdi/datasets/vqvae/unirpot_swissprot_pdbs/test_case_b/Acidimicrobiaceae_bacterium/"  # <-- CHANGE THIS PATH
+
+    PDB_DIRECTORY = "/mnt/hdd8/mehdi/datasets/vqvae/unirpot_swissprot_pdbs/test_case_b/Acidimicrobiaceae_bacterium/"
 
     # Optional: Limit number of files for testing
     MAX_FILES = 200  # Set to None to process all files
