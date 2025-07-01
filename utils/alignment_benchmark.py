@@ -6,6 +6,7 @@ from typing import List, Dict, Tuple, Optional
 from alignment import kabsch, get_c_alpha
 import math
 from pathlib import Path
+from tqdm import tqdm
 
 
 def parse_pdb_backbone(pdb_file: str) -> Optional[torch.Tensor]:
@@ -256,7 +257,6 @@ def benchmark_pdb_directory(pdb_directory: str,
 
     if verbose:
         print(f"Found {len(pdb_files)} PDB files to process")
-        print("=" * 60)
 
     overall_results = {
         'directory': pdb_directory,
@@ -277,17 +277,13 @@ def benchmark_pdb_directory(pdb_directory: str,
     all_rmsd_errors = []
     processed_count = 0
 
-    for i, pdb_file in enumerate(pdb_files):
-        if verbose:
-            print(f"Processing ({i+1}/{len(pdb_files)}): {os.path.basename(pdb_file)}")
-
+    # Use tqdm for progress bar
+    for pdb_file in tqdm(pdb_files, desc="Processing PDB files", disable=not verbose):
         try:
             file_results = benchmark_single_pdb(pdb_file)
 
             if 'error' in file_results:
                 overall_results['failed_files'] += 1
-                if verbose:
-                    print(f"  ❌ Failed: {file_results['error']}")
                 continue
 
             overall_results['file_results'].append(file_results)
@@ -299,15 +295,8 @@ def benchmark_pdb_directory(pdb_directory: str,
             all_translation_errors.extend(file_results['translation_errors'])
             all_rmsd_errors.extend(file_results['rmsd_errors'])
 
-            if verbose:
-                print(f"  ✅ Success: {file_results['n_residues']} residues, "
-                      f"Avg RMSD: {file_results['avg_rmsd_error']:.6f}")
-
-
         except Exception as e:
             overall_results['failed_files'] += 1
-            if verbose:
-                print(f"  ❌ Exception: {e}")
             continue
 
     # Calculate overall statistics
@@ -345,20 +334,6 @@ def print_benchmark_summary(results: Dict):
     print(f"   Average Rotation Error:    {results['overall_avg_rotation_error']:.8f} ± {results['rotation_error_std']:.8f}")
     print(f"   Average Translation Error: {results['overall_avg_translation_error']:.8f} ± {results['translation_error_std']:.8f}")
     print(f"   Average RMSD Error:        {results['overall_avg_rmsd_error']:.8f} ± {results['rmsd_error_std']:.8f}")
-
-    # Show per-file summary
-    print(f"\n📋 PER-FILE SUMMARY:")
-    print("   File                        Residues    Avg RMSD     Avg Rot Err   Avg Trans Err")
-    print("   " + "-" * 75)
-
-    for file_result in results['file_results']:
-        filename = file_result['pdb_file'][:25].ljust(25)
-        residues = str(file_result['n_residues']).rjust(8)
-        rmsd = f"{file_result['avg_rmsd_error']:.6f}".rjust(10)
-        rot_err = f"{file_result['avg_rotation_error']:.6f}".rjust(12)
-        trans_err = f"{file_result['avg_translation_error']:.6f}".rjust(12)
-
-        print(f"   {filename} {residues}    {rmsd}    {rot_err}    {trans_err}")
 
     # Quality assessment
     print(f"\n🎯 QUALITY ASSESSMENT:")
