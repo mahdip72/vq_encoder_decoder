@@ -172,7 +172,6 @@ def benchmark_single_pdb(pdb_file: str,
                         transformed_coords, original_coords,
                         ca_only=True,
                         allow_reflections=False,
-                        residue_wise=False,
                         return_transformed=False
                     )
 
@@ -189,7 +188,6 @@ def benchmark_single_pdb(pdb_file: str,
                         transformed_coords, original_coords,
                         ca_only=True,
                         allow_reflections=False,
-                        residue_wise=False,
                         return_transformed=True
                     )
 
