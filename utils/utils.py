@@ -454,6 +454,7 @@ def load_h5_file(file_path):
 def save_backbone_pdb(
         coords,
         masks,
+        protein_name,
         save_path_prefix,
         atom_names=("N", "CA", "C"),
         chain_id="A",
@@ -468,6 +469,8 @@ def save_backbone_pdb(
         Shape (B, L, 3, 3) or (L, 3, 3).  Last two axes are atoms × (x,y,z).
     masks : torch.Tensor
         Shape (B, L) or (L,).  1 → keep residue, 0 → skip residue.
+    protein_name : list[str] | str
+        Protein name(s) for the PDB file(s).  If a single string is provided, it is used for all samples.
     save_path_prefix : str
         Path prefix.  “_sample_<idx>.pdb” is appended (or inserted before “.pdb”).
     atom_names : tuple[str], default ("N", "CA", "C")
@@ -490,7 +493,7 @@ def save_backbone_pdb(
             root = save_path_prefix[:-4]
             out_path = f"{root}_sample_{b}.pdb"
         else:
-            out_path = f"{save_path_prefix}_sample_{b}.pdb"
+            out_path = f"{save_path_prefix}_sample_{b}_{protein_name[b]}.pdb"
 
         with open(out_path, "w") as fh:
             serial = 1
