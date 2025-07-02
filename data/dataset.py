@@ -334,7 +334,7 @@ class GCPNetDataset(Dataset):
         pid = basename.split('.h5')[0]
 
         # Decode sequence and replace U with X
-        raw_sequence = sample[0].decode('utf-8').replace('U', 'X')
+        raw_sequence = sample[0].decode('utf-8').replace('U', 'X').replace('O', 'X')
 
         coords_list = self.recenter_coordinates(self.handle_nan_coordinates(torch.tensor(sample[1].tolist()))).tolist()
         # coords_list = torch.tensor(sample[1].tolist())
