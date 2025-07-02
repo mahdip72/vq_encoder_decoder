@@ -499,6 +499,10 @@ def save_backbone_pdb(
                     continue
 
                 for a_idx, atom_name in enumerate(atom_names):
+                    # Check for NaN coordinates before writing
+                    if not torch.isfinite(coords[b, r, a_idx]).all():
+                        continue  # Skip this atom if any coordinate is NaN/inf
+
                     x, y, z = coords[b, r, a_idx].tolist()
                     element = atom_name[0].upper()
 
@@ -582,6 +586,10 @@ def save_backbone_pdb_inference(
                     continue
 
                 for a_idx, atom_name in enumerate(atom_names):
+                    # Check for NaN coordinates before writing
+                    if not torch.isfinite(coords[b, r, a_idx]).all():
+                        continue  # Skip this atom if any coordinate is NaN/inf
+
                     x, y, z = coords[b, r, a_idx].tolist()
                     element = atom_name[0].upper()
 
