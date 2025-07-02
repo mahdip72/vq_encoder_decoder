@@ -129,9 +129,11 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 if configs.train_settings.losses.fape.enabled:
                     gn = compute_grad_norm(loss_dict['fape_loss'], net.parameters())
                     writer.add_scalar('gradient norm/fape', gn.item(), global_step)
-                # commitment loss
-                gn = compute_grad_norm(alpha * commit_loss, net.parameters())
-                writer.add_scalar('gradient norm/commit', gn.item(), global_step)
+
+                if configs.model.vqvae.vector_quantization.enabled:
+                    # commitment loss
+                    gn = compute_grad_norm(alpha * commit_loss, net.parameters())
+                    writer.add_scalar('gradient norm/commit', gn.item(), global_step)
 
             if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for training data in epoch {epoch}")
