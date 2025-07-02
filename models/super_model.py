@@ -44,7 +44,7 @@ class SuperModel(nn.Module):
         else:
             x = self.encoder(batch, output_logits=False)
 
-        x, mask, batch_indices, x_slice_indices = merge_features(x, self.max_length)
+        x, mask = merge_features(x, self.max_length)
 
         # give kwargs to vqvae
         x, indices, commit_loss = self.vqvae(x, mask, **kwargs)
