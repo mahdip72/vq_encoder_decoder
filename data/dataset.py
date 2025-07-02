@@ -234,7 +234,7 @@ class GCPNetDataset(Dataset):
         self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
                               'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
                               'E': 6, 'L': 10, 'R': 1, 'W': 17, 'V': 19,
-                              'N': 2, 'Y': 18, 'M': 12, 'X': 20, 'B': 21, 'Z': 22, 'J': 23, 'U': 24}
+                              'N': 2, 'Y': 18, 'M': 12, 'X': 20}
         self.num_to_letter = {v: k for k, v in self.letter_to_num.items()}
 
         self.max_length = kwargs['configs'].model.max_length
@@ -333,17 +333,20 @@ class GCPNetDataset(Dataset):
         basename = os.path.basename(sample_path)
         pid = basename.split('.h5')[0]
 
+        # Decode sequence and replace U with X
+        raw_sequence = sample[0].decode('utf-8').replace('U', 'X')
+
         coords_list = self.recenter_coordinates(self.handle_nan_coordinates(torch.tensor(sample[1].tolist()))).tolist()
         # coords_list = torch.tensor(sample[1].tolist())
         sample_dict = {'name': pid,
                        'coords': coords_list,
-                       'seq': sample[0].decode('utf-8')}
-        inverse_folding_labels = amino_acid_to_tensor(sample[0].decode('utf-8'), self.max_length)
+                       'seq': raw_sequence}
+        inverse_folding_labels = amino_acid_to_tensor(raw_sequence, self.max_length)
 
         feature = self._featurize_as_graph(sample_dict)
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
-        raw_seqs = sample[0].decode('utf-8')
+        raw_seqs = raw_sequence
         coords_list = sample_dict['coords']
         coords_tensor = torch.Tensor(coords_list)
 
