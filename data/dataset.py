@@ -314,35 +314,35 @@ class GCPNetDataset(Dataset):
             - enforced ideal backbone bond lengths,
             - same dtype and device as the input.
     """
+        # quickly return if no NaNs
+        if not torch.isnan(coords).any():
+            return coords
+
+        # record which atoms will be filled
+        nan_mask = torch.isnan(coords).any(dim=-1)  # (N,4)
+
         coords = coords.clone()
         N, n_atoms, _ = coords.shape
 
         for atom in range(n_atoms):
-            seq = coords[:, atom]  # (N, 3)
-            flat = seq.clone()
-            mask = torch.isnan(flat).any(dim=1)
-            if not mask.any():
-                continue
+            flat = coords[:, atom].clone()
+            mask = nan_mask[:, atom]
             valid = torch.where(~mask)[0]
             if valid.numel() == 0:
-                flat[:] = 0
+                flat[:] = 0.0
             else:
                 first, last = valid[0].item(), valid[-1].item()
-                if first > 0:
-                    flat[:first] = flat[first]
-                if last < N - 1:
-                    flat[last + 1:] = flat[last]
+                flat[:first] = flat[first]
+                flat[last + 1:] = flat[last]
                 for a, b in zip(valid[:-1], valid[1:]):
-                    a, b = a.item(), b.item()
                     gap = b - a - 1
                     if gap > 0:
-                        w = torch.linspace(0, 1, gap + 2,
-                                           device=flat.device,
-                                           dtype=flat.dtype)[1:-1].unsqueeze(1)
+                        w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
                         flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
             coords[:, atom] = flat
 
-        return enforce_backbone_bonds(coords)
+        # only rescale bonds for atoms that were nan
+        return enforce_backbone_bonds(coords, changed=nan_mask)
 
     def __len__(self):
         return len(self.h5_samples)
