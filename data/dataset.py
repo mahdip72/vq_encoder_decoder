@@ -11,6 +11,32 @@ from utils.utils import load_h5_file
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
 
+# ideal bond lengths in Å
+BOND_LENGTHS = {
+    "N-CA": 1.458,
+    "CA-C": 1.525,
+    "C-O": 1.231,
+    "C-N": 1.329,
+}
+
+
+def enforce_backbone_bonds(coords: torch.Tensor) -> torch.Tensor:
+    """
+    coords: (N, 4, 3) in the order [N, CA, C, O] per residue
+    returns coords with each bond rescaled to its ideal length.
+    """
+    N = coords.size(0)
+    for i in range(N):
+        # within‐residue bonds
+        for (a, b, key) in ((0, 1, "N-CA"), (1, 2, "CA-C"), (2, 3, "C-O")):
+            v = coords[i, b] - coords[i, a]
+            coords[i, b] = coords[i, a] + v / v.norm(dim=-1, keepdim=True) * BOND_LENGTHS[key]
+        # peptide bond to next residue
+        if i < N - 1:
+            v = coords[i + 1, 0] - coords[i, 2]
+            coords[i + 1, 0] = coords[i, 2] + v / v.norm(dim=-1, keepdim=True) * BOND_LENGTHS["C-N"]
+    return coords
+
 
 def merge_features_and_create_mask(features_list, max_length=512):
     # Pad tensors and create mask
@@ -265,43 +291,58 @@ class GCPNetDataset(Dataset):
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
-        Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+        Replaces missing backbone coordinates per atom channel via linear interpolation,
+        then enforces standard peptide bond lengths.
 
-        Leading and trailing NaNs are filled using the nearest valid coordinate.
-        If the entire tensor is NaN, all entries are set to zero.
+        The input tensor is cloned to avoid in-place mutation. For each of the four
+        backbone atom channels (N, CA, C, O), leading/trailing NaNs are filled with
+        the nearest valid coordinate, and interior runs are linearly interpolated.
+        After filling, all backbone bonds (N–CA, CA–C, C–O, C–N) are rescaled to
+        their ideal lengths.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         coords : torch.Tensor
-            A tensor of shape (N, 4, 3) representing the coordinates of a protein structure.
+            Tensor of shape (N, 4, 3) containing 3D backbone atom coordinates with
+            possible NaN entries.
 
-        Returns:
-        --------
+        Returns
+        -------
         torch.Tensor
-            The coordinates with NaN values replaced by the previous valid coordinate values.
-        """
-        # Flatten the coordinates for easier manipulation
-        original_shape = coords.shape
-        coords = coords.view(-1, 3)
+            A cloned tensor of shape (N, 4, 3) with:
+            - per-atom linear interpolation of NaNs,
+            - enforced ideal backbone bond lengths,
+            - same dtype and device as the input.
+    """
+        coords = coords.clone()
+        N, n_atoms, _ = coords.shape
 
-        # check if there are any NaN values in the coordinates
-        while torch.isnan(coords).any():
-            # Identify NaN values
-            nan_mask = torch.isnan(coords)
+        for atom in range(n_atoms):
+            seq = coords[:, atom]  # (N, 3)
+            flat = seq.clone()
+            mask = torch.isnan(flat).any(dim=1)
+            if not mask.any():
+                continue
+            valid = torch.where(~mask)[0]
+            if valid.numel() == 0:
+                flat[:] = 0
+            else:
+                first, last = valid[0].item(), valid[-1].item()
+                if first > 0:
+                    flat[:first] = flat[first]
+                if last < N - 1:
+                    flat[last + 1:] = flat[last]
+                for a, b in zip(valid[:-1], valid[1:]):
+                    a, b = a.item(), b.item()
+                    gap = b - a - 1
+                    if gap > 0:
+                        w = torch.linspace(0, 1, gap + 2,
+                                           device=flat.device,
+                                           dtype=flat.dtype)[1:-1].unsqueeze(1)
+                        flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
+            coords[:, atom] = flat
 
-            if not nan_mask.any():
-                return coords.view(original_shape)  # Return if there are no NaN values
-
-            # Iterate through coordinates and replace NaNs with the previous valid coordinate
-            for i in range(1, coords.shape[0]):
-                if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
-                    coords[i] = coords[i - 1]
-
-            for i in range(0, coords.shape[0] - 1):
-                if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
-                    coords[i] = coords[i + 1]
-
-        return coords.view(original_shape)
+        return enforce_backbone_bonds(coords)
 
     def __len__(self):
         return len(self.h5_samples)
