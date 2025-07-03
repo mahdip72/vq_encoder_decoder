@@ -224,7 +224,7 @@ class GCPNetDataset(Dataset):
 
         if self.mode == 'train':
             random.shuffle(self.h5_samples)
-            
+
         self.h5_samples = self.h5_samples[:kwargs['configs'].train_settings.max_task_samples]
 
         self.top_k = top_k
@@ -239,7 +239,7 @@ class GCPNetDataset(Dataset):
 
         self.max_length = kwargs['configs'].model.max_length
 
-        self.configs = kwargs['configs'] # Main training config
+        self.configs = kwargs['configs']  # Main training config
 
         # Initialize attributes to None
         self.pretrained_featuriser = None
@@ -266,6 +266,9 @@ class GCPNetDataset(Dataset):
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
         Replaces NaN values in the coordinates with the previous or next valid coordinate values.
+
+        Leading and trailing NaNs are filled using the nearest valid coordinate.
+        If the entire tensor is NaN, all entries are set to zero.
 
         Parameters:
         -----------
@@ -355,7 +358,8 @@ class GCPNetDataset(Dataset):
         if self.configs.train_settings.cutoff_augmentation.enabled and self.mode == 'train':
             if random.random() < self.configs.train_settings.cutoff_augmentation.probability:
                 # Randomly select a number between min_length and max_length
-                random_length = random.randint(self.configs.train_settings.cutoff_augmentation.min_length, self.max_length)
+                random_length = random.randint(self.configs.train_settings.cutoff_augmentation.min_length,
+                                               self.max_length)
                 coords_tensor = coords_tensor[:random_length, ...]
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
@@ -554,6 +558,7 @@ if __name__ == '__main__':
     from utils.utils import load_configs, get_dummy_logger
     from torch.utils.data import DataLoader
     from accelerate import Accelerator
+
     # from utils.metrics import batch_distance_map_to_coordinates
 
     config_path = "../configs/config_vqvae.yaml"
@@ -562,8 +567,10 @@ if __name__ == '__main__':
     with open(config_path) as file:
         config_file = yaml.full_load(file)
 
-    config_file['model']['encoder']['pretrained']['config_path'] = "../configs/pretrained/structure_denoising_pretrained_config.yaml"
-    config_file['model']['encoder']['pretrained']['checkpoint_path'] = "../models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt"
+    config_file['model']['encoder']['pretrained'][
+        'config_path'] = "../configs/pretrained/structure_denoising_pretrained_config.yaml"
+    config_file['model']['encoder']['pretrained'][
+        'checkpoint_path'] = "../models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt"
     test_configs = load_configs(config_file)
 
     test_configs.train_settings.data_path = '/home/mpngf/datasets/vqvae/swissprot_1024_h5/'
