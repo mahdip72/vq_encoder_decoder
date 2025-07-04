@@ -106,7 +106,7 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
                  "inverse_folding_labels": inverse_folding_labels}
 
     # Example ProteinWorkshopBatch(fill_value=[32], atom_list=[32], id=[32], residue_id=[32], residue_type=[10606], residues=[32], chains=[10606], coords=[10606, 37, 3], x=[10606], seq_pos=[10606, 1], one_batch=[10606], ptr=[33]):
-    # fill_value: tensor([1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05])
+    # fill_value: tensor([1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05, 1.0000e-05])
     # atom_list: ['N', 'CA', 'C', 'O', 'CB', 'OG', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OD1', 'ND2', 'CG1', 'CG2', 'CD', 'CE', 'NZ', 'OD2', 'OE1', 'NE2', 'OE2', 'OH', 'NE', 'NH1', 'NH2', 'OG1', 'SD', 'ND1', 'SG', 'NE1', 'CE3', 'CZ2', 'CZ3', 'CH2', 'OXT']
     # id: ['1a0q', '3eiy', '1hcn', '4hhb', '1hcn', '4hhb', '1hcn', '4hhb', '1a0q', '1a0q', '1hcn', '3eiy', '1a0q', '1hcn', '1a0q', '1a0q', '1a0q', '4hhb', '1a0q', '3eiy', '4hhb', '1a0q', '4hhb', '3eiy', '3eiy', '3eiy', '3eiy', '4hhb', '3eiy', '3eiy', '3eiy', '3eiy']
     # residue_id: ['A:SER:2', 'A:PHE:3', 'A:SER:4', 'A:ASN:5', 'A:VAL:6', 'A:PRO:7', 'A:ALA:8', 'A:GLY:9', 'A:LYS:10', 'A:ASP:11', 'A:LEU:12', 'A:PRO:13', 'A:GLN:14', 'A:ASP:15', 'A:PHE:16', 'A:ASN:17', 'A:VAL:18', 'A:ILE:19', 'A:ILE:20', 'A:GLU:21', 'A:ILE:22', 'A:PRO:23', 'A:ALA:24', 'A:GLN:25', 'A:SER:26', 'A:GLU:27', 'A:PRO:28', 'A:VAL:29', 'A:LYS:30', 'A:TYR:31', 'A:GLU:32', 'A:ALA:33', 'A:ASP:34', 'A:LYS:35', 'A:ALA:36', 'A:LEU:37', 'A:GLY:38', 'A:LEU:39', 'A:LEU:40', 'A:VAL:41', 'A:VAL:42', 'A:ASP:43', 'A:ARG:44', 'A:PHE:45', 'A:ILE:46', 'A:GLY:47', 'A:THR:48', 'A:GLY:49', 'A:MET:50', 'A:ARG:51', 'A:TYR:52', 'A:PRO:53', 'A:VAL:54', 'A:ASN:55', 'A:TYR:56', 'A:GLY:57', 'A:PHE:58', 'A:ILE:59', 'A:PRO:60', ...]
@@ -371,6 +371,52 @@ class GCPNetDataset(Dataset):
 
         return recentered_coordinates
 
+    def _apply_augmentations(self, coords_list, raw_sequence):
+        """
+        Applies a series of augmentations to the input coordinates and sequence.
+
+        This method performs two types of augmentations if enabled in the config:
+        1.  NaN Masking: Randomly replaces a segment of coordinates with NaNs and the
+            corresponding amino acids in the sequence with 'X'. The length of the
+            segment is a random integer between 1 and `max_length` from the config.
+        2.  Cutoff Augmentation: Truncates the sequence and coordinates to a random
+            length between `min_length` from the config and the current sequence length.
+
+        Args:
+            coords_list (list): A list of coordinates to be augmented.
+            raw_sequence (str): The raw amino acid sequence to be augmented.
+
+        Returns:
+            tuple[list, str]: A tuple containing the augmented coordinate list and sequence.
+        """
+        nan_cfg = self.configs.train_settings.nan_augmentation
+        cut_cfg = self.configs.train_settings.cutoff_augmentation
+
+        seq_list = list(raw_sequence)
+
+        # random nan masking
+        if nan_cfg.enabled and self.mode == 'train' and random.random() < nan_cfg.probability:
+            segment_length = random.randint(1, nan_cfg.max_length)
+            if len(coords_list) > segment_length:
+                max_start = len(coords_list) - segment_length
+                start = random.randint(0, max_start)
+                for idx in range(start, start + segment_length):
+                    coords_list[idx] = [[float('nan')] * 3 for _ in range(4)]
+                    if idx < len(seq_list):
+                        seq_list[idx] = 'X'
+
+        # random cutoff
+        if cut_cfg.enabled and self.mode == 'train' and random.random() < cut_cfg.probability:
+            # Ensure max_length is not smaller than min_length
+            max_len = len(seq_list)
+            min_len = cut_cfg.min_length
+            if max_len > min_len:
+                random_length = random.randint(min_len, max_len)
+                coords_list = coords_list[:random_length]
+                seq_list = seq_list[:random_length]
+
+        return coords_list, "".join(seq_list)
+
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
@@ -379,9 +425,14 @@ class GCPNetDataset(Dataset):
 
         # Decode sequence and replace U with X
         raw_sequence = sample[0].decode('utf-8').replace('U', 'X').replace('O', 'X')
+        
+        coords_list = torch.tensor(sample[1].tolist()).tolist()
 
-        coords_list = self.recenter_coordinates(self.handle_nan_coordinates(torch.tensor(sample[1].tolist()))).tolist()
-        # coords_list = torch.tensor(sample[1].tolist())
+        if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or self.configs.train_settings.cutoff_augmentation.enabled):
+            coords_list, raw_sequence = self._apply_augmentations(coords_list, raw_sequence)
+
+        coords_list = self.recenter_coordinates(self.handle_nan_coordinates(torch.tensor(coords_list))).tolist()
+
         sample_dict = {'name': pid,
                        'coords': coords_list,
                        'seq': raw_sequence}
@@ -395,13 +446,6 @@ class GCPNetDataset(Dataset):
         coords_tensor = torch.Tensor(coords_list)
 
         coords_tensor = coords_tensor[:self.max_length, ...]
-
-        if self.configs.train_settings.cutoff_augmentation.enabled and self.mode == 'train':
-            if random.random() < self.configs.train_settings.cutoff_augmentation.probability:
-                # Randomly select a number between min_length and max_length
-                random_length = random.randint(self.configs.train_settings.cutoff_augmentation.min_length,
-                                               self.max_length)
-                coords_tensor = coords_tensor[:random_length, ...]
 
         coords_tensor = coords_tensor.reshape(1, -1, 12)
         # Merge the features and create a mask

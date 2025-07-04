@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/vqvae/test/transformer_x/
+result_path: ./results/test/
 normalizer_path: ./data/normalizer.pkl
 
 resume:
@@ -43,7 +43,7 @@ model:
       heads: 12      # Number of attention heads in the Encoder
       rotary_pos_emb: True
       attn_flash: True # FA-2 if installed
-      attn_kv_heads: 1 # GQA
+      attn_kv_heads: 3 # GQA
       qk_norm: True
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
@@ -51,34 +51,38 @@ model:
     decoder: geometric_decoder # geometric_decoder, gcpnet
 
 train_settings:
-  data_path: ../../datasets/vqvae/uniref_50/chunk_1
-  num_epochs: 128
+  data_path: ../../datasets/vqvae/whole_validation_2048_h5/
+  num_epochs: 256
   shuffle: True
   loss: crossentropy
   sample_weight: False
-  mixed_precision: fp16 # no, fp16, bf16, fp8
-  save_pdb_every: 32
+  mixed_precision: bf16 # no, fp16, bf16, fp8
+  save_pdb_every: 8
   batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 16000
+  max_task_samples: 6000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
     probability: 0.5
     min_length: 25
+  nan_augmentation:
+    enabled: False
+    probability: 0.5
+    max_length: 3
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   losses:
     alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
     mse:
       enabled: True
-      weight: 0.1
+      weight: 0.005
     backbone_distance:
       enabled: True
-      weight: 0.1
+      weight: 0.01
     backbone_direction:
       enabled: True
-      weight: 0.1
+      weight: 0.05
     binned_distance_classification:
       enabled: False
       weight: 0.01
@@ -95,14 +99,14 @@ train_settings:
       length_scale: 10.0
 
 valid_settings:
-  data_path: ../../datasets/vqvae/validation_set_2048_h5
+  data_path: ../../datasets/vqvae/whole_validation_2048_h5
   do_every: 1
-  save_pdb_every: 32
-  batch_size: 16
+  save_pdb_every: 8
+  batch_size: 32
   num_workers: 0
 
 visualization_settings:
-  data_path: ../../datasets/vqvae/validation_set_2048_h5
+  data_path: ../../datasets/vqvae/whole_validation_2048_h5
   fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 8192
   batch_size: 1
@@ -112,14 +116,14 @@ optimizer:
   name: adam
   lr: 1e-4
   weight_decouple: True
-  weight_decay: 1e-1
+  weight_decay: 1e-3
   eps: 1e-7
   beta_1: 0.9
   beta_2: 0.98
   use_8bit_adam: False
   grad_clip_norm: 1
   decay:
-    warmup: 2000
+    warmup: 2048
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1
