@@ -8,9 +8,10 @@ output_base_dir: "inference_results"
 batch_size: 16
 shuffle: True
 num_workers: 0
-max_task_samples: 1000
+max_task_samples: 5000000
 tqdm_progress_bar: True
-return_vq_layer: False
+return_vq_layer: True
+vq_indices_csv_filename: "vq_indices.csv"  # Name of the CSV file for VQ indices if return_vq_layer is True
 alignment_strategy: "kabsch"  # kabsch, kabsch_old, quaternion, no
-save_original_pdb: True # whether to save original pdbs
+save_original_pdb: False # whether to save original pdbs only works if return_vq_layer is False
 mixed_precision: "bf16"  # no, fp16, bf16, fp8

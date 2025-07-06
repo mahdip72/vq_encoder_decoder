@@ -185,7 +185,8 @@ def main():
     logger.info(f"Inference completed. Results are saved in {result_dir}")
     # After loop, save indices CSV if requested
     if infer_cfg.get('return_vq_layer', False):
-        csv_path = os.path.join(result_dir, 'vq_indices.csv')
+        csv_filename = infer_cfg.get('vq_indices_csv_filename', 'vq_indices.csv')
+        csv_path = os.path.join(result_dir, csv_filename)
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['pid', 'indices', 'protein_sequence'])
