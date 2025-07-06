@@ -273,8 +273,9 @@ class VQVAEDataset(Dataset):
 
         self.processor = Protein3DProcessing()
 
-        # Load saved pca and scaler models for processing
-        self.processor.load_normalizer(kwargs['configs'].normalizer_path)
+        # Load saved pca and scaler models for processing (optional)
+        if hasattr(kwargs['configs'], 'normalizer_path') and kwargs['configs'].normalizer_path:
+            self.processor.load_normalizer(kwargs['configs'].normalizer_path)
 
     def __len__(self):
         return len(self.h5_samples)
