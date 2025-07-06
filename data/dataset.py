@@ -44,7 +44,17 @@ def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -
         # within‐residue bonds
         for (a, b, key) in ((0, 1, "N-CA"), (1, 2, "CA-C"), (2, 3, "C-O")):
             if changed is None or changed[i, a] or changed[i, b]:
-                v = coords[i, b] - coords[i, a]
+                # if the position of the atom to be placed is nan, use the direction
+                # from the previous atom to place it
+                if torch.isnan(coords[i,b]).any():
+                    if a > 0:
+                        v = coords[i, a] - coords[i, a-1]
+                    # if it's the first atom, use the next one
+                    else:
+                        v = coords[i, a+1] - coords[i, a]
+                else:
+                    v = coords[i, b] - coords[i, a]
+
                 norm = v.norm(dim=-1, keepdim=True)
                 if norm > 1e-6:
                     coords[i, b] = coords[i, a] + v / norm * BOND_LENGTHS[key]
@@ -69,15 +79,27 @@ def enforce_ca_spacing(coords: torch.Tensor, changed: torch.Tensor = None, ideal
     else:
         res_changed = torch.ones(N, dtype=torch.bool, device=coords.device)
     for i in range(N - 1):
-        if not (res_changed[i] or res_changed[i + 1]):
+        # if a residue is changed, and the next is not, we still want to space
+        # the changed one relative to the unchanged one
+        if changed is not None and not res_changed[i] and not res_changed[i+1]:
             continue
+
         ca_i = coords[i, 1]
         ca_j = coords[i + 1, 1]
         v = ca_j - ca_i
         d = v.norm()
         if d > 1e-6:
             delta = v * ((d - ideal) / d)
-            coords[i + 1] = coords[i + 1] - delta
+            # if the first residue is unchanged, only move the second
+            if changed is not None and not res_changed[i]:
+                coords[i + 1] = coords[i + 1] - delta
+            # if the second residue is unchanged, only move the first
+            elif changed is not None and not res_changed[i+1]:
+                coords[i] = coords[i] + delta
+            # if both are changed, move both
+            else:
+                coords[i] = coords[i] + delta / 2
+                coords[i + 1] = coords[i + 1] - delta / 2
     return coords
 
 
@@ -377,12 +399,20 @@ class GCPNetDataset(Dataset):
                                 temp = torch.tensor([0, 1, 0], device=v.device, dtype=v.dtype)
                             n = torch.cross(u, temp)
                             n = n / n.norm()
-                            h = ((L_target / math.pi)**2 - (dist / 2)**2)**0.5
+
+                            # prevent nan from sqrt of negative number
+                            h_squared = (L_target / math.pi)**2 - (dist / 2)**2
+                            if h_squared < 0:
+                                w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
+                                flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
+                                continue
+
+                            h = h_squared**0.5
                             for j in range(1, gap + 1):
-                                t = j / (gap + 1)
-                                straight = flat[a] * (1 - t) + flat[b] * t
-                                offset = math.sin(math.pi * t) * h
-                                flat[a + j] = straight + offset * n
+                                theta = j * math.pi / (gap + 1)
+                                d_j = dist * j / (gap + 1)
+                                h_j = h * math.sin(theta)
+                                flat[a + j] = flat[a] + d_j * u + h_j * n
                         else:
                             w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
                             flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
