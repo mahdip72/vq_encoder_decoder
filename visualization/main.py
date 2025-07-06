@@ -273,10 +273,6 @@ class VQVAEDataset(Dataset):
 
         self.processor = Protein3DProcessing()
 
-        # Load saved pca and scaler models for processing (optional)
-        if hasattr(kwargs['configs'], 'normalizer_path') and kwargs['configs'].normalizer_path:
-            self.processor.load_normalizer(kwargs['configs'].normalizer_path)
-
     def __len__(self):
         return len(self.h5_samples)
 
@@ -312,7 +308,7 @@ class VQVAEDataset(Dataset):
                 if nan_mask[i].any() and not torch.isnan(coords[i - 1]).any():
                     coords[i] = coords[i - 1]
 
-            for i in range(0, coords.shape[0]-1):
+            for i in range(0, coords.shape[0] - 1):
                 if nan_mask[i].any() and not torch.isnan(coords[i + 1]).any():
                     coords[i] = coords[i + 1]
 
@@ -326,20 +322,36 @@ class VQVAEDataset(Dataset):
         coords_list = sample[1].tolist()
         coords_tensor = torch.Tensor(coords_list)
 
+        # Truncate to max_length
         coords_tensor = coords_tensor[:self.max_length, ...]
 
+        # Handle NaN coordinates
         coords_tensor = self.handle_nan_coordinates(coords_tensor)
-        coords_tensor = self.processor.normalize_coords(coords_tensor)
 
-        # Merge the features and create a mask
-        coords_tensor = coords_tensor.reshape(1, -1, 12)
-        # coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+        # Create masks for valid residues (non-NaN)
+        masks = torch.ones(coords_tensor.shape[0], dtype=torch.bool)
 
-        # squeeze coords and masks to return them to 2D
-        coords = coords_tensor.squeeze(0)
-        # masks = masks.squeeze(0)
+        # Pad to max_length if needed
+        seq_len = coords_tensor.shape[0]
+        if seq_len < self.max_length:
+            padding = torch.zeros(self.max_length - seq_len, 4, 3)
+            coords_tensor = torch.cat([coords_tensor, padding], dim=0)
+            mask_padding = torch.zeros(self.max_length - seq_len, dtype=torch.bool)
+            masks = torch.cat([masks, mask_padding], dim=0)
 
-        return {'pid': pid, 'input_coords': coords}
+        # Reshape coordinates to match training format (N, 12) where 12 = 4 atoms * 3 coords
+        input_coordinates = coords_tensor.reshape(self.max_length, 12)
+
+        # Create target coordinates (same as input for visualization)
+        target_coords = coords_tensor.clone()
+
+        return {
+            'pid': pid,
+            'input_coordinates': input_coordinates,
+            'target_coords': target_coords,
+            'masks': masks,
+            'inverse_folding_labels': None  # Not needed for visualization
+        }
 
 
 def compute_visualization(net, test_loader, result_path, configs, logging, accelerator, epoch, optimizer):
@@ -359,7 +371,6 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
     representations = {'ids': [], 'rep': []}
     for batch in tqdm(test_loader, total=len(test_loader), desc="Computing representations", leave=False,
                       disable=not configs.tqdm_progress_bar):
-        # batch['input_coords'] = batch['target_coords']
         pid = batch['pid']
         with torch.inference_mode():
             x, *_ = net(batch, return_vq_only=True)
@@ -372,7 +383,6 @@ def compute_visualization(net, test_loader, result_path, configs, logging, accel
                 # output = output[batch['masks'].squeeze().cpu()]
                 output = output.reshape(-1, output.shape[0])
 
-            output = output.mean(dim=0)
             representations['ids'].append(pid[0])
             representations['rep'].append(accelerator.gather(output).cpu().numpy())
 
