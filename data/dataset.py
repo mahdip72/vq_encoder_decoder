@@ -22,12 +22,21 @@ BOND_LENGTHS = {
 
 def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -> torch.Tensor:
     """
-    Enforces ideal backbone bond lengths for a protein structure.
+    Enforces ideal backbone bond lengths, selectively modifying specified atoms.
 
-    This function takes a tensor of backbone atom coordinates and, for each bond,
-    rescales it to its ideal length. The bond lengths are defined in the `BOND_LENGTHS`
-    dictionary. The function can optionally take a `changed` mask to only apply
-    the enforcement to specific atoms.
+    This function iterates through a protein's coordinates and adjusts the positions
+    of backbone atoms to match their ideal, physically-correct bond lengths (N-CA,
+    CA-C, C-O, and the inter-residue C-N peptide bond).
+
+    A key feature is its ability to selectively modify atoms. This is controlled by
+    the `changed` mask, which ensures that only atoms marked as `True` (i.e., those
+    that were part of an interpolated or otherwise modified region) are affected.
+    This preserves the original coordinates of the known parts of the structure.
+
+    To handle cases where an atom's position is `NaN` at the start of the process,
+    the function uses the vector from the previous two atoms in the backbone to
+    determine a valid direction for placing the new atom. This makes the process
+    robust against persistent `NaN` values.
 
     Args:
         coords (torch.Tensor): A tensor of shape (N, 4, 3) with coordinates in the
@@ -37,7 +46,8 @@ def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -
             should be enforced. If `None`, all bonds are enforced. Defaults to `None`.
 
     Returns:
-        torch.Tensor: The input `coords` tensor with backbone bond lengths enforced.
+        torch.Tensor: The input `coords` tensor with backbone bond lengths enforced
+            for the specified atoms.
     """
     N = coords.size(0)
     for i in range(N):
@@ -70,7 +80,38 @@ def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -
 
 def enforce_ca_spacing(coords: torch.Tensor, changed: torch.Tensor = None, ideal: float = 3.8) -> torch.Tensor:
     """
-    Enforces ideal Cα–Cα spacing (~3.8 Å) only for residues with missing data.
+    Enforces ideal Cα–Cα spacing, intelligently adjusting only modified residues.
+
+    This function iterates through adjacent pairs of residues and adjusts their
+    positions to ensure the distance between their C-alpha atoms is close to the
+    ideal value of ~3.8 Å.
+
+    Its primary role is to clean up the geometry of interpolated regions without
+    disturbing the original, valid parts of the protein structure. This is achieved
+    using the `changed` mask.
+
+    The logic is as follows:
+    1.  **Identify Changed Residues**: It first determines which residues have been
+        modified based on the `changed` mask.
+    2.  **Skip Unchanged Pairs**: If two adjacent residues were both part of the
+        original, valid structure, they are skipped.
+    3.  **Boundary Handling**: If one residue is original and the other is from an
+        interpolated region, the function only moves the interpolated residue.
+        This preserves the coordinates of the original structure.
+    4.  **Internal Adjustment**: If both adjacent residues are part of an interpolated
+        region, it moves both of them, splitting the adjustment between them.
+
+    Args:
+        coords (torch.Tensor): A tensor of shape (N, 4, 3) with coordinates in the
+            order [N, CA, C, O] per residue.
+        changed (torch.Tensor, optional): A boolean tensor of shape (N, 4) where `True`
+            indicates that the atom's coordinates have been changed and its bonds
+            should be enforced. If `None`, all bonds are enforced. Defaults to `None`.
+        ideal (float, optional): The ideal Cα–Cα distance. Defaults to 3.8.
+
+    Returns:
+        torch.Tensor: The input `coords` tensor with Cα–Cα spacing enforced for the
+            specified residues.
     """
     N = coords.size(0)
     # determine which residues have any atom changed
@@ -343,14 +384,41 @@ class GCPNetDataset(Dataset):
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
         """
-        Replaces missing backbone coordinates per atom channel via linear interpolation,
-        then enforces standard peptide bond lengths.
+        Fills missing backbone coordinates and refines the local geometry.
 
-        The input tensor is cloned to avoid in-place mutation. For each of the four
-        backbone atom channels (N, CA, C, O), leading/trailing NaNs are filled with
-        the nearest valid coordinate, and interior runs are linearly interpolated.
-        After filling, all backbone bonds (N–CA, CA–C, C–O, C–N) are rescaled to
-        their ideal lengths.
+        This function takes a tensor of backbone atom coordinates (N, CA, C, O) that may
+        contain NaN values, and returns a new tensor with the missing coordinates filled in.
+        The process involves several steps to ensure a physically plausible result, while
+        only modifying the originally missing data.
+
+        The process is as follows:
+        1.  **Cloning**: The input `coords` tensor is cloned to avoid modifying the
+            original data.
+        2.  **NaN Identification**: A `nan_mask` is created to keep track of which atoms
+            were originally missing.
+        3.  **Per-Atom Interpolation**: The function iterates through each of the four
+            backbone atom types (N, CA, C, O) independently.
+            a.  **Fill Ends**: Leading and trailing NaN values in the sequence for a given
+                atom are filled by copying the coordinates of the nearest valid atom.
+            b.  **Interpolate Gaps**: For gaps of NaNs between two valid coordinates,
+                the function decides between two interpolation strategies:
+                i.  **Arc Interpolation**: If the ideal contour length required to span
+                    the gap (number of missing residues * 3.8 Å) is greater than the
+                    direct Euclidean distance between the gap's endpoints, the missing
+                    atoms are placed along a calculated circular arc. This avoids steric
+                    clashes in crowded regions. A fallback to linear interpolation is
+                    included for cases where arc calculation is geometrically impossible
+                    (i.e., would require sqrt of a negative number).
+                ii. **Linear Interpolation**: If the direct distance is sufficient,
+                    simple linear interpolation is used to place the atoms in a
+                    straight line.
+        4.  **Geometric Refinement**: After all NaNs are filled, two enforcement functions
+            are called to refine the local geometry, guided by the `nan_mask` to ensure
+            only the newly generated coordinates are adjusted.
+            a.  `enforce_ca_spacing`: Adjusts the Cα-Cα distances in the imputed
+                regions to the ideal ~3.8 Å.
+            b.  `enforce_backbone_bonds`: Corrects the bond lengths (N-CA, CA-C, C-O,
+                and peptide C-N) for the imputed residues to their ideal values.
 
         Parameters
         ----------
@@ -361,11 +429,9 @@ class GCPNetDataset(Dataset):
         Returns
         -------
         torch.Tensor
-            A cloned tensor of shape (N, 4, 3) with:
-            - per-atom linear interpolation of NaNs,
-            - enforced ideal backbone bond lengths,
-            - same dtype and device as the input.
-    """
+            A new tensor of shape (N, 4, 3) with NaN values filled and local
+            geometry corrected.
+        """
         # quickly return if no NaNs
         if not torch.isnan(coords).any():
             return coords
