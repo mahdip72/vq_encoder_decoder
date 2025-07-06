@@ -29,17 +29,17 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     return encoder_configs, decoder_configs
 
 
-def record_indices(pids, indices_tensor, records):
-    """Append pid-index pairs to records list, ensuring indices is always a list."""
+def record_indices(pids, indices_tensor, sequences, records):
+    """Append pid-index-sequence tuples to records list, ensuring indices is always a list."""
     cpu_inds = indices_tensor.detach().cpu().tolist()
     # Handle scalar to list
     if not isinstance(cpu_inds, list):
         cpu_inds = [cpu_inds]
-    for pid, idx in zip(pids, cpu_inds):
+    for pid, idx, seq in zip(pids, cpu_inds, sequences):
         # wrap non-list idx into list
         if not isinstance(idx, list):
             idx = [idx]
-        records.append({'pid': pid, 'indices': idx})
+        records.append({'pid': pid, 'indices': idx, 'protein_sequence': seq})
 
 
 def save_predictions_to_pdb(pids, preds, masks, pdb_dir):
@@ -155,8 +155,9 @@ def main():
             output, indices, _ = model(batch, return_vq_layer=infer_cfg['return_vq_layer'])
             pids = batch['pid']  # list of identifiers
             if infer_cfg['return_vq_layer']:
+                sequences = batch['seq']
                 # record indices per sample
-                record_indices(pids, indices, indices_records)
+                record_indices(pids, indices, sequences, indices_records)
 
             else:
                 # output is tuple of (bb_pred, ...)
@@ -186,14 +187,15 @@ def main():
         csv_path = os.path.join(result_dir, 'vq_indices.csv')
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['pid', 'indices'])
+            writer.writerow(['pid', 'indices', 'protein_sequence'])
             for rec in indices_records:
                 pid = rec['pid']
                 inds = rec['indices']
+                seq = rec['protein_sequence']
                 # ensure a list for joining
                 if not isinstance(inds, (list, tuple)):
                     inds = [inds]
-                writer.writerow([pid, ' '.join(map(str, inds))])
+                writer.writerow([pid, ' '.join(map(str, inds)), seq])
 
 
 if __name__ == '__main__':
