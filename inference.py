@@ -142,6 +142,10 @@ def main():
     # Prepare for optional VQ index recording
     indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
 
+    # Log the total number of samples before starting inference
+    total_samples = len(dataset)
+    logger.info(f"Starting inference on {total_samples} samples with batch size {infer_cfg['batch_size']}")
+    logger.info(f"Total number of batches: {len(loader)}")
 
     # enable or disable progress bar
     iterator = (tqdm(loader, desc="Inference", total=len(loader))
