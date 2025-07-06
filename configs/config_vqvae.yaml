@@ -1,9 +1,8 @@
 fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
-tqdm_progress_bar: False
+tqdm_progress_bar: True
 result_path: ./results/test/
-normalizer_path: ./data/normalizer.pkl
 
 resume:
   enabled: False
@@ -61,16 +60,16 @@ train_settings:
   batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 6000
+  max_task_samples: 2000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
     probability: 0.5
     min_length: 25
   nan_augmentation:
-    enabled: False
-    probability: 0.5
-    max_length: 3
+    enabled: True
+    probability: 0.2
+    max_length: 7
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   losses:
     alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
