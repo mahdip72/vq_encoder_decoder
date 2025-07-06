@@ -58,6 +58,29 @@ def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -
     return coords
 
 
+def enforce_ca_spacing(coords: torch.Tensor, changed: torch.Tensor = None, ideal: float = 3.8) -> torch.Tensor:
+    """
+    Enforces ideal Cα–Cα spacing (~3.8 Å) only for residues with missing data.
+    """
+    N = coords.size(0)
+    # determine which residues have any atom changed
+    if changed is not None:
+        res_changed = changed.any(dim=1)
+    else:
+        res_changed = torch.ones(N, dtype=torch.bool, device=coords.device)
+    for i in range(N - 1):
+        if not (res_changed[i] or res_changed[i + 1]):
+            continue
+        ca_i = coords[i, 1]
+        ca_j = coords[i + 1, 1]
+        v = ca_j - ca_i
+        d = v.norm()
+        if d > 1e-6:
+            delta = v * ((d - ideal) / d)
+            coords[i + 1] = coords[i + 1] - delta
+    return coords
+
+
 def merge_features_and_create_mask(features_list, max_length=512):
     # Pad tensors and create mask
     padded_tensors = []
@@ -344,12 +367,32 @@ class GCPNetDataset(Dataset):
                 for a, b in zip(valid[:-1], valid[1:]):
                     gap = b - a - 1
                     if gap > 0:
-                        w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
-                        flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
+                        v = flat[b] - flat[a]
+                        dist = v.norm().item()
+                        L_target = gap * 3.8
+                        if L_target > dist:
+                            u = v / dist
+                            temp = torch.tensor([1, 0, 0], device=v.device, dtype=v.dtype)
+                            if abs((u * temp).sum()) > 0.9:
+                                temp = torch.tensor([0, 1, 0], device=v.device, dtype=v.dtype)
+                            n = torch.cross(u, temp)
+                            n = n / n.norm()
+                            h = ((L_target / math.pi)**2 - (dist / 2)**2)**0.5
+                            for j in range(1, gap + 1):
+                                t = j / (gap + 1)
+                                straight = flat[a] * (1 - t) + flat[b] * t
+                                offset = math.sin(math.pi * t) * h
+                                flat[a + j] = straight + offset * n
+                        else:
+                            w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
+                            flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
             coords[:, atom] = flat
 
-        # only rescale bonds for atoms that were nan
-        return enforce_backbone_bonds(coords, changed=nan_mask)
+        # enforce Cα–Cα spacing on residues with imputed atoms
+        coords = enforce_ca_spacing(coords, changed=nan_mask)
+        # then enforce backbone bond lengths on those atoms
+        coords = enforce_backbone_bonds(coords, changed=nan_mask)
+        return coords
 
     def __len__(self):
         return len(self.h5_samples)
