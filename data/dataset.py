@@ -20,21 +20,41 @@ BOND_LENGTHS = {
 }
 
 
-def enforce_backbone_bonds(coords: torch.Tensor) -> torch.Tensor:
+def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -> torch.Tensor:
     """
-    coords: (N, 4, 3) in the order [N, CA, C, O] per residue
-    returns coords with each bond rescaled to its ideal length.
+    Enforces ideal backbone bond lengths for a protein structure.
+
+    This function takes a tensor of backbone atom coordinates and, for each bond,
+    rescales it to its ideal length. The bond lengths are defined in the `BOND_LENGTHS`
+    dictionary. The function can optionally take a `changed` mask to only apply
+    the enforcement to specific atoms.
+
+    Args:
+        coords (torch.Tensor): A tensor of shape (N, 4, 3) with coordinates in the
+            order [N, CA, C, O] per residue.
+        changed (torch.Tensor, optional): A boolean tensor of shape (N, 4) where `True`
+            indicates that the atom's coordinates have been changed and its bonds
+            should be enforced. If `None`, all bonds are enforced. Defaults to `None`.
+
+    Returns:
+        torch.Tensor: The input `coords` tensor with backbone bond lengths enforced.
     """
     N = coords.size(0)
     for i in range(N):
         # within‐residue bonds
         for (a, b, key) in ((0, 1, "N-CA"), (1, 2, "CA-C"), (2, 3, "C-O")):
-            v = coords[i, b] - coords[i, a]
-            coords[i, b] = coords[i, a] + v / v.norm(dim=-1, keepdim=True) * BOND_LENGTHS[key]
+            if changed is None or changed[i, a] or changed[i, b]:
+                v = coords[i, b] - coords[i, a]
+                norm = v.norm(dim=-1, keepdim=True)
+                if norm > 1e-6:
+                    coords[i, b] = coords[i, a] + v / norm * BOND_LENGTHS[key]
         # peptide bond to next residue
         if i < N - 1:
-            v = coords[i + 1, 0] - coords[i, 2]
-            coords[i + 1, 0] = coords[i, 2] + v / v.norm(dim=-1, keepdim=True) * BOND_LENGTHS["C-N"]
+            if changed is None or changed[i, 2] or changed[i + 1, 0]:
+                v = coords[i + 1, 0] - coords[i, 2]
+                norm = v.norm(dim=-1, keepdim=True)
+                if norm > 1e-6:
+                    coords[i + 1, 0] = coords[i, 2] + v / norm * BOND_LENGTHS["C-N"]
     return coords
 
 
