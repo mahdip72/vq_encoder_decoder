@@ -108,6 +108,7 @@ def main():
 
     loader = DataLoader(
         dataset,
+        shuffle=infer_cfg['shuffle'],
         batch_size=infer_cfg['batch_size'],
         num_workers=infer_cfg['num_workers'],
         collate_fn=collate_fn
