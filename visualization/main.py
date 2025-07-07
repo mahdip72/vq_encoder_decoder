@@ -418,7 +418,7 @@ def main():
         mixed_precision="fp16",
     )
 
-    net = prepare_model(test_configs, test_logger, accelerator)
+    net = prepare_model(test_configs, test_logger)
 
     net = load_checkpoints(net, checkpoint_path)
 
