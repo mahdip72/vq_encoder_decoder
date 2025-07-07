@@ -88,11 +88,13 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
     vqvae = VQVAETransformer(
         decoder = decoder,
         configs=configs,
+        decoder_only=kwargs.get("decoder_only", False),
     )
 
-    vqvae = SuperModel(encoder, vqvae, configs)
+    if not kwargs.get("decoder_only", False):
+        vqvae = SuperModel(encoder, vqvae, configs)
 
-    vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
+        vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
 
     if accelerator.is_main_process:
         print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
