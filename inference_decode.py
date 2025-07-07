@@ -136,7 +136,7 @@ def main():
             masks = batch['mask']
 
             # Forward pass through the decoder
-            output, _, _ = model(indices, mask=masks, decoder_only=True)
+            output, _, _ = model(batch, decoder_only=True)
             
             bb_pred = output[0]
             preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)

@@ -8,9 +8,11 @@ from models.utils import merge_features, separate_features
 
 
 class SuperModel(nn.Module):
-    def __init__(self, encoder, vqvae, configs):
+    def __init__(self, encoder, vqvae, configs, decoder_only=False):
         super(SuperModel, self).__init__()
-        self.encoder = encoder
+        self.decoder_only = decoder_only
+        if not self.decoder_only:
+            self.encoder = encoder
         self.vqvae = vqvae
 
         self.configs = configs
@@ -28,23 +30,27 @@ class SuperModel(nn.Module):
         Returns:
             tuple: (output, indices, commit_loss), where output is either decoded coordinates or quantized embeddings when return_vq_layer=True.
         """
-        batch_index = batch['graph'].batch
+        if not self.decoder_only:
+            batch_index = batch['graph'].batch
 
-        if self.configs.model.encoder.name == "gcpnet":
-            if self.configs.model.encoder.pretrained.enabled:
-                # No explicit casting or autocast override here.
-                model_output = self.encoder(batch['graph'])
-                x = model_output["node_embedding"]
+            if self.configs.model.encoder.name == "gcpnet":
+                if self.configs.model.encoder.pretrained.enabled:
+                    # No explicit casting or autocast override here.
+                    model_output = self.encoder(batch['graph'])
+                    x = model_output["node_embedding"]
+
+                else:
+                    _, x, _ = self.encoder(batch['graph'])
+
+                x = separate_features(x, batch_index)
 
             else:
-                _, x, _ = self.encoder(batch['graph'])
+                x = self.encoder(batch, output_logits=False)
 
-            x = separate_features(x, batch_index)
-
+            x, mask = merge_features(x, self.max_length)
         else:
-            x = self.encoder(batch, output_logits=False)
-
-        x, mask = merge_features(x, self.max_length)
+            mask = batch['mask']
+            x = batch['indices']
 
         # give kwargs to vqvae
         x, indices, commit_loss = self.vqvae(x, mask, **kwargs)
@@ -53,30 +59,33 @@ class SuperModel(nn.Module):
 
 
 def prepare_model(configs, logger, **kwargs):
-    if configs.model.encoder.name == "gcpnet":
-        if not configs.model.encoder.pretrained.enabled:
-            encoder = GCPNetModel(module_cfg=kwargs["encoder_configs"].module_cfg,
-                                  model_cfg=kwargs["encoder_configs"].model_cfg,
-                                  layer_cfg=kwargs["encoder_configs"].layer_cfg,
-                                  configs=kwargs["encoder_configs"])
+    if not kwargs.get("decoder_only", False):
+        if configs.model.encoder.name == "gcpnet":
+            if not configs.model.encoder.pretrained.enabled:
+                encoder = GCPNetModel(module_cfg=kwargs["encoder_configs"].module_cfg,
+                                      model_cfg=kwargs["encoder_configs"].model_cfg,
+                                      layer_cfg=kwargs["encoder_configs"].layer_cfg,
+                                      configs=kwargs["encoder_configs"])
 
+            else:
+                from proteinworkshop import register_custom_omegaconf_resolvers
+                from omegaconf import OmegaConf
+                from proteinworkshop.models.base import BenchMarkModel
+
+                register_custom_omegaconf_resolvers()
+
+                pretrained_config = OmegaConf.load(configs.model.encoder.pretrained.config_path)
+                pretrained_config.decoder.disable = True
+                encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
+                                                              strict=False,
+                                                              cfg=pretrained_config)
+
+        elif configs.model.encoder.name == "gvp_transformer":
+            encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
         else:
-            from proteinworkshop import register_custom_omegaconf_resolvers
-            from omegaconf import OmegaConf
-            from proteinworkshop.models.base import BenchMarkModel
-
-            register_custom_omegaconf_resolvers()
-
-            pretrained_config = OmegaConf.load(configs.model.encoder.pretrained.config_path)
-            pretrained_config.decoder.disable = True
-            encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
-                                                          strict=False,
-                                                          cfg=pretrained_config)
-
-    elif configs.model.encoder.name == "gvp_transformer":
-        encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
+            raise ValueError("Invalid encoder model specified!")
     else:
-        raise ValueError("Invalid encoder model specified!")
+        encoder = None
 
     if configs.model.vqvae.decoder == "gcpnet":
         decoder = GCPNetDecoder(configs, decoder_configs=kwargs["decoder_configs"])
@@ -91,10 +100,9 @@ def prepare_model(configs, logger, **kwargs):
         decoder_only=kwargs.get("decoder_only", False),
     )
 
-    if not kwargs.get("decoder_only", False):
-        vqvae = SuperModel(encoder, vqvae, configs)
+    vqvae = SuperModel(encoder, vqvae, configs, decoder_only=kwargs.get("decoder_only", False))
 
-        vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
+    vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
 
     print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
 
@@ -119,7 +127,7 @@ if __name__ == '__main__':
     test_logger = get_dummy_logger()
     test_accelerator = Accelerator()
 
-    test_model = prepare_model_vqvae(test_configs, test_logger, test_accelerator)
+    test_model = prepare_model(test_configs, test_logger)
 
     print("Model loaded successfully!")
 
