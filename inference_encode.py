@@ -51,7 +51,7 @@ def save_predictions_to_pdb(pids, preds, masks, pdb_dir):
 
 def main():
     # Load inference configuration
-    with open("configs/inference_config.yaml") as f:
+    with open("configs/inference_encode_config.yaml") as f:
         infer_cfg = yaml.full_load(f)
 
     # Setup output directory with timestamp
