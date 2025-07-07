@@ -96,8 +96,7 @@ def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
 
         vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
 
-    if accelerator.is_main_process:
-        print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
+    print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
 
     return vqvae
 
