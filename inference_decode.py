@@ -121,7 +121,7 @@ def main():
 
     # Load checkpoint
     checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
-    model = load_checkpoints_simple(checkpoint_path, model)
+    model = load_checkpoints_simple(checkpoint_path, model, decoder_only=True)
 
     # Prepare everything with accelerator (model and dataloader)
     model, loader = accelerator.prepare(model, loader)

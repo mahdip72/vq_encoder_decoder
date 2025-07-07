@@ -150,10 +150,16 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
     }, model_path)
 
 
-def load_checkpoints_simple(checkpoint_path, net):
+def load_checkpoints_simple(checkpoint_path, net, decoder_only=False):
     model_checkpoint = torch.load(checkpoint_path, map_location='cpu')
     pretrained_state_dict = model_checkpoint['model_state_dict']
-    net.load_state_dict(pretrained_state_dict, strict=True)
+    # Remove all layers (key values) from pretrained_state_dict that have "encoder.encoder" and "vqvae.encoder_blocks"
+    # and "vqvae.encoder" name in their keys
+    if decoder_only:
+        pretrained_state_dict = {k: v for k, v in pretrained_state_dict.items() if
+                                 not (k.startswith('encoder') or k.startswith('vqvae.encoder'))}
+
+    load_log = net.load_state_dict(pretrained_state_dict, strict=True)
     return net
 
 
