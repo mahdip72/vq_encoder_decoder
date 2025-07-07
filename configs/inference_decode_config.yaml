@@ -1,0 +1,14 @@
+trained_model_dir: "results/dgx/vqvae/2025-07-02__01-28-28/"
+checkpoint_path: "checkpoints/best_valid.pth"
+config_vqvae: "config_vqvae.yaml"
+config_encoder: "config_gcpnet_encoder.yaml"
+config_decoder: "config_geometric_decoder.yaml"
+output_base_dir: "inference_results"
+batch_size: 16
+shuffle: True
+num_workers: 0
+max_task_samples: 5000000
+tqdm_progress_bar: True
+vq_indices_csv_filename: "vq_indices.csv"  # Name of the CSV file for VQ indices if return_vq_layer is True
+alignment_strategy: "kabsch"  # kabsch, kabsch_old, quaternion, no
+mixed_precision: "bf16"  # no, fp16, bf16, fp8
