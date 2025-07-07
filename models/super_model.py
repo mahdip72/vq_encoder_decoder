@@ -52,7 +52,7 @@ class SuperModel(nn.Module):
         return x, indices, commit_loss
 
 
-def prepare_model_vqvae(configs, logger, accelerator, **kwargs):
+def prepare_model(configs, logger, **kwargs):
     if configs.model.encoder.name == "gcpnet":
         if not configs.model.encoder.pretrained.enabled:
             encoder = GCPNetModel(module_cfg=kwargs["encoder_configs"].module_cfg,

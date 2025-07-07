@@ -21,7 +21,7 @@ from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.super_model import prepare_model_vqvae
+from models.super_model import prepare_model
 
 
 def train_loop(net, train_loader, epoch, **kwargs):
@@ -484,8 +484,8 @@ def main(dict_config, config_file_path):
     )
     logging.info('preparing dataloaders are done')
 
-    net = prepare_model_vqvae(
-        configs, logging, accelerator,
+    net = prepare_model(
+        configs, logging,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs
     )

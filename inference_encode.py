@@ -13,7 +13,7 @@ import csv
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
 from utils.custom_losses import calculate_aligned_mse_loss
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
-from models.super_model import prepare_model_vqvae
+from models.super_model import prepare_model
 
 
 def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
@@ -120,8 +120,8 @@ def main():
     logger = get_logging(result_dir, configs)
 
     # Prepare model
-    model = prepare_model_vqvae(
-        configs, logger, accelerator,
+    model = prepare_model(
+        configs, logger,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs
     )
