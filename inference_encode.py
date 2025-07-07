@@ -66,7 +66,7 @@ def main():
         os.makedirs(original_pdb_dir, exist_ok=True)
 
     # Copy inference config for reference
-    shutil.copy("configs/inference_config.yaml", result_dir)
+    shutil.copy("configs/inference_encode_config.yaml", result_dir)
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg["trained_model_dir"], infer_cfg['config_vqvae'])
