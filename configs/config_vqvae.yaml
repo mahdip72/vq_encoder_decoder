@@ -59,8 +59,6 @@ train_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
   num_epochs: 256
   shuffle: True
-  loss: crossentropy
-  sample_weight: False
   mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
   batch_size: 16
