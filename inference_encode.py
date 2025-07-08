@@ -109,7 +109,6 @@ def main():
         configs, logger,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs,
-        decoder_only=True
     )
     # Freeze all model parameters
     for param in model.parameters():
@@ -119,7 +118,7 @@ def main():
 
     # Load checkpoint
     checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
-    model = load_checkpoints_simple(checkpoint_path, model, logger, decoder_only=True)
+    model = load_checkpoints_simple(checkpoint_path, model, logger)
 
     # Prepare everything with accelerator (model and dataloader)
     model, list_loader = accelerator.prepare(model, [loader])
