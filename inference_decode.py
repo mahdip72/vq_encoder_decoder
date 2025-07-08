@@ -145,7 +145,7 @@ def main():
             
             save_predictions_to_pdb(pids, preds.detach().cpu(), masks.cpu(), pdb_dir)
 
-    logger.info(f"Inference completed. Results are saved in {result_dir}")
+    logger.info(f"Inference decoding completed. Results are saved in {result_dir}")
 
 
 if __name__ == '__main__':
