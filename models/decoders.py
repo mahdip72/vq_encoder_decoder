@@ -246,11 +246,6 @@ class GeometricDecoder(nn.Module):
             bias=False,
         )
 
-        self.inverse_folding_head = RegressionHead(
-            embed_dim=self.decoder_channels,
-            output_dim=24,  # NOTE: 20 standard + 4 non-standard amino acid types + 1 padding
-        )
-
     def forward(
             self,
             structure_tokens: torch.Tensor,
@@ -278,6 +273,4 @@ class GeometricDecoder(nn.Module):
             for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
         ]
 
-        seq_logits = self.inverse_folding_head(x)
-
-        return bb_pred.flatten(-2)*self.decoder_output_scaling_factor, dir_loss_logits, dist_loss_logits, seq_logits
+        return bb_pred.flatten(-2)*self.decoder_output_scaling_factor, dir_loss_logits, dist_loss_logits

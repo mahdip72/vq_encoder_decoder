@@ -1108,7 +1108,7 @@ def calculate_fape_loss(x_predicted, x_true, masks, clamp_distance=10.0, length_
 
 
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
-                           seq_logits=None, alignment_strategy='kabsch'):
+                           alignment_strategy='kabsch'):
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
         x_predicted, x_true, masks, alignment_strategy=alignment_strategy)
@@ -1154,14 +1154,7 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         loss_dict['binned_distance_classification_loss'] = val * w
     else:
         loss_dict['binned_distance_classification_loss'] = torch.tensor(0.0, device=device)
-    # Inverse folding
-    if configs.train_settings.losses.inverse_folding.enabled:
-        w = configs.train_settings.losses.inverse_folding.weight
-        val = calculate_inverse_folding_loss(seq_logits, seq, masks.bool()) if seq_logits is not None else torch.tensor(
-            0.0, device=device)
-        loss_dict['inverse_folding_loss'] = val * w
-    else:
-        loss_dict['inverse_folding_loss'] = torch.tensor(0.0, device=device)
+
     # FAPE
     if configs.train_settings.losses.fape.enabled:
         w = configs.train_settings.losses.fape.weight

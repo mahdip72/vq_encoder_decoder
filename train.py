@@ -81,13 +81,10 @@ def train_loop(net, train_loader, epoch, **kwargs):
             labels = data['target_coords']
             masks = data['masks']
 
-            # seq_list = separate_features(data["graph"].seq.unsqueeze(-1), data["graph"].batch)
-            # seq, *_ = merge_features(seq_list, configs.model.max_length)
-
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
 
-            outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
+            outputs, dir_loss_logits, dist_loss_logits = net_outputs
 
             # Compute the loss components
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
@@ -98,7 +95,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 seq=data["inverse_folding_labels"],
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
-                seq_logits=seq_logits,
                 alignment_strategy=alignment_strategy
             )
             rec_loss = loss_dict['rec_loss']
@@ -123,9 +119,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 if configs.train_settings.losses.binned_distance_classification.enabled:
                     gn = compute_grad_norm(loss_dict['binned_distance_classification_loss'], net.parameters())
                     writer.add_scalar('gradient norm/binned_distance_classification', gn.item(), global_step)
-                if configs.train_settings.losses.inverse_folding.enabled:
-                    gn = compute_grad_norm(loss_dict['inverse_folding_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/inverse_folding', gn.item(), global_step)
                 if configs.train_settings.losses.fape.enabled:
                     gn = compute_grad_norm(loss_dict['fape_loss'], net.parameters())
                     writer.add_scalar('gradient norm/fape', gn.item(), global_step)
@@ -320,7 +313,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             gathered_indices = accelerator.gather(indices)
             epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
 
-            outputs, dir_loss_logits, dist_loss_logits, seq_logits = net_outputs
+            outputs, dir_loss_logits, dist_loss_logits = net_outputs
 
             # Compute the loss components
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
@@ -331,7 +324,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 seq=data["inverse_folding_labels"],
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
-                seq_logits=seq_logits,
                 alignment_strategy=alignment_strategy
             )
             rec_loss = loss_dict['rec_loss']

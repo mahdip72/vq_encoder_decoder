@@ -94,9 +94,6 @@ train_settings:
     binned_direction_classification:
       enabled: False
       weight: 0.01
-    inverse_folding:
-      enabled: False
-      weight: 1.0
     fape:
       enabled: False
       weight: 1.0
