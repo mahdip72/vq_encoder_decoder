@@ -1,7 +1,6 @@
 import torch.nn as nn
-from models.encoders import GVPTransformerEncoderWrapper
 from models.vqvae import VQVAETransformer
-from models.decoders import GCPNetDecoder, GeometricDecoder
+from models.decoders import GeometricDecoder
 from gcpnet.models.gcpnet import GCPNetModel
 from utils.utils import print_trainable_parameters
 from models.utils import merge_features, separate_features
@@ -79,9 +78,6 @@ def prepare_model(configs, logger, **kwargs):
                 encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
                                                               strict=False,
                                                               cfg=pretrained_config)
-
-        elif configs.model.encoder.name == "gvp_transformer":
-            encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
         else:
             raise ValueError("Invalid encoder model specified!")
 
@@ -95,9 +91,7 @@ def prepare_model(configs, logger, **kwargs):
     else:
         encoder = None
 
-    if configs.model.vqvae.decoder.name == "gcpnet":
-        decoder = GCPNetDecoder(configs, decoder_configs=kwargs["decoder_configs"])
-    elif configs.model.vqvae.decoder.name == "geometric_decoder":
+    if configs.model.vqvae.decoder.name == "geometric_decoder":
         decoder = GeometricDecoder(configs, decoder_configs=kwargs["decoder_configs"])
     else:
         raise ValueError("Invalid decoder model specified!")

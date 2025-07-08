@@ -415,9 +415,7 @@ def prepare_saving_dir(configs, config_file_path):
 
 
 def load_encoder_decoder_configs(configs, result_path):
-    if configs.model.encoder.name == 'gvp_transformer':
-        encoder_config_file_path = os.path.join('configs', 'config_gvp_transformer_encoder.yaml')
-    elif configs.model.encoder.name == 'gcpnet':
+    if configs.model.encoder.name == 'gcpnet':
         encoder_config_file_path = os.path.join('configs', 'config_gcpnet_encoder.yaml')
     else:
         raise ValueError('Unknown encoder')
@@ -431,8 +429,6 @@ def load_encoder_decoder_configs(configs, result_path):
 
     if configs.model.vqvae.decoder.name == 'geometric_decoder':
         decoder_config_file_path = os.path.join('configs', 'config_geometric_decoder.yaml')
-    elif configs.model.vqvae.decoder.name == 'gcpnet':
-        decoder_config_file_path = os.path.join('configs', 'config_gcpnet_decoder.yaml')
     else:
         raise ValueError('Unknown decoder')
 
