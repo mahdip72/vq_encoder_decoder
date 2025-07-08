@@ -119,9 +119,6 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 if configs.train_settings.losses.binned_distance_classification.enabled:
                     gn = compute_grad_norm(loss_dict['binned_distance_classification_loss'], net.parameters())
                     writer.add_scalar('gradient norm/binned_distance_classification', gn.item(), global_step)
-                if configs.train_settings.losses.fape.enabled:
-                    gn = compute_grad_norm(loss_dict['fape_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/fape', gn.item(), global_step)
 
                 if configs.model.vqvae.vector_quantization.enabled:
                     # commitment loss
