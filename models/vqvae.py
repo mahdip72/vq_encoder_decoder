@@ -6,7 +6,7 @@ from ndlinear import NdLinear
 
 
 class VQVAETransformer(nn.Module):
-    def __init__(self, configs, decoder, decoder_only=False):
+    def __init__(self, configs, decoder, logger, decoder_only=False):
         super(VQVAETransformer, self).__init__()
 
         self.max_length = configs.model.max_length
@@ -65,6 +65,15 @@ class VQVAETransformer(nn.Module):
                     nn.Conv1d(configs.model.vqvae.encoder.dimension, self.vqvae_dim, 1),
                 )
 
+            if configs.model.vqvae.encoder.get('freeze_parameters', False):
+                for param in self.encoder_tail.parameters():
+                    param.requires_grad = False
+                for param in self.encoder_blocks.parameters():
+                    param.requires_grad = False
+                for param in self.encoder_head.parameters():
+                    param.requires_grad = False
+                logger.info("VQVAE encoder parameters frozen.")
+
         # Vector Quantizer layer
         if self.vqvae_enabled:
             self.vector_quantizer = VectorQuantize(
@@ -82,6 +91,11 @@ class VQVAETransformer(nn.Module):
                 kmeans_init=configs.model.vqvae.vector_quantization.kmeans_init,
                 kmeans_iters=configs.model.vqvae.vector_quantization.kmeans_iters  # number of kmeans iterations to calculate the centroids for the codebook on init
             )
+
+            if configs.model.vqvae.vector_quantization.get('freeze_parameters', False):
+                for param in self.vector_quantizer.parameters():
+                    param.requires_grad = False
+                logger.info("VQ layer parameters frozen.")
 
         self.decoder = decoder
 

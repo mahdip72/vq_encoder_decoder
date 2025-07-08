@@ -1,7 +1,7 @@
 fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
-tqdm_progress_bar: True
+tqdm_progress_bar: False
 result_path: ./results/test/
 
 resume:
@@ -17,6 +17,7 @@ model:
   use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
   encoder:
     name: gcpnet # gvp_transformer, gcpnet
+    freeze_parameters: False
     pretrained:
       enabled: True
       config_path: ./configs/pretrained/structure_denoising_pretrained_config.yaml
@@ -24,6 +25,7 @@ model:
   vqvae:
     vector_quantization:
       enabled: True
+      freeze_parameters: False
       dim: 256
       decay: 0.99
       codebook_size: 4096
@@ -37,6 +39,7 @@ model:
       kmeans_iters: 10
       alpha: 1.0
     encoder:
+      freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
       ff_mult: 4         # Multiplier for the feedforward dimension
       depth: 12      # Number of layers in the Encoder
@@ -48,7 +51,9 @@ model:
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
       num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
-    decoder: geometric_decoder # geometric_decoder, gcpnet
+    decoder:
+      name: geometric_decoder # geometric_decoder, gcpnet
+      freeze_parameters: False
 
 train_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
@@ -69,7 +74,7 @@ train_settings:
     min_length: 25
   nan_augmentation:
     enabled: True
-    probability: 0.2
+    probability: 0.05
     max_length: 7
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   losses:
@@ -101,7 +106,7 @@ train_settings:
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5
   do_every: 1
-  save_pdb_every: 8
+  save_pdb_every: 1
   batch_size: 32
   num_workers: 0
 

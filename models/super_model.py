@@ -84,19 +84,31 @@ def prepare_model(configs, logger, **kwargs):
             encoder = GVPTransformerEncoderWrapper(output_logits=False, finetune=True)
         else:
             raise ValueError("Invalid encoder model specified!")
+
+        if configs.model.encoder.get('freeze_parameters', False):
+            for param in encoder.parameters():
+                param.requires_grad = False
+            logger.info("Encoder parameters frozen.")
+
     else:
         encoder = None
 
-    if configs.model.vqvae.decoder == "gcpnet":
+    if configs.model.vqvae.decoder.name == "gcpnet":
         decoder = GCPNetDecoder(configs, decoder_configs=kwargs["decoder_configs"])
-    elif configs.model.vqvae.decoder == "geometric_decoder":
+    elif configs.model.vqvae.decoder.name == "geometric_decoder":
         decoder = GeometricDecoder(configs, decoder_configs=kwargs["decoder_configs"])
     else:
         raise ValueError("Invalid decoder model specified!")
 
+    if configs.model.vqvae.decoder.get('freeze_parameters', False):
+        for param in decoder.parameters():
+            param.requires_grad = False
+        logger.info("Decoder parameters frozen.")
+
     vqvae = VQVAETransformer(
-        decoder = decoder,
+        decoder=decoder,
         configs=configs,
+        logger=logger,
         decoder_only=kwargs.get("decoder_only", False),
     )
 
