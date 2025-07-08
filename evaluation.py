@@ -91,7 +91,7 @@ def evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger):
                 'rmsd': rmsd
             })
 
-            logger.info(f"Evaluated {pred_file}: TM-score={tm_score:.4f}, RMSD={rmsd:.4f}")
+            # logger.info(f"Evaluated {pred_file}: TM-score={tm_score:.4f}, RMSD={rmsd:.4f}")
 
         except Exception as e:
             logger.error(f"Failed to evaluate {pred_file}: {str(e)}")
@@ -99,7 +99,7 @@ def evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger):
 
     # Save results to CSV
     if results:
-        csv_path = os.path.join(result_dir, 'structure_evaluation_results.csv')
+        csv_path = os.path.join(result_dir, 'detailed_scores.csv')
         with open(csv_path, 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=['pdb_file', 'tm_score', 'rmsd'])
             writer.writeheader()
