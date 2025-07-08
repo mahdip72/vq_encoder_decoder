@@ -14,6 +14,7 @@ from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoi
 from utils.custom_losses import calculate_aligned_mse_loss
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model
+from evaluation_utils.tmscore import TMscoring  # Import TM-score evaluation
 
 
 def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
@@ -47,6 +48,94 @@ def save_predictions_to_pdb(pids, preds, masks, pdb_dir):
     for pid, coord, mask in zip(pids, preds, masks):
         prefix = os.path.join(pdb_dir, pid)
         save_backbone_pdb_inference(coord, mask, prefix)
+
+
+def evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger):
+    """Evaluate TM-score and RMSD between predicted and original structures."""
+    logger.info("Starting TM-score and RMSD evaluation...")
+
+    # Get all predicted PDB files
+    pred_files = [f for f in os.listdir(pdb_dir) if f.endswith('.pdb')]
+
+    if not pred_files:
+        logger.warning("No PDB files found for evaluation")
+        return
+
+    results = []
+    failed_evaluations = []
+
+    # Process each predicted structure
+    for pred_file in tqdm(pred_files, desc="Evaluating structures"):
+        pred_path = os.path.join(pdb_dir, pred_file)
+
+        # Find corresponding original file
+        # Remove any prefixes and use the base name
+        base_name = pred_file
+        original_path = os.path.join(original_pdb_dir, base_name)
+
+        if not os.path.exists(original_path):
+            logger.warning(f"Original file not found for {pred_file}")
+            failed_evaluations.append(pred_file)
+            continue
+
+        try:
+            # Create TMscoring instance for this pair of files
+            tm_scorer = TMscoring(pred_path, original_path)
+
+            # Optimize alignment and get TM-score and RMSD
+            _, tm_score, rmsd = tm_scorer.optimise()
+
+            results.append({
+                'pdb_file': pred_file,
+                'tm_score': tm_score,
+                'rmsd': rmsd
+            })
+
+            logger.info(f"Evaluated {pred_file}: TM-score={tm_score:.4f}, RMSD={rmsd:.4f}")
+
+        except Exception as e:
+            logger.error(f"Failed to evaluate {pred_file}: {str(e)}")
+            failed_evaluations.append(pred_file)
+
+    # Save results to CSV
+    if results:
+        csv_path = os.path.join(result_dir, 'structure_evaluation_results.csv')
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['pdb_file', 'tm_score', 'rmsd'])
+            writer.writeheader()
+            writer.writerows(results)
+
+        # Calculate and log summary statistics
+        tm_scores = [r['tm_score'] for r in results]
+        rmsds = [r['rmsd'] for r in results]
+
+        avg_tm_score = sum(tm_scores) / len(tm_scores)
+        avg_rmsd = sum(rmsds) / len(rmsds)
+
+        logger.info(f"Evaluation completed for {len(results)} structures")
+        logger.info(f"Average TM-score: {avg_tm_score:.4f}")
+        logger.info(f"Average RMSD: {avg_rmsd:.4f}")
+        logger.info(f"Results saved to: {csv_path}")
+
+        # Save summary statistics
+        summary_path = os.path.join(result_dir, 'evaluation_summary.txt')
+        with open(summary_path, 'w') as f:
+            f.write(f"Structure Evaluation Summary\n")
+            f.write(f"===========================\n\n")
+            f.write(f"Total structures evaluated: {len(results)}\n")
+            f.write(f"Failed evaluations: {len(failed_evaluations)}\n")
+            f.write(f"Average TM-score: {avg_tm_score:.4f}\n")
+            f.write(f"Average RMSD: {avg_rmsd:.4f}\n")
+            f.write(f"TM-score range: {min(tm_scores):.4f} - {max(tm_scores):.4f}\n")
+            f.write(f"RMSD range: {min(rmsds):.4f} - {max(rmsds):.4f}\n")
+
+            if failed_evaluations:
+                f.write(f"\nFailed evaluations:\n")
+                for failed in failed_evaluations:
+                    f.write(f"  - {failed}\n")
+
+    else:
+        logger.error("No structures were successfully evaluated")
 
 
 def main():
@@ -132,7 +221,7 @@ def main():
 
     # Load checkpoint
     checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
-    model = load_checkpoints_simple(checkpoint_path, model)
+    model = load_checkpoints_simple(checkpoint_path, model, logger)
 
     # Prepare everything with accelerator (model and dataloader)
     model, list_loader = accelerator.prepare(model, [loader])
@@ -194,6 +283,9 @@ def main():
             if not isinstance(inds, (list, tuple)):
                 inds = [inds]
             writer.writerow([pid, ' '.join(map(str, inds)), seq])
+
+    # Evaluate structures using TM-score and RMSD
+    evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger)
 
 
 if __name__ == '__main__':
