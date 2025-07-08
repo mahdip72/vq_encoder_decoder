@@ -1,91 +1,99 @@
-# Vector Quantize Encoder-Decoder Model of 3D Structures
+# Vector Quantized Encoder-Decoder for Protein 3D Structures
 
-This is a research project regarding a vector quantize encoder-decoder model of protein 3D structure.
-The vector quantize model is based on the original paper
-"Neural Discrete Representation Learning" by Aaron van den Oord, Oriol Vinyals, and Koray Kavukcuoglu.
-The paper can be found [here](https://arxiv.org/abs/1711.00937).
+This research project implements a Vector Quantized Variational Autoencoder (VQ-VAE) for learning discrete representations of protein 3D structures. The model combines geometric deep learning with transformer-based architectures to encode protein structures into discrete tokens and decode them back to 3D coordinates.
 
-Here is a great repo of different pytorch implementation of VQ-VAE
-models: [repository](https://github.com/lucidrains/vector-quantize-pytorch)
+## Model Architecture
+
+The system consists of three main components:
+
+1. **Structure Encoder (GCPNet)**: Processes protein backbone atoms (N, CA, C, O) and extracts 128-dimensional structural features
+2. **VQ-VAE Transformer**: 
+   - Encoder: Projects features through transformer layers to discrete codebook space (4096 codes, 256D)
+   - Vector Quantization: Learns discrete representations with commitment and orthogonal regularization
+   - Decoder: Reconstructs 3D coordinates from quantized representations
+3. **Geometric Decoder**: Outputs backbone coordinates and pairwise relationship predictions
 
 ## Installation
 
-To use this project, follow the install.sh file to install the dependencies.
+### Option 1: Using Pre-built Docker Images
 
-### Install using SH file
-
-First, create a conda environment by running the following command:
-
-```commandline
-conda create --name vqvae python=3.10
+For AMD64 systems:
+```bash
+docker pull mahdip72/vqvae3d:amd_v3
+docker run --gpus all -it mahdip72/vqvae3d:amd_v3
 ```
 
-and activate the conda environment by running the following command:
+For ARM64 systems:
+```bash
+docker pull mahdip72/vqvae3d:arm_v2
+docker run --gpus all -it mahdip72/vqvae3d:arm_v2
+```
 
-```commandline
+### Option 2: Building from Dockerfile
+
+```bash
+# Clone the repository
+git clone https://github.com/mahdip72/vq_encoder_decoder.git
+cd vq_encoder_decoder
+
+# Build the Docker image
+docker build -t vqvae3d .
+
+# Run the container
+docker run --gpus all -it vqvae3d
+```
+
+### Option 3: Conda Environment Setup
+
+Create and activate a conda environment:
+```bash
+conda create --name vqvae python=3.10
 conda activate vqvae
 ```
 
-Next, make the install.sh file executable by running the following command:
-
-```commandline
+Make the installation script executable and run it:
+```bash
 chmod +x install_conda.sh
-```
-
-Then, run the following command to install the required packages inside the conda environment:
-
-```commandline
 bash install_conda.sh
 ```
 
-A separate sh file is created for the installation of the GCPNet model. You can run the following command to install the
-required packages for the GCPNet model:
-
-```commandline
+For GCPNet model dependencies:
+```bash
 bash install_conda_gcpnet.sh
 ```
 
-## Training EGNN model
+## Usage
 
-To utilize the accelerator power in you training code such as distributed multi GPU training,
-you have to set the accelerator config by running accelerate config in the command line:
+### Training
 
-```commandline
+Configure your training parameters in `configs/config_vqvae.yaml` and run:
+
+```bash
+# Set up accelerator configuration for multi-GPU training
 accelerate config
+
+# Start training with accelerate for multi-GPU support
+accelerate launch train.py --config_path configs/config_vqvae.yaml
 ```
 
-This command will create an accelerate config file in your environment. Then, you have to set
-the training settings and hyperparameters inside your target task `configs/config_{task}.yaml` file. Finally,
-you can start your training using a config file from configs by running the following command:
+### Inference
 
-```commandline
-accelerate launch train.py --config_path configs/config_file.yaml
+For encoding proteins to discrete tokens:
+```bash
+python inference_encode.py --config_path configs/inference_encode_config.yaml
 ```
 
-Example:
-
-```commandline
-accelerate launch train_egnn.py --config_path configs/config_egnn_vqvae.yaml
+For decoding tokens back to 3D structures:
+```bash
+python inference_decode.py --config_path configs/inference_decode_config.yaml
 ```
 
-You might not use accelerator to run the train.py script if you just want to debug your script on single GPU.
-If so, simply after setting the config.yaml file, run the code like `python train.py`.
-It should be noted that accelerate library supports both single gpu and distributed training.
-So, you can use it for your final training.
 
-## Data
+## Requirements
 
-We extract backbone coordinates from pdb files and save them in h5 files. To test the model,
-you can consider the validation dataset (5k samples) in
-this [link](https://mailmissouri-my.sharepoint.com/:f:/r/personal/mpngf_umsystem_edu/Documents/Github/3DVQVAE/data/validation_set_1024_h5?csf=1&web=1&e=s6nwCc).
+- Python 3.10+
+- PyTorch 2.0+
+- CUDA-compatible GPU
+- 16GB+ GPU memory recommended for training
 
-## To Do
-
-- [x] Connect the config file to the VQ model
-- [x] Connect GVP model to the config file
-- [x] Add the evaluation code to fashionMNIST dataset
-- [x] Create the main VQ model with the GVP encoder and a decoder
-- [x] Add contact map dataloader to the project
-- [x] Add other features of accelerate training to the project
-- [x] Add GCPNet model as an encoder and decoder via the GCPNet-VQVAE model
-- [ ] Add and test the LFQ model as an option
+For detailed dependencies, see `Dockerfile` or installation scripts.
