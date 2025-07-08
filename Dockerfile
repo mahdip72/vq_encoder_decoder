@@ -57,7 +57,6 @@ RUN python3 -m pip install "beartype==0.15.0"
 RUN python3 -m pip install "rich==13.5.2"
 RUN python3 -m pip install "pytdc==0.4.1"
 RUN python3 -m pip install "wandb==0.15.8"
-# RUN python3 -m pip install "torchmetrics==1.2.0"
 RUN python3 -m pip install "lovely-tensors==0.1.15"
 RUN python3 -m pip install "psutil==5.9.5"
 RUN python3 -m pip install "tqdm==4.66.1"
@@ -70,7 +69,6 @@ RUN python3 -m pip install "wget==3.2"
 RUN python3 -m pip install "opt-einsum==3.3.0"
 RUN python3 -m pip install "pyrootutils==1.0.4"
 RUN python3 -m pip install "hydra-colorlog==1.2.0"
-# RUN python3 -m pip install "foldcomp==0.0.5"
 
 
 # Environment variables
