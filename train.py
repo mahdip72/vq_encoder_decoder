@@ -430,12 +430,12 @@ def main(dict_config, config_file_path):
         np.random.seed(configs.fix_seed)
 
     # Set find_unused_parameters to True
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=configs.find_unused_parameters)
     dataloader_config = DataLoaderConfiguration(
-        dispatch_batches=False,
-        even_batches=True,
-        non_blocking=False,
-        split_batches=False,
+        dispatch_batches=configs.dispatch_batches,
+        even_batches=configs.even_batches,
+        non_blocking=configs.non_blocking,
+        split_batches=configs.split_batches,
         # use_stateful_dataloader=True
     )
     accelerator = Accelerator(
