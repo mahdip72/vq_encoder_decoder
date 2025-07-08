@@ -6,8 +6,9 @@ result_path: ./results/test/
 
 resume:
   enabled: False
-  resume_path: results/dgx/2025-06-04__22-02-46/checkpoints/epoch_96.pth
+  resume_path: results/dgx/vqvae/2025-07-02__01-28-28/checkpoints/epoch_8.pth
   restart_optimizer: True
+  discard_decoder_weights: True
 
 model:
   compile_model: False
@@ -23,7 +24,7 @@ model:
   vqvae:
     vector_quantization:
       enabled: True
-      dim: 512
+      dim: 256
       decay: 0.99
       codebook_size: 4096
       commitment_weight: 0.5
@@ -36,7 +37,7 @@ model:
       kmeans_iters: 10
       alpha: 1.0
     encoder:
-      dimension: 768  # Used as dim_in and dim_out for ContinuousTransformerWrapper
+      dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
       ff_mult: 4         # Multiplier for the feedforward dimension
       depth: 12      # Number of layers in the Encoder
       heads: 12      # Number of attention heads in the Encoder
@@ -106,7 +107,7 @@ valid_settings:
 
 visualization_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5
-  fasta_path: ../../visualization/Rep_subfamily_basedon_S40pdb.fa
+  fasta_path: visualization/Rep_subfamily_basedon_S40pdb.fa
   do_every: 8192
   batch_size: 1
   num_workers: 4

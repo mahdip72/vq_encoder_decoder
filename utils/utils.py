@@ -184,6 +184,12 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
         pretrained_state_dict = model_checkpoint['model_state_dict']
         pretrained_state_dict = {k.replace('_orig_mod.', ''): v for k, v in pretrained_state_dict.items()}
 
+        if configs.resume.get('discard_decoder_weights', False):
+            logging.info("Discarding decoder weights from checkpoint.")
+            keys_to_remove = [k for k in pretrained_state_dict if k.startswith('vqvae.decoder')]
+            for k in keys_to_remove:
+                del pretrained_state_dict[k]
+
         loading_log = net.load_state_dict(pretrained_state_dict, strict=False)
 
         logging.info(f'Loading checkpoint log: {loading_log}')
