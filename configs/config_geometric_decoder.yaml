@@ -1,10 +1,10 @@
 dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
 ff_mult: 4         # Multiplier for the feedforward dimension
-depth: 16      # Number of layers in the Encoder
-heads: 16      # Number of attention heads in the Encoder
+depth: 12      # Number of layers in the Encoder
+heads: 12      # Number of attention heads in the Encoder
 rotary_pos_emb: True
 attn_flash: True # FA-2 if installed
-attn_kv_heads: 1 # GQA
+attn_kv_heads: 3 # GQA
 qk_norm: True
 pre_norm: True
 residual_attn: False # Set pre_norm to False if residual_attn is True
