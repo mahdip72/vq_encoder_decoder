@@ -69,6 +69,7 @@ RUN python3 -m pip install "wget==3.2"
 RUN python3 -m pip install "opt-einsum==3.3.0"
 RUN python3 -m pip install "pyrootutils==1.0.4"
 RUN python3 -m pip install "hydra-colorlog==1.2.0"
+RUN python3 -m pip install "bitsandbytes"
 
 
 # Environment variables
