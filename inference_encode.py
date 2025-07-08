@@ -9,9 +9,7 @@ from box import Box
 from tqdm import tqdm
 from accelerate import Accelerator
 import csv
-
-from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
-from utils.custom_losses import calculate_aligned_mse_loss
+from utils.utils import load_configs, load_checkpoints_simple, get_logging
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
 from models.super_model import prepare_model
 
@@ -42,13 +40,6 @@ def record_indices(pids, indices_tensor, sequences, records):
         records.append({'pid': pid, 'indices': idx[:len(seq)], 'protein_sequence': seq})
 
 
-def save_predictions_to_pdb(pids, preds, masks, pdb_dir):
-    """Save backbone PDB files for each sample in the batch."""
-    for pid, coord, mask in zip(pids, preds, masks):
-        prefix = os.path.join(pdb_dir, pid)
-        save_backbone_pdb_inference(coord, mask, prefix)
-
-
 def main():
     # Load inference configuration
     with open("configs/inference_encode_config.yaml") as f:
@@ -58,12 +49,6 @@ def main():
     now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
     result_dir = os.path.join(infer_cfg['output_base_dir'], now)
     os.makedirs(result_dir, exist_ok=True)
-    pdb_dir = os.path.join(result_dir, 'pdb_files')
-    os.makedirs(pdb_dir, exist_ok=True)
-
-    if infer_cfg.get('save_original_pdb', False):
-        original_pdb_dir = os.path.join(result_dir, 'original_pdb_files')
-        os.makedirs(original_pdb_dir, exist_ok=True)
 
     # Copy inference config for reference
     shutil.copy("configs/inference_encode_config.yaml", result_dir)
@@ -123,7 +108,8 @@ def main():
     model = prepare_model(
         configs, logger,
         encoder_configs=encoder_configs,
-        decoder_configs=decoder_configs
+        decoder_configs=decoder_configs,
+        decoder_only=True
     )
     # Freeze all model parameters
     for param in model.parameters():
@@ -133,7 +119,7 @@ def main():
 
     # Load checkpoint
     checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
-    model = load_checkpoints_simple(checkpoint_path, model, logger)
+    model = load_checkpoints_simple(checkpoint_path, model, logger, decoder_only=True)
 
     # Prepare everything with accelerator (model and dataloader)
     model, list_loader = accelerator.prepare(model, [loader])
@@ -141,7 +127,6 @@ def main():
 
     # Prepare for optional VQ index recording
     indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
-
 
     # enable or disable progress bar
     iterator = (tqdm(loader, desc="Inference", total=len(loader))
@@ -153,51 +138,28 @@ def main():
             batch['graph'] = batch['graph'].to(accelerator.device)
 
             # Forward pass: get either decoded outputs or VQ layer outputs
-            output, indices, _ = model(batch, return_vq_layer=infer_cfg['return_vq_layer'])
+            output, indices, _ = model(batch, return_vq_layer=True)
             pids = batch['pid']  # list of identifiers
-            if infer_cfg['return_vq_layer']:
-                sequences = batch['seq']
-                # record indices per sample
-                record_indices(pids, indices, sequences, indices_records)
+            sequences = batch['seq']
+            # record indices per sample
+            record_indices(pids, indices, sequences, indices_records)
 
-            else:
-                # output is tuple of (bb_pred, ...)
-                bb_pred = output[0]
-                # reshape from (B, L, 9) to (B, L, 3, 3)
-                preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
-                masks = batch['masks']
-                true_coords = batch['target_coords'].view(preds.shape[0], preds.shape[1], 3, 3)
+    logger.info(f"Inference encoding completed. Results are saved in {result_dir}")
 
-                # Align predicted coordinates to true coordinates
-                _, preds_aligned, trues_aligned = calculate_aligned_mse_loss(
-                    x_predicted=preds,
-                    x_true=true_coords.to(accelerator.device),
-                    masks=masks.to(accelerator.device),
-                    alignment_strategy=infer_cfg.get('alignment_strategy', 'kabsch')
-                )
-                # save PDBs via helper
-                save_predictions_to_pdb(pids, preds_aligned.detach().cpu(), masks.cpu(), pdb_dir)
-
-                if infer_cfg.get('save_original_pdb', False):
-                    # The ground truth coordinates are now aligned and can be saved
-                    save_predictions_to_pdb(pids, trues_aligned.detach().cpu(), masks.cpu(), original_pdb_dir)
-
-    logger.info(f"Inference completed. Results are saved in {result_dir}")
     # After loop, save indices CSV if requested
-    if infer_cfg.get('return_vq_layer', False):
-        csv_filename = infer_cfg.get('vq_indices_csv_filename', 'vq_indices.csv')
-        csv_path = os.path.join(result_dir, csv_filename)
-        with open(csv_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['pid', 'indices', 'protein_sequence'])
-            for rec in indices_records:
-                pid = rec['pid']
-                inds = rec['indices']
-                seq = rec['protein_sequence']
-                # ensure a list for joining
-                if not isinstance(inds, (list, tuple)):
-                    inds = [inds]
-                writer.writerow([pid, ' '.join(map(str, inds)), seq])
+    csv_filename = infer_cfg.get('vq_indices_csv_filename', 'vq_indices.csv')
+    csv_path = os.path.join(result_dir, csv_filename)
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['pid', 'indices', 'protein_sequence'])
+        for rec in indices_records:
+            pid = rec['pid']
+            inds = rec['indices']
+            seq = rec['protein_sequence']
+            # ensure a list for joining
+            if not isinstance(inds, (list, tuple)):
+                inds = [inds]
+            writer.writerow([pid, ' '.join(map(str, inds)), seq])
 
 
 if __name__ == '__main__':
