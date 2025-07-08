@@ -16,7 +16,7 @@ model:
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
   use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
   encoder:
-    name: gcpnet # gvp_transformer, gcpnet
+    name: gcpnet # gcpnet
     freeze_parameters: False
     pretrained:
       enabled: True
@@ -52,7 +52,7 @@ model:
       residual_attn: False # Set pre_norm to False if residual_attn is True
       num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
     decoder:
-      name: geometric_decoder # geometric_decoder, gcpnet
+      name: geometric_decoder # geometric_decoder
       freeze_parameters: False
 
 train_settings:
@@ -78,7 +78,7 @@ train_settings:
     max_length: 7
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   losses:
-    alignment_strategy: kabsch # kabsch, kabsch_old, quaternion, no
+    alignment_strategy: kabsch # kabsch, quaternion, no
     mse:
       enabled: True
       weight: 0.005
