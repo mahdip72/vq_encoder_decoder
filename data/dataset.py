@@ -585,7 +585,7 @@ class GCPNetDataset(Dataset):
         coords_list, nan_mask = self.handle_nan_coordinates(torch.tensor(coords_list))
 
         # pad or trim nan_mask to self.max_length
-        nan_mask = torch.cat([nan_mask, nan_mask.new_zeros(self.max_length, nan_mask.shape[1])], dim=0)[:self.max_length]
+        nan_mask = torch.cat([nan_mask, nan_mask.new_zeros(self.max_length, nan_mask.shape[1])], dim=0)[:self.max_length].any(dim=1)
 
         coords_list = self.recenter_coordinates(coords_list).tolist()
 
