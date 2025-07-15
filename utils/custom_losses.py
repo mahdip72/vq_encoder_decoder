@@ -1,6 +1,5 @@
 import torch
 import torch.nn.functional as F
-from graphein.protein.tensor.geometry import quaternion_to_matrix
 from utils.alignment import kabsch
 
 
@@ -28,115 +27,6 @@ def compute_grad_norm(loss, parameters, norm_type=2):
         return torch.tensor(0.0)
     norm = torch.norm(torch.stack([torch.norm(g.detach(), norm_type) for g in grads]), norm_type)
     return norm
-
-
-def quaternion_align(P, Q, weights=None):
-    """
-    Quaternion-based alignment of point sets (Horn's method).
-    Aligns Q to P (true coordinates to predicted coordinates).
-
-    Args:
-        P: Predicted coordinates [batch, num_points, 3]
-        Q: True coordinates [batch, num_points, 3]
-        weights: Optional weights for each point [batch, num_points]
-
-    Returns:
-        R: Rotation matrices [batch, 3, 3]
-        t: Translation vectors [batch, 3, 1]
-    """
-    batch_size = P.shape[0]
-    device = P.device
-
-    if weights is None:
-        weights = torch.ones(P.shape[0], P.shape[1], device=device)
-
-    # Normalize weights to sum to 1 per batch
-    weights_sum = weights.sum(dim=1, keepdim=True)
-    norm_weights = weights / (weights_sum + 1e-8)
-
-    # Calculate centroids
-    weights_expanded = norm_weights.unsqueeze(-1)
-    p_center = torch.sum(P * weights_expanded, dim=1, keepdim=True)
-    q_center = torch.sum(Q * weights_expanded, dim=1, keepdim=True)
-
-    # Center the coordinates
-    p_centered = P - p_center
-    q_centered = Q - q_center
-
-    # Compute weighted covariance matrix
-    C = torch.bmm(p_centered.transpose(1, 2), q_centered * weights_expanded)
-
-    # Construct the quaternion matrix
-    K = torch.zeros(batch_size, 4, 4, device=device)
-
-    K[:, 0, 0] = C[:, 0, 0] + C[:, 1, 1] + C[:, 2, 2]
-    K[:, 0, 1] = C[:, 1, 2] - C[:, 2, 1]
-    K[:, 0, 2] = C[:, 2, 0] - C[:, 0, 2]
-    K[:, 0, 3] = C[:, 0, 1] - C[:, 1, 0]
-
-    K[:, 1, 0] = C[:, 1, 2] - C[:, 2, 1]
-    K[:, 1, 1] = C[:, 0, 0] - C[:, 1, 1] - C[:, 2, 2]
-    K[:, 1, 2] = C[:, 0, 1] + C[:, 1, 0]
-    K[:, 1, 3] = C[:, 0, 2] + C[:, 2, 0]
-
-    K[:, 2, 0] = C[:, 2, 0] - C[:, 0, 2]
-    K[:, 2, 1] = C[:, 0, 1] + C[:, 1, 0]
-    K[:, 2, 2] = -C[:, 0, 0] + C[:, 1, 1] - C[:, 2, 2]
-    K[:, 2, 3] = C[:, 1, 2] + C[:, 2, 1]
-
-    K[:, 3, 0] = C[:, 0, 1] - C[:, 1, 0]
-    K[:, 3, 1] = C[:, 0, 2] + C[:, 2, 0]
-    K[:, 3, 2] = C[:, 1, 2] + C[:, 2, 1]
-    K[:, 3, 3] = -C[:, 0, 0] - C[:, 1, 1] + C[:, 2, 2]
-
-    # Find eigenvector with largest eigenvalue
-    _, eigenvecs = torch.linalg.eigh(K)
-    q = eigenvecs[:, :, -1]  # Last column is the eigenvector for largest eigenvalue
-
-    # Convert quaternion to rotation matrix
-    R = quaternion_to_matrix(q)
-
-    # Calculate translation
-    t = p_center.transpose(1, 2) - torch.bmm(R, q_center.transpose(1, 2))  # Ensure t is [batch, 3, 1]
-
-    return R, t
-
-
-def compute_quaternion_alignment(x_pred, x_tru, mask):
-    # Flatten valid coordinates along sequence and atom dimensions for quaternion alignment
-    pred_flat = x_pred[mask].reshape(-1, 3)  # Shape: [num_valid_points, 3]
-    true_flat = x_tru[mask].reshape(-1, 3)  # Shape: [num_valid_points, 3]
-
-    # Create batch dimension of 1 for the quaternion_align function
-    pred_batch = pred_flat.unsqueeze(0)  # Shape: [1, num_valid_points, 3]
-    true_batch = true_flat.unsqueeze(0)  # Shape: [1, num_valid_points, 3]
-
-    # Compute rotation and translation to align true to predicted coordinates
-    # Note: quaternion_align aligns Q to P (true to predicted)
-    R, t = quaternion_align(pred_batch, true_batch)
-
-    # Apply rotation and translation to all true coordinates (not just masked ones)
-    # First reshape to batch dim for matrix multiplication
-    x_tru_reshaped = x_tru.reshape(-1, 3).unsqueeze(0)  # Shape: [1, seq_len*num_atoms, 3]
-
-    # Apply rotation
-    rotated = torch.bmm(R, x_tru_reshaped.transpose(1, 2)).transpose(1, 2)  # Shape: [1, seq_len*num_atoms, 3]
-
-    # Apply translation - Fix the shape of t before broadcasting
-    # Ensure t has correct shape for broadcasting
-    if t.dim() == 3 and t.shape[1] == 3 and t.shape[2] != 1:
-        # If t is [1, 3, 3] or similar, extract the translation vector
-        t = t[:, :, 0].unsqueeze(2)  # Shape: [1, 3, 1]
-
-    # Now properly reshape for broadcasting
-    t = t.transpose(1, 2)  # Shape: [1, 1, 3]
-    # Expand t to match the shape of rotated
-    t_broadcasted = t.expand_as(rotated)  # Shape: [1, seq_len*num_atoms, 3]
-
-    # Add the translation to the rotated coordinates
-    x_true_aligned = (rotated + t_broadcasted).squeeze(0).reshape_as(x_tru)  # Shape: [seq_len, num_atoms, 3]
-
-    return x_true_aligned
 
 
 def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
@@ -186,9 +76,6 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
                 aligned_valid = aligned_flat.reshape_as(x_tru_valid)
                 # Assign aligned residues back into the full tensor
                 x_true_aligned[mask] = aligned_valid
-
-            elif alignment_strategy == 'quaternion':
-                x_true_aligned = compute_quaternion_alignment(x_pred, x_tru, mask).detach()
 
             elif alignment_strategy == 'no':
                 # No alignment, use original true coordinates directly
