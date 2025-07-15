@@ -188,7 +188,7 @@ def custom_collate(one_batch):
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'target_coords': coords, 'masks': masks, 'nan_mask': nan_mask,
+                    'target_coords': coords, 'masks': masks, 'nan_masks': nan_mask,
                     "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels}
     return batched_data
 
@@ -213,7 +213,7 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                 'target_coords': coords, 'masks': masks, "nan_mask": nan_mask,
+                 'target_coords': coords, 'masks': masks, "nan_masks": nan_mask,
                  "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels}
 
     # build input graph one_batch to be featurized
