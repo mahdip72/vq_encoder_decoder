@@ -493,7 +493,7 @@ class GCPNetDataset(Dataset):
         coords = enforce_ca_spacing(coords, changed=nan_mask)
         # then enforce backbone bond lengths on those atoms
         coords = enforce_backbone_bonds(coords, changed=nan_mask)
-        return coords, nan_mask
+        return coords, ~nan_mask.any(dim=1)
 
     def __len__(self):
         return len(self.h5_samples)
@@ -584,8 +584,8 @@ class GCPNetDataset(Dataset):
 
         coords_list, nan_mask = self.handle_nan_coordinates(torch.tensor(coords_list))
 
-        # pad or trim nan_mask to self.max_length
-        nan_mask = torch.cat([nan_mask, nan_mask.new_zeros(self.max_length, nan_mask.shape[1])], dim=0)[:self.max_length].any(dim=1)
+        # Pad or trim nan_mask to max_length and invert it to correctly represent missing coordinates
+        nan_mask = torch.cat([nan_mask, nan_mask.new_zeros(self.max_length)], dim=0)[:self.max_length]
 
         coords_list = self.recenter_coordinates(coords_list).tolist()
 
