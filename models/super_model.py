@@ -29,6 +29,9 @@ class SuperModel(nn.Module):
         Returns:
             tuple: (output, indices, commit_loss), where output is either decoded coordinates or quantized embeddings when return_vq_layer=True.
         """
+        nan_mask = batch['nan_masks']
+        mask = batch['masks']
+
         if not self.decoder_only:
             batch_index = batch['graph'].batch
 
@@ -48,11 +51,10 @@ class SuperModel(nn.Module):
 
             x, mask = merge_features(x, self.max_length)
         else:
-            mask = batch['mask']
             x = batch['indices']
 
         # give kwargs to vqvae
-        x, indices, commit_loss = self.vqvae(x, mask, **kwargs)
+        x, indices, commit_loss = self.vqvae(x, mask, nan_mask, **kwargs)
 
         return x, indices, commit_loss
 
