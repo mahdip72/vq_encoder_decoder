@@ -40,15 +40,15 @@ def merge_features(features_list, max_length):
 
     # Pre-allocate tensors for efficiency
     padded_features = torch.zeros(num_batches, max_length, feature_dim, device=device, dtype=dtype)
-    mask = torch.zeros(num_batches, max_length, dtype=torch.bool, device=device)
+    # mask = torch.zeros(num_batches, max_length, dtype=torch.bool, device=device)
+    #
+    # # Fill pre-allocated tensors directly using slicing
+    # for i, t in enumerate(features_list):
+    #     length = min(t.size(0), max_length)
+    #     padded_features[i, :length] = t[:length]
+    #     mask[i, :length] = True
 
-    # Fill pre-allocated tensors directly using slicing
-    for i, t in enumerate(features_list):
-        length = min(t.size(0), max_length)
-        padded_features[i, :length] = t[:length]
-        mask[i, :length] = True
-
-    return padded_features, mask
+    return padded_features  #, mask
 
 
 def test_merge_features_speed(num_batches=128, avg_seq_len=500, feature_dim=512, max_length=1024, num_iterations=100, device='cuda'):

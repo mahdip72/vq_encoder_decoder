@@ -49,7 +49,7 @@ class SuperModel(nn.Module):
             else:
                 x = self.encoder(batch, output_logits=False)
 
-            x, mask = merge_features(x, self.max_length)
+            x = merge_features(x, self.max_length)
         else:
             x = batch['indices']
 
