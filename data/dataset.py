@@ -577,7 +577,8 @@ class GCPNetDataset(Dataset):
         if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or self.configs.train_settings.cutoff_augmentation.enabled):
             coords_list, raw_sequence = self._apply_augmentations(coords_list, raw_sequence)
 
-        coords_list = self.recenter_coordinates(self.handle_nan_coordinates(torch.tensor(coords_list))).tolist()
+        coords_list = self.handle_nan_coordinates(torch.tensor(coords_list))
+        coords_list = self.recenter_coordinates(coords_list).tolist()
 
         sample_dict = {'name': pid,
                        'coords': coords_list,
