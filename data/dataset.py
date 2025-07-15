@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
+from typing import Tuple
 
 # ideal bond lengths in Å
 BOND_LENGTHS = {
@@ -183,10 +184,12 @@ def custom_collate(one_batch):
     input_coordinates = torch.stack([item[6] for item in one_batch])
     inverse_folding_labels = torch.stack([item[7] for item in one_batch])
 
+    nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
+
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates,
-                    "inverse_folding_labels": inverse_folding_labels}
+                    'target_coords': coords, 'masks': masks, 'nan_mask': nan_mask,
+                    "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels}
     return batched_data
 
 
@@ -206,10 +209,12 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
     input_coordinates = torch.stack([item[6] for item in one_batch])
     inverse_folding_labels = torch.stack([item[7] for item in one_batch])
 
+    nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
+
     plddt_scores = torch.cat(plddt_scores, dim=0)
     one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                 'target_coords': coords, 'masks': masks, "input_coordinates": input_coordinates,
-                 "inverse_folding_labels": inverse_folding_labels}
+                 'target_coords': coords, 'masks': masks, "nan_mask": nan_mask,
+                 "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels}
 
     # build input graph one_batch to be featurized
     device = one_batch["graph"].x.device
@@ -382,7 +387,7 @@ class GCPNetDataset(Dataset):
                 self.pretrained_task_transform = hydra.utils.instantiate(pretrained_cfg.task.transform)
 
     @staticmethod
-    def handle_nan_coordinates(coords: torch.Tensor) -> torch.Tensor:
+    def handle_nan_coordinates(coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Fills missing backbone coordinates and refines the local geometry.
 
@@ -432,12 +437,12 @@ class GCPNetDataset(Dataset):
             A new tensor of shape (N, 4, 3) with NaN values filled and local
             geometry corrected.
         """
-        # quickly return if no NaNs
-        if not torch.isnan(coords).any():
-            return coords
-
         # record which atoms will be filled
         nan_mask = torch.isnan(coords).any(dim=-1)  # (N,4)
+        # quickly return if no NaNs
+        if not nan_mask.any():
+            # no missing entries
+            return coords, nan_mask
 
         coords = coords.clone()
         N, n_atoms, _ = coords.shape
@@ -488,7 +493,7 @@ class GCPNetDataset(Dataset):
         coords = enforce_ca_spacing(coords, changed=nan_mask)
         # then enforce backbone bond lengths on those atoms
         coords = enforce_backbone_bonds(coords, changed=nan_mask)
-        return coords
+        return coords, nan_mask
 
     def __len__(self):
         return len(self.h5_samples)
@@ -577,7 +582,11 @@ class GCPNetDataset(Dataset):
         if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or self.configs.train_settings.cutoff_augmentation.enabled):
             coords_list, raw_sequence = self._apply_augmentations(coords_list, raw_sequence)
 
-        coords_list = self.handle_nan_coordinates(torch.tensor(coords_list))
+        coords_list, nan_mask = self.handle_nan_coordinates(torch.tensor(coords_list))
+
+        # pad or trim nan_mask to self.max_length
+        nan_mask = torch.cat([nan_mask, nan_mask.new_zeros(self.max_length, nan_mask.shape[1])], dim=0)[:self.max_length]
+
         coords_list = self.recenter_coordinates(coords_list).tolist()
 
         sample_dict = {'name': pid,
@@ -605,7 +614,7 @@ class GCPNetDataset(Dataset):
         coords = coords.squeeze(0)
         masks = masks.squeeze(0)
 
-        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels]
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels, nan_mask]
 
     def _featurize_as_graph(self, protein):
         import torch_cluster
