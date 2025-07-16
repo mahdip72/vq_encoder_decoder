@@ -85,10 +85,14 @@ def evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger):
             # Optimize alignment and get TM-score and RMSD
             _, tm_score, rmsd = tm_scorer.optimise()
 
+            # Clamp TM-score to be between 0.0 and 1.0
+            tm_score = max(0.0, min(tm_score, 1.0))
+
             results.append({
                 'pdb_file': pred_file,
                 'tm_score': tm_score,
-                'rmsd': rmsd
+                'rmsd': rmsd,
+                'num_amino_acids': tm_scorer.N
             })
 
             # logger.info(f"Evaluated {pred_file}: TM-score={tm_score:.4f}, RMSD={rmsd:.4f}")
@@ -101,7 +105,7 @@ def evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger):
     if results:
         csv_path = os.path.join(result_dir, 'detailed_scores.csv')
         with open(csv_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['pdb_file', 'tm_score', 'rmsd'])
+            writer = csv.DictWriter(f, fieldnames=['pdb_file', 'tm_score', 'rmsd', 'num_amino_acids'])
             writer.writeheader()
             writer.writerows(results)
 
