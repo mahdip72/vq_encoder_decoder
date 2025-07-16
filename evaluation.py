@@ -144,18 +144,35 @@ def main():
         infer_cfg = yaml.full_load(f)
     infer_cfg = Box(infer_cfg)
 
-    # Setup output directory with timestamp
-    now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
-    result_dir = os.path.join(infer_cfg.output_base_dir, now)
-    os.makedirs(result_dir, exist_ok=True)
-    pdb_dir = os.path.join(result_dir, 'pdb_files')
-    os.makedirs(pdb_dir, exist_ok=True)
+    # Initialize accelerator for mixed precision and multi-GPU
+    accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
 
-    original_pdb_dir = os.path.join(result_dir, 'original_pdb_files')
-    os.makedirs(original_pdb_dir, exist_ok=True)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        # Setup output directory with timestamp
+        now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
+        result_dir = os.path.join(infer_cfg.output_base_dir, now)
+        os.makedirs(result_dir, exist_ok=True)
+        pdb_dir = os.path.join(result_dir, 'pdb_files')
+        os.makedirs(pdb_dir, exist_ok=True)
 
-    # Copy evaluation config for reference
-    shutil.copy("configs/evaluation_config.yaml", result_dir)
+        original_pdb_dir = os.path.join(result_dir, 'original_pdb_files')
+        os.makedirs(original_pdb_dir, exist_ok=True)
+
+        # Copy evaluation config for reference
+        shutil.copy("configs/evaluation_config.yaml", result_dir)
+        paths = [result_dir, pdb_dir, original_pdb_dir]
+    else:
+        # Initialize with placeholders.
+        paths = [None, None, None]
+
+    if accelerator.num_processes > 1:
+        import torch.distributed as dist
+        # Broadcast the list of strings from the main process (src=0) to all others.
+        dist.broadcast_object_list(paths, src=0)
+
+        # Now every process has the shared values.
+        result_dir, pdb_dir, original_pdb_dir = paths
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
@@ -203,8 +220,6 @@ def main():
         collate_fn=collate_fn
     )
 
-    # Initialize accelerator for mixed precision and multi-GPU
-    accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
     # Setup file logger in result directory
     logger = get_logging(result_dir, configs)
 
