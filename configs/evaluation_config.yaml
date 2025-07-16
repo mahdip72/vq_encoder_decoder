@@ -7,12 +7,12 @@ config_decoder: "config_geometric_decoder.yaml"
 data_path: "path/to/evaluation/h5/data"
 output_base_dir: "evaluation_results"
 
-batch_size: 16
+batch_size: 8
 shuffle: True
 num_workers: 0
 max_task_samples: 5000000
 vq_indices_csv_filename: "vq_indices.csv"  # Name of the CSV file for VQ indices if return_vq_layer is True
-alignment_strategy: "kabsch"  # kabsch, quaternion, no
+alignment_strategy: "kabsch"  # kabsch, no
 mixed_precision: "bf16"  # no, fp16, bf16, fp8
 
 tqdm_progress_bar: True
