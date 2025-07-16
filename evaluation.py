@@ -274,7 +274,7 @@ def main():
             bb_pred = output[0]
             # reshape from (B, L, 9) to (B, L, 3, 3)
             preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
-            masks = batch['masks']
+            masks = torch.logical_and(batch['masks'], batch['nan_masks'])
             true_coords = batch['target_coords'].view(preds.shape[0], preds.shape[1], 3, 3)
 
             # Align predicted coordinates to true coordinates
