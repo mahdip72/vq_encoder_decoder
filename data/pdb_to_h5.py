@@ -195,14 +195,26 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
                     coords.append([math.nan, math.nan, math.nan])
             pos.append(coords)
 
+        # --- NEW: Post-processing step to add padding for numbering gaps ---
+        for i in range(len(residues) - 1, 0, -1):
+            current_res_id = residues[i].id
+            prev_res_id = residues[i-1].id
+            if current_res_id[1] > prev_res_id[1] + 1:
+                gap_size = current_res_id[1] - prev_res_id[1] - 1
+                x_padding = 'X' * gap_size
+                nan_coord_padding = [[math.nan, math.nan, math.nan] for _ in range(4)]
+                nan_plddt_padding = [math.nan] * gap_size
+                nan_pos_padding = [nan_coord_padding] * gap_size
+                protein_seq = protein_seq[:i] + x_padding + protein_seq[i:]
+                pos[i:i] = nan_pos_padding
+                plddt_scores[i:i] = nan_plddt_padding
+                report_dict['missing_residues'] += gap_size
+        # --- END OF NEW LOGIC ---
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
             outputfile = os.path.join(save_path, f"{file_index}_{basename}_chain_id_{chain_id}.h5")
         else:
             outputfile = os.path.join(save_path, f"{file_index}_{basename}.h5")
-        # count missing (padded) residues marked as 'X'
-        missing_count = protein_seq.count('X')
-        report_dict['missing_residues'] = report_dict['missing_residues'] + missing_count
         report_dict['h5_processed'] += 1
         write_h5_file(outputfile, protein_seq, pos, plddt_scores)
 
