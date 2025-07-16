@@ -111,7 +111,7 @@ class VQVAETransformer(nn.Module):
                 x = self.encoder_tail(x)
                 x = x.permute(0, 2, 1)
 
-            x = self.encoder_blocks(x, mask=mask)
+            x = self.encoder_blocks(x, mask=torch.logical_and(mask, nan_mask))
 
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear
@@ -126,12 +126,12 @@ class VQVAETransformer(nn.Module):
         if self.vqvae_enabled:
             if not self.decoder_only:
                 # Apply vector quantization
-                x, indices, commit_loss = self.vector_quantizer(x, mask=mask)
+                x, indices, commit_loss = self.vector_quantizer(x, mask=torch.logical_and(mask, nan_mask))
 
                 if kwargs.get('return_vq_layer', False):
                     return x, indices, commit_loss
             else:
                 indices = x
                 x = self.vector_quantizer.get_output_from_indices(indices)
-        x = self.decoder(x, mask)
+        x = self.decoder(x, torch.logical_and(mask, nan_mask))
         return x, indices, commit_loss
