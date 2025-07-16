@@ -265,8 +265,10 @@ def main():
             output, indices, _ = model(batch)
             pids = batch['pid']  # list of identifiers
             sequences = batch['seq']
-            # record indices per sample
-            record_indices(pids, indices, sequences, indices_records)
+
+            if accelerator.is_main_process:
+                # record indices per sample
+                record_indices(pids, indices, sequences, indices_records)
 
             # output is tuple of (bb_pred, ...)
             bb_pred = output[0]
