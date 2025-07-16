@@ -143,7 +143,7 @@ class Aligning(object):
         }
         self._values = _values
 
-        tm_score = self.tmscore(**_values)
+        tm_score = self.tmscore(**_values).real
         rmsd_value = self.rmsd(**_values)
 
         # Print TM-score and RMSD
