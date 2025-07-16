@@ -79,7 +79,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                     break
 
             labels = data['target_coords']
-            masks = data['masks']
+            masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
@@ -302,7 +302,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_coords']
-            masks = data['masks']
+            masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
