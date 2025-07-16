@@ -15,6 +15,7 @@ from models.super_model import prepare_model
 
 class VQIndicesDataset(Dataset):
     """Dataset for loading VQ indices from a CSV file."""
+
     def __init__(self, csv_path, max_length):
         self.data = pd.read_csv(csv_path)
         self.max_length = max_length
@@ -127,23 +128,25 @@ def main():
     model, loader = accelerator.prepare(model, loader)
 
     # enable or disable progress bar
-    iterator = (tqdm(loader, desc="Inference", total=len(loader))
-                if infer_cfg.get('tqdm_progress_bar', True) else loader)
+    iterator = (tqdm(loader, desc="Inference", total=len(loader), leave=True,
+                     disable=not (infer_cfg["tqdm_progress_bar"] and accelerator.is_main_process))
+                if infer_cfg["tqdm_progress_bar"] else loader)
     for batch in iterator:
         # Inference loop
         with torch.inference_mode():
             indices = batch['indices']
-            masks = batch['mask']
+            masks = torch.logical_and(batch['mask'], batch['nan_mask'])
 
             # Forward pass through the decoder
             output, _, _ = model(batch, decoder_only=True)
-            
+
             bb_pred = output[0]
             preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
-            
+
             pids = batch['pid']
-            
-            save_predictions_to_pdb(pids, preds.detach().cpu(), masks.cpu(), pdb_dir)
+
+            if accelerator.is_main_process:
+                save_predictions_to_pdb(pids, preds.detach().cpu(), masks.cpu(), pdb_dir)
 
     logger.info(f"Inference decoding completed. Results are saved in {result_dir}")
 
