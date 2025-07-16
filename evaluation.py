@@ -232,13 +232,15 @@ def main():
 
 
     # enable or disable progress bar
-    iterator = (tqdm(loader, desc="Evaluation", total=len(loader))
-                if infer_cfg.get('tqdm_progress_bar', True) else loader)
+    iterator = (tqdm(loader, desc="Evaluation", total=len(loader), leave=True, disable=not (infer_cfg["tqdm_progress_bar"] and accelerator.is_main_process))
+                if infer_cfg["tqdm_progress_bar"] else loader)
     for batch in iterator:
         # Evaluation loop
         with torch.inference_mode():
             # Move graph batch onto accelerator device
             batch['graph'] = batch['graph'].to(accelerator.device)
+            batch['masks'] = batch['masks'].to(accelerator.device)
+            batch['nan_masks'] = batch['nan_masks'].to(accelerator.device)
 
             # Forward pass: get either decoded outputs or VQ layer outputs
             output, indices, _ = model(batch)
@@ -261,31 +263,34 @@ def main():
                 masks=masks.to(accelerator.device),
                 alignment_strategy=infer_cfg.get('alignment_strategy', 'kabsch')
             )
-            # save PDBs via helper
-            save_predictions_to_pdb(pids, preds_aligned.detach().cpu(), masks.cpu(), pdb_dir)
+            if accelerator.is_main_process:
+                # save PDBs via helper
+                save_predictions_to_pdb(pids, preds_aligned.detach().cpu(), masks.cpu(), pdb_dir)
 
-            # The ground truth coordinates are now aligned and can be saved
-            save_predictions_to_pdb(pids, trues_aligned.detach().cpu(), masks.cpu(), original_pdb_dir)
+                # The ground truth coordinates are now aligned and can be saved
+                save_predictions_to_pdb(pids, trues_aligned.detach().cpu(), masks.cpu(), original_pdb_dir)
+
 
     logger.info(f"Evaluation completed. Results are saved in {result_dir}")
 
-    # After loop, save indices CSV if requested
-    csv_filename = infer_cfg.get('vq_indices_csv_filename', 'vq_indices.csv')
-    csv_path = os.path.join(result_dir, csv_filename)
-    with open(csv_path, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['pid', 'indices', 'protein_sequence'])
-        for rec in indices_records:
-            pid = rec['pid']
-            inds = rec['indices']
-            seq = rec['protein_sequence']
-            # ensure a list for joining
-            if not isinstance(inds, (list, tuple)):
-                inds = [inds]
-            writer.writerow([pid, ' '.join(map(str, inds)), seq])
+    if accelerator.is_main_process:
+        # After loop, save indices CSV if requested
+        csv_filename = infer_cfg.get('vq_indices_csv_filename', 'vq_indices.csv')
+        csv_path = os.path.join(result_dir, csv_filename)
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['pid', 'indices', 'protein_sequence'])
+            for rec in indices_records:
+                pid = rec['pid']
+                inds = rec['indices']
+                seq = rec['protein_sequence']
+                # ensure a list for joining
+                if not isinstance(inds, (list, tuple)):
+                    inds = [inds]
+                writer.writerow([pid, ' '.join(map(str, inds)), seq])
 
-    # Evaluate structures using TM-score and RMSD
-    evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger)
+        # Evaluate structures using TM-score and RMSD
+        evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger)
 
 
 if __name__ == '__main__':
