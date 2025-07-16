@@ -28,27 +28,28 @@ def write_h5_file(file_path, pad_seq, n_ca_c_o_coord, plddt_scores):
         f.create_dataset('plddt_scores', data=plddt_scores)
 
 
-def check_chains(structure, report_dict):
+def check_chains(structure, report_dict, min_len):
     """
-    Extracts sequences from each chain in the given structure and filters them based on criteria.
+    Extracts sequences from each chain and filters them by minimum length.
 
     This function processes each chain in the given PDB structure, extracts its sequence, and applies the following filter:
-    1. Removes chains with sequences consisting of fewer than 2 amino acids.
+    1. Removes chains with sequences shorter than min_len amino acids.
 
     Args:
         structure (Bio.PDB.Structure.Structure): The PDB structure object to process.
+        report_dict (multiprocessing.Manager.dict): Dictionary to log processing metrics.
+        min_len (int): Minimum sequence length for a chain to be processed.
 
     Returns:
-        dict: A dictionary with chain IDs as keys and their corresponding sequences as values,
-              filtered based on the specified criteria.
+        dict: Mapping of chain IDs to their sequences that meet the min_len criterion.
     """
     ppb = PPBuilder()
     chains = [chain for model in structure for chain in model]
     sequences = {}
     for chain in chains:
         sequence = ''.join([str(pp.get_sequence()) for pp in ppb.build_peptides(chain)])
-        if len(sequence) < 2:
-            report_dict['single_amino_acid'] += 1
+        if len(sequence) < min_len:
+            report_dict['chains_too_short'] += 1
             continue
         sequences[chain.id] = sequence
     return sequences
@@ -130,11 +131,27 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     return processed_chains
 
 
-def preprocess_file(file_index, file_path, max_len, save_path, dictn, report_dict):
+def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict):
+    """
+    Processes a PDB file into HDF5 format, filtering and iterating chains by length.
+
+    This function parses the PDB structure, filters chains below min_len or above max_len,
+    selects representative chains, extracts residue sequences, backbone coordinates, and pLDDT scores,
+    then writes the data to HDF5 files.
+
+    Args:
+        file_index (int): Index of the file for naming outputs.
+        file_path (str): Path to the input PDB file.
+        max_len (int): Maximum sequence length allowed for processing.
+        min_len (int): Minimum sequence length required for processing.
+        save_path (str): Directory to save output HDF5 files.
+        dictn (dict): Mapping from three-letter to one-letter amino acid codes.
+        report_dict (multiprocessing.Manager.dict): Dictionary for logging processing statistics.
+    """
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure('protein', file_path)
 
-    chain_sequences = check_chains(structure, report_dict)
+    chain_sequences = check_chains(structure, report_dict, min_len)
 
     best_chains = filter_best_chains(chain_sequences, structure)
 
@@ -147,48 +164,36 @@ def preprocess_file(file_index, file_path, max_len, save_path, dictn, report_dic
         model = structure[0]
         chain = model[chain_id]
 
-        # build mapping of modeled residues and detect ambiguous ones
-        has_ambiguous_residue = False
-        modeled = {}
-        for residue in chain:
-            if residue.id[0] == ' ':
-                if residue.resname not in dictn:
-                    has_ambiguous_residue = True
-                    break
-                modeled[residue.id[1]] = residue
-        if has_ambiguous_residue:
-            continue
-        resnums = sorted(modeled.keys())
-        if not resnums:
-            continue
-        first, last = resnums[0], resnums[-1]
-        span = list(range(first, last + 1))
-        # skip if full span exceeds max_len
-        if len(span) > max_len:
+        # New, robust direct residue iteration logic
+        # Get a list of all residues directly from the chain (includes insertion codes)
+        residues = [res for res in chain if res.id[0] == ' ']
+        # Skip if empty or exceeds max length
+        if not residues or len(residues) > max_len:
             continue
 
         protein_seq = ''
         pos = []
         plddt_scores = []
-        for resnum in span:
-            if resnum in modeled:
-                residue = modeled[resnum]
+        # Iterate directly over residues
+        for residue in residues:
+            # assign standard residue code or 'X' for non-standard
+            if residue.resname in dictn:
                 protein_seq += dictn[residue.resname]
-                try:
-                    plddt_scores.append(residue['CA'].get_bfactor())
-                except KeyError:
-                    plddt_scores.append(math.nan)
-                coords = []
-                for key in ['N', 'CA', 'C', 'O']:
-                    if key in residue:
-                        coords.append(list(residue[key].coord))
-                    else:
-                        coords.append([math.nan, math.nan, math.nan])
-                pos.append(coords)
             else:
                 protein_seq += 'X'
+            # pLDDT score
+            try:
+                plddt_scores.append(residue['CA'].get_bfactor())
+            except KeyError:
                 plddt_scores.append(math.nan)
-                pos.append([[math.nan, math.nan, math.nan] for _ in range(4)])
+            # backbone coordinates
+            coords = []
+            for key in ['N', 'CA', 'C', 'O']:
+                if key in residue:
+                    coords.append(list(residue[key].coord))
+                else:
+                    coords.append([math.nan, math.nan, math.nan])
+            pos.append(coords)
 
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
@@ -209,6 +214,8 @@ def main():
     parser.add_argument('--save_path', default='./save_test/', help='Path to output.')
     parser.add_argument('--max_workers', default=16, type=int,
                         help='Set the number of workers for parallel processing.')
+    parser.add_argument('--min_len', default=25, type=int,
+                        help='Minimum sequence length for chains to process.')
     args = parser.parse_args()
 
     data_path = find_pdb_files(args.data)
@@ -225,9 +232,9 @@ def main():
 
     with Manager() as manager:
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                    'single_amino_acid': 0, 'error': 0, 'missing_residues': 0})
+                                    'chains_too_short': 0, 'error': 0, 'missing_residues': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.save_path, dictn, report_dict): file_path for i, file_path in enumerate(data_path)}
+            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict): file_path for i, file_path in enumerate(data_path)}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
                 file_path = futures[future]
                 try:
