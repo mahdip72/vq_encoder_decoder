@@ -389,10 +389,11 @@ class GCPNetDataset(Dataset):
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Fills missing backbone coordinates and refines the local geometry.
+        Fills missing backbone coordinates, refines geometry, and returns a validity mask.
 
         This function takes a tensor of backbone atom coordinates (N, CA, C, O) that may
-        contain NaN values, and returns a new tensor with the missing coordinates filled in.
+        contain NaN values, and returns a new tensor with the missing coordinates filled in,
+        along with a boolean mask indicating which residues were originally valid.
         The process involves several steps to ensure a physically plausible result, while
         only modifying the originally missing data.
 
@@ -428,21 +429,22 @@ class GCPNetDataset(Dataset):
         Parameters
         ----------
         coords : torch.Tensor
-            Tensor of shape (N, 4, 3) containing 3D backbone atom coordinates with
-            possible NaN entries.
+            Tensor of shape (N, 4, 3) containing backbone atom coordinates with
+            potential NaN entries.
 
         Returns
         -------
-        torch.Tensor
-            A new tensor of shape (N, 4, 3) with NaN values filled and local
-            geometry corrected.
+        Tuple[torch.Tensor, torch.Tensor]
+            - A tensor of shape (N, 4, 3) with NaN values filled and geometry corrected.
+            - A boolean tensor of shape (N,) where `True` indicates a residue's
+              coordinates were originally valid and `False` indicates they were imputed.
         """
         # record which atoms will be filled
         nan_mask = torch.isnan(coords).any(dim=-1)  # (N,4)
         # quickly return if no NaNs
         if not nan_mask.any():
             # no missing entries
-            return coords, nan_mask
+            return coords, coords.new_ones(coords.size(0), dtype=torch.bool)
 
         coords = coords.clone()
         N, n_atoms, _ = coords.shape
