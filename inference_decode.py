@@ -64,10 +64,11 @@ def main():
     # Load inference configuration
     with open("configs/inference_decode_config.yaml") as f:
         infer_cfg = yaml.full_load(f)
+    infer_cfg = Box(infer_cfg)
 
     # Setup output directory with timestamp
     now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
-    result_dir = os.path.join(infer_cfg['output_base_dir'], now)
+    result_dir = os.path.join(infer_cfg.output_base_dir, now)
     os.makedirs(result_dir, exist_ok=True)
     pdb_dir = os.path.join(result_dir, 'pdb_files')
     os.makedirs(pdb_dir, exist_ok=True)
@@ -76,8 +77,8 @@ def main():
     shutil.copy("configs/inference_decode_config.yaml", result_dir)
 
     # Paths to training configs
-    vqvae_cfg_path = os.path.join(infer_cfg["trained_model_dir"], infer_cfg['config_vqvae'])
-    decoder_cfg_path = os.path.join(infer_cfg["trained_model_dir"], infer_cfg['config_decoder'])
+    vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
+    decoder_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_decoder)
 
     # Load main config
     with open(vqvae_cfg_path) as f:
@@ -92,19 +93,19 @@ def main():
 
     # Prepare dataset and dataloader
     dataset = VQIndicesDataset(
-        infer_cfg['indices_csv_path'],
+        infer_cfg.indices_csv_path,
         max_length=configs.model.max_length
     )
 
     loader = DataLoader(
         dataset,
-        shuffle=infer_cfg['shuffle'],
-        batch_size=infer_cfg['batch_size'],
-        num_workers=infer_cfg['num_workers']
+        shuffle=infer_cfg.shuffle,
+        batch_size=infer_cfg.batch_size,
+        num_workers=infer_cfg.num_workers
     )
 
     # Initialize accelerator for mixed precision and multi-GPU
-    accelerator = Accelerator(mixed_precision=infer_cfg['mixed_precision'])
+    accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
     # Setup file logger in result directory
     logger = get_logging(result_dir, configs)
 
@@ -121,7 +122,7 @@ def main():
     model.eval()
 
     # Load checkpoint
-    checkpoint_path = os.path.join(infer_cfg['trained_model_dir'], infer_cfg['checkpoint_path'])
+    checkpoint_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.checkpoint_path)
     model = load_checkpoints_simple(checkpoint_path, model, logger, decoder_only=True)
 
     # Prepare everything with accelerator (model and dataloader)
@@ -129,13 +130,13 @@ def main():
 
     # enable or disable progress bar
     iterator = (tqdm(loader, desc="Inference", total=len(loader), leave=True,
-                     disable=not (infer_cfg["tqdm_progress_bar"] and accelerator.is_main_process))
-                if infer_cfg["tqdm_progress_bar"] else loader)
+                     disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
+                if infer_cfg.tqdm_progress_bar else loader)
     for batch in iterator:
         # Inference loop
         with torch.inference_mode():
             indices = batch['indices']
-            masks = torch.logical_and(batch['mask'], batch['nan_mask'])
+            masks = batch['mask']
 
             # Forward pass through the decoder
             output, _, _ = model(batch, decoder_only=True)
