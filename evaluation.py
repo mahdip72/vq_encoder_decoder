@@ -147,6 +147,9 @@ def main():
     # Initialize accelerator for mixed precision and multi-GPU
     accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
 
+    # Initialize paths to avoid unassigned variable warnings
+    result_dir, pdb_dir, original_pdb_dir = None, None, None
+
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         # Setup output directory with timestamp
