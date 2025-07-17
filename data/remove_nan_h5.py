@@ -6,21 +6,35 @@ import glob
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
-def contains_nan(h5_filepath):
+def contains_nan(h5_filepath, min_gap_len):
     """
-    Checks if the 'N_CA_C_O_coord' dataset in an HDF5 file contains NaN values.
+    Checks if the 'N_CA_C_O_coord' dataset in an HDF5 file contains consecutive NaN gaps above threshold.
 
     Args:
         h5_filepath (str): Path to the HDF5 file.
+        min_gap_len (int): Minimum consecutive NaN rows to trigger removal.
 
     Returns:
-        bool: True if NaN values are found, False otherwise.
+        bool: True if consecutive NaN gap >= min_gap_len is found, False otherwise.
     """
     try:
         with h5py.File(h5_filepath, 'r') as f:
             if 'N_CA_C_O_coord' in f:
                 coords = f['N_CA_C_O_coord'][:]
-                return np.isnan(coords).any()
+                # detect rows where all backbone coords are NaN
+                # coords shape (L,4,3)
+                row_nan = np.isnan(coords).all(axis=(1,2))
+                # compute max consecutive NaN rows
+                max_run = 0
+                current = 0
+                for is_nan in row_nan:
+                    if is_nan:
+                        current += 1
+                        if current > max_run:
+                            max_run = current
+                    else:
+                        current = 0
+                return max_run >= min_gap_len
             else:
                 print(f"Warning: 'N_CA_C_O_coord' dataset not found in {h5_filepath}")
                 return False
@@ -34,6 +48,8 @@ def main():
                         help="Directory containing HDF5 files. Defaults to './save_test/'.")
     parser.add_argument('--max_workers', type=int, default=16,
                         help="Number of worker processes to use. Defaults to 16.")
+    parser.add_argument('--min_gap_len', type=int, default=25,
+                        help="Minimum consecutive missing residues to trigger file removal. Defaults to 25.")
     args = parser.parse_args()
 
     if not os.path.isdir(args.h5_dir):
@@ -50,7 +66,7 @@ def main():
     files_to_remove = []
     print(f"Checking {len(h5_files)} files for NaN coordinates using up to {args.max_workers} workers...")
     with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-        future_to_file = {executor.submit(contains_nan, h5_file): h5_file for h5_file in h5_files}
+        future_to_file = {executor.submit(contains_nan, h5_file, args.min_gap_len): h5_file for h5_file in h5_files}
         for future in tqdm(as_completed(future_to_file), total=len(h5_files), desc="Checking files"):
             h5_file = future_to_file[future]
             try:
@@ -76,4 +92,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
