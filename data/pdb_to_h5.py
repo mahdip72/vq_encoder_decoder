@@ -133,11 +133,12 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
 
 def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict):
     """
-    Processes a PDB file into HDF5 format, filtering and iterating chains by length.
+    Processes a PDB file into HDF5 format, handling insertion codes and numeric gaps.
 
-    This function parses the PDB structure, filters chains below min_len or above max_len,
-    selects representative chains, extracts residue sequences, backbone coordinates, and pLDDT scores,
-    then writes the data to HDF5 files.
+    This function parses the PDB structure, filters chains below min_len or above max_len, and
+    selects representative chains. It extracts residue sequences, backbone coordinates, and pLDDT scores
+    for all present residues, handles insertion codes naturally, and post-processes numeric gaps by
+    inserting 'X' and NaN paddings. Finally, it writes the data to HDF5 files.
 
     Args:
         file_index (int): Index of the file for naming outputs.
