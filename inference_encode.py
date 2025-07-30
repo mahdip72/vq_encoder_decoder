@@ -7,7 +7,7 @@ import functools
 from torch.utils.data import DataLoader
 from box import Box
 from tqdm import tqdm
-from accelerate import Accelerator
+from accelerate import Accelerator, DataLoaderConfiguration
 import csv
 from utils.utils import load_configs, load_checkpoints_simple, get_logging
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
@@ -46,13 +46,21 @@ def main():
         infer_cfg = yaml.full_load(f)
     infer_cfg = Box(infer_cfg)
 
+    dataloader_config = DataLoaderConfiguration(
+        dispatch_batches=False,
+        non_blocking=True,
+        even_batches=False
+    )
+
     # Initialize accelerator for mixed precision and multi-GPU
-    accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
+    accelerator = Accelerator(
+        mixed_precision=infer_cfg.mixed_precision,
+        dataloader_config=dataloader_config
+    )
 
     # Initialize paths to avoid unassigned variable warnings
     result_dir = None
 
-    accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         # Setup output directory with timestamp
         now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
@@ -72,7 +80,7 @@ def main():
         dist.broadcast_object_list(paths, src=0)
 
         # Now every process has the shared values.
-        result_dir = paths
+        result_dir = paths[0]
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
@@ -140,17 +148,17 @@ def main():
     model = load_checkpoints_simple(checkpoint_path, model, logger)
 
     # Prepare everything with accelerator (model and dataloader)
-    model, list_loader = accelerator.prepare(model, [loader])
-    loader = list_loader[0]  # Unpack the list since we only have one DataLoader
+    model, loader = accelerator.prepare(model, loader)
 
     # Prepare for optional VQ index recording
     indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
 
-    # enable or disable progress bar
-    iterator = (tqdm(loader, desc="Inference", total=len(loader), leave=True,
-                     disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
-                if infer_cfg.tqdm_progress_bar else loader)
-    for batch in iterator:
+    # Initialize the progress bar using tqdm (separate from iteration)
+    progress_bar = tqdm(range(0, int(len(loader))),
+                        leave=True, disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
+    progress_bar.set_description("Inference")
+
+    for i, batch in enumerate(loader):
         # Inference loop
         with torch.inference_mode():
             # Move graph batch onto accelerator device
@@ -163,11 +171,19 @@ def main():
             pids = batch['pid']  # list of identifiers
             sequences = batch['seq']
 
-            if accelerator.is_main_process:
-                # record indices per sample
-                record_indices(pids, indices, sequences, indices_records)
+            # record indices per sample
+            record_indices(pids, indices, sequences, indices_records)
+
+            # Update progress bar manually
+            progress_bar.update(1)
 
     logger.info(f"Inference encoding completed. Results are saved in {result_dir}")
+
+    # Ensure all processes have completed before saving results
+    accelerator.wait_for_everyone()
+
+    # Gather outputs from all processes
+    indices_records = accelerator.gather_for_metrics(indices_records, use_gather_object=True)
 
     if accelerator.is_main_process:
         # After loop, save indices CSV if requested
