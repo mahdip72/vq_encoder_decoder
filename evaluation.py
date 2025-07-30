@@ -149,8 +149,8 @@ def main():
     infer_cfg = Box(infer_cfg)
 
     dataloader_config = DataLoaderConfiguration(
-        # dispatch_batches=False,
-        non_blocking=True,
+        # dispatch_batches=True,
+        # non_blocking=False,
         even_batches=False
     )
 
@@ -163,7 +163,6 @@ def main():
     # Initialize paths to avoid unassigned variable warnings
     result_dir, pdb_dir, original_pdb_dir = None, None, None
 
-    accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         # Setup output directory with timestamp
         now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
@@ -203,8 +202,6 @@ def main():
     # Override task-specific settings
     configs.train_settings.max_task_samples = infer_cfg.get('max_task_samples', configs.train_settings.max_task_samples)
     configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
-
-    accelerator.wait_for_everyone()
 
     # Load encoder/decoder configs from saved results instead of default utils
     encoder_configs, decoder_configs = load_saved_encoder_decoder_configs(
@@ -267,8 +264,6 @@ def main():
     progress_bar = tqdm(range(0, int(len(loader))),
                         leave=True, disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
     progress_bar.set_description("Evaluation")
-
-    accelerator.wait_for_everyone()
 
     for i, batch in enumerate(loader):
         # Evaluation loop
