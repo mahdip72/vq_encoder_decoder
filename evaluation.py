@@ -7,7 +7,7 @@ import functools
 from torch.utils.data import DataLoader
 from box import Box
 from tqdm import tqdm
-from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
+from accelerate import Accelerator, DataLoaderConfiguration
 import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
@@ -230,18 +230,9 @@ def main():
     else:
         collate_fn = custom_collate
 
-    from torch.utils.data.distributed import DistributedSampler
-    sampler = DistributedSampler(
-        dataset,
-        num_replicas=accelerator.num_processes,
-        rank=accelerator.process_index,
-        shuffle=infer_cfg.shuffle,
-    )
-
     loader = DataLoader(
         dataset,
         shuffle=infer_cfg.shuffle,
-        # sampler=sampler,
         batch_size=infer_cfg.batch_size,
         num_workers=infer_cfg.num_workers,
         collate_fn=collate_fn
