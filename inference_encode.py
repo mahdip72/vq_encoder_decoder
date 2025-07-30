@@ -47,8 +47,8 @@ def main():
     infer_cfg = Box(infer_cfg)
 
     dataloader_config = DataLoaderConfiguration(
-        dispatch_batches=False,
-        non_blocking=True,
+        # dispatch_batches=False,
+        # non_blocking=True,
         even_batches=False
     )
 
