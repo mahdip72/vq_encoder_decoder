@@ -7,7 +7,7 @@ import functools
 from torch.utils.data import DataLoader
 from box import Box
 from tqdm import tqdm
-from accelerate import Accelerator
+from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
 import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
@@ -148,8 +148,17 @@ def main():
         infer_cfg = yaml.full_load(f)
     infer_cfg = Box(infer_cfg)
 
+    dataloader_config = DataLoaderConfiguration(
+        # dispatch_batches=False,
+        non_blocking=True,
+        even_batches=False
+    )
+
     # Initialize accelerator for mixed precision and multi-GPU
-    accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
+    accelerator = Accelerator(
+        mixed_precision=infer_cfg.mixed_precision,
+        dataloader_config=dataloader_config
+    )
 
     # Initialize paths to avoid unassigned variable warnings
     result_dir, pdb_dir, original_pdb_dir = None, None, None
@@ -195,6 +204,8 @@ def main():
     configs.train_settings.max_task_samples = infer_cfg.get('max_task_samples', configs.train_settings.max_task_samples)
     configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
 
+    accelerator.wait_for_everyone()
+
     # Load encoder/decoder configs from saved results instead of default utils
     encoder_configs, decoder_configs = load_saved_encoder_decoder_configs(
         encoder_cfg_path,
@@ -219,9 +230,18 @@ def main():
     else:
         collate_fn = custom_collate
 
+    from torch.utils.data.distributed import DistributedSampler
+    sampler = DistributedSampler(
+        dataset,
+        num_replicas=accelerator.num_processes,
+        rank=accelerator.process_index,
+        shuffle=infer_cfg.shuffle,
+    )
+
     loader = DataLoader(
         dataset,
         shuffle=infer_cfg.shuffle,
+        # sampler=sampler,
         batch_size=infer_cfg.batch_size,
         num_workers=infer_cfg.num_workers,
         collate_fn=collate_fn
@@ -247,17 +267,19 @@ def main():
     model = load_checkpoints_simple(checkpoint_path, model, logger)
 
     # Prepare everything with accelerator (model and dataloader)
-    model, list_loader = accelerator.prepare(model, [loader])
-    loader = list_loader[0]  # Unpack the list since we only have one DataLoader
+    model, loader = accelerator.prepare(model, loader)
 
     # Prepare for optional VQ index recording
     indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
 
+    # Initialize the progress bar using tqdm (separate from iteration)
+    progress_bar = tqdm(range(0, int(len(loader))),
+                        leave=True, disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
+    progress_bar.set_description("Evaluation")
 
-    # enable or disable progress bar
-    iterator = (tqdm(loader, desc="Evaluation", total=len(loader), leave=True, disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
-                if infer_cfg.tqdm_progress_bar else loader)
-    for batch in iterator:
+    accelerator.wait_for_everyone()
+
+    for i, batch in enumerate(loader):
         # Evaluation loop
         with torch.inference_mode():
             # Move graph batch onto accelerator device
@@ -270,9 +292,8 @@ def main():
             pids = batch['pid']  # list of identifiers
             sequences = batch['seq']
 
-            if accelerator.is_main_process:
-                # record indices per sample
-                record_indices(pids, indices, sequences, indices_records)
+            # record indices per sample
+            record_indices(pids, indices, sequences, indices_records)
 
             # output is tuple of (bb_pred, ...)
             bb_pred = output[0]
@@ -288,15 +309,22 @@ def main():
                 masks=masks.to(accelerator.device),
                 alignment_strategy=infer_cfg.get('alignment_strategy', 'kabsch')
             )
-            if accelerator.is_main_process:
-                # save PDBs via helper
-                save_predictions_to_pdb(pids, preds_aligned.detach().cpu(), masks.cpu(), pdb_dir)
+            # save PDBs via helper
+            save_predictions_to_pdb(pids, preds_aligned.detach().cpu(), masks.cpu(), pdb_dir)
 
-                # The ground truth coordinates are now aligned and can be saved
-                save_predictions_to_pdb(pids, trues_aligned.detach().cpu(), masks.cpu(), original_pdb_dir)
+            # The ground truth coordinates are now aligned and can be saved
+            save_predictions_to_pdb(pids, trues_aligned.detach().cpu(), masks.cpu(), original_pdb_dir)
 
+            # Update progress bar manually
+            progress_bar.update(1)
 
     logger.info(f"Evaluation completed. Results are saved in {result_dir}")
+
+    # Ensure all processes have completed before saving results
+    accelerator.wait_for_everyone()
+
+    # Gather indices_records from all processes into a list on each process
+    indices_records = accelerator.gather_for_metrics(indices_records, use_gather_object=True)
 
     if accelerator.is_main_process:
         # After loop, save indices CSV if requested
