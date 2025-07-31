@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from box import Box
 from tqdm import tqdm
 from accelerate import Accelerator, DataLoaderConfiguration
+from accelerate.utils import broadcast_object_list
 import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
@@ -160,12 +161,10 @@ def main():
         dataloader_config=dataloader_config
     )
 
-    # Initialize paths to avoid unassigned variable warnings
-    result_dir, pdb_dir, original_pdb_dir = None, None, None
+    # Setup output directory with timestamp
+    now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
 
     if accelerator.is_main_process:
-        # Setup output directory with timestamp
-        now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
         result_dir = os.path.join(infer_cfg.output_base_dir, now)
         os.makedirs(result_dir, exist_ok=True)
         pdb_dir = os.path.join(result_dir, 'pdb_files')
@@ -181,13 +180,9 @@ def main():
         # Initialize with placeholders.
         paths = [None, None, None]
 
-    if accelerator.num_processes > 1:
-        import torch.distributed as dist
-        # Broadcast the list of strings from the main process (src=0) to all others.
-        dist.broadcast_object_list(paths, src=0)
-
-        # Now every process has the shared values.
-        result_dir, pdb_dir, original_pdb_dir = paths
+    # Broadcast paths to all processes
+    broadcast_object_list(paths, from_process=0)
+    result_dir, pdb_dir, original_pdb_dir = paths
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
