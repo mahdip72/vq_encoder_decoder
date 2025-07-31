@@ -193,6 +193,9 @@ def main():
                 if not isinstance(inds, (list, tuple)):
                     inds = [inds]
                 writer.writerow([pid, ' '.join(map(str, inds)), seq])
+                
+    # Ensure all processes have completed before exiting
+    accelerator.wait_for_everyone()
 
 
 if __name__ == '__main__':
