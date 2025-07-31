@@ -7,7 +7,8 @@ import pandas as pd
 from torch.utils.data import DataLoader, Dataset
 from box import Box
 from tqdm import tqdm
-from accelerate import Accelerator
+from accelerate import Accelerator, DataLoaderConfiguration
+from accelerate.utils import broadcast_object_list
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
 from models.super_model import prepare_model
@@ -37,11 +38,18 @@ class VQIndicesDataset(Dataset):
         padded_indices = indices + [-1] * pad_length
         mask = [True] * current_length + [False] * pad_length
 
+        nan_mask = torch.tensor(mask, dtype=torch.bool)
+
+        for i, value in enumerate(padded_indices):
+            if value == -1:
+                nan_mask[i] = False
+
         return {
             'pid': pid,
             'indices': torch.tensor(padded_indices, dtype=torch.long),
             'seq': seq,
-            'mask': torch.tensor(mask, dtype=torch.bool)
+            'masks': torch.tensor(mask, dtype=torch.bool),
+            'nan_masks': nan_mask
         }
 
 
@@ -66,16 +74,23 @@ def main():
         infer_cfg = yaml.full_load(f)
     infer_cfg = Box(infer_cfg)
 
-    # Initialize accelerator for mixed precision and multi-GPU
-    accelerator = Accelerator(mixed_precision=infer_cfg.mixed_precision)
+    dataloader_config = DataLoaderConfiguration(
+        # dispatch_batches=False,
+        non_blocking=True,
+        even_batches=False
+    )
 
-    # Initialize paths to avoid unassigned variable warnings
-    result_dir, pdb_dir = None, None
+    # Initialize accelerator for mixed precision and multi-GPU
+    accelerator = Accelerator(
+        mixed_precision=infer_cfg.mixed_precision,
+        dataloader_config=dataloader_config
+    )
+
+    now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
 
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         # Setup output directory with timestamp
-        now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
         result_dir = os.path.join(infer_cfg.output_base_dir, now)
         os.makedirs(result_dir, exist_ok=True)
         pdb_dir = os.path.join(result_dir, 'pdb_files')
@@ -88,13 +103,9 @@ def main():
         # Initialize with placeholders.
         paths = [None, None]
 
-    if accelerator.num_processes > 1:
-        import torch.distributed as dist
-        # Broadcast the list of strings from the main process (src=0) to all others.
-        dist.broadcast_object_list(paths, src=0)
-
-        # Now every process has the shared values.
-        result_dir, pdb_dir = paths
+    # Broadcast paths to all processes
+    broadcast_object_list(paths, from_process=0)
+    result_dir, pdb_dir = paths
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
@@ -146,15 +157,16 @@ def main():
     # Prepare everything with accelerator (model and dataloader)
     model, loader = accelerator.prepare(model, loader)
 
-    # enable or disable progress bar
-    iterator = (tqdm(loader, desc="Inference", total=len(loader), leave=True,
-                     disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
-                if infer_cfg.tqdm_progress_bar else loader)
-    for batch in iterator:
+    # Initialize the progress bar using tqdm (separate from iteration)
+    progress_bar = tqdm(range(0, int(len(loader))),
+                        leave=True, disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
+    progress_bar.set_description("Inference")
+
+    for i, batch in enumerate(loader):
         # Inference loop
         with torch.inference_mode():
             indices = batch['indices']
-            masks = batch['mask']
+            masks = batch['masks']
 
             # Forward pass through the decoder
             output, _, _ = model(batch, decoder_only=True)
@@ -164,8 +176,10 @@ def main():
 
             pids = batch['pid']
 
-            if accelerator.is_main_process:
-                save_predictions_to_pdb(pids, preds.detach().cpu(), masks.cpu(), pdb_dir)
+            save_predictions_to_pdb(pids, preds.detach().cpu(), masks.cpu(), pdb_dir)
+
+            # Update progress bar manually
+            progress_bar.update(1)
 
     logger.info(f"Inference decoding completed. Results are saved in {result_dir}")
 
