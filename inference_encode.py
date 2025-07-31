@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from box import Box
 from tqdm import tqdm
 from accelerate import Accelerator, DataLoaderConfiguration
+from accelerate.utils import broadcast_object_list
 import csv
 from utils.utils import load_configs, load_checkpoints_simple, get_logging
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
@@ -48,7 +49,7 @@ def main():
 
     dataloader_config = DataLoaderConfiguration(
         # dispatch_batches=False,
-        # non_blocking=True,
+        non_blocking=True,
         even_batches=False
     )
 
@@ -58,29 +59,21 @@ def main():
         dataloader_config=dataloader_config
     )
 
-    # Initialize paths to avoid unassigned variable warnings
-    result_dir = None
+    # Setup output directory with timestamp
+    now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
 
     if accelerator.is_main_process:
-        # Setup output directory with timestamp
-        now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
         result_dir = os.path.join(infer_cfg.output_base_dir, now)
         os.makedirs(result_dir, exist_ok=True)
-
-        # Copy inference config for reference
         shutil.copy("configs/inference_encode_config.yaml", result_dir)
         paths = [result_dir]
     else:
         # Initialize with placeholders.
         paths = [None]
 
-    if accelerator.num_processes > 1:
-        import torch.distributed as dist
-        # Broadcast the list of strings from the main process (src=0) to all others.
-        dist.broadcast_object_list(paths, src=0)
-
-        # Now every process has the shared values.
-        result_dir = paths[0]
+    # Broadcast paths to all processes
+    broadcast_object_list(paths, from_process=0)
+    result_dir = paths[0]
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
