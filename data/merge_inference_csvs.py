@@ -94,8 +94,8 @@ def save_splits(train_df, valid_df, output_dir, drop_source_file=True):
             valid_df = valid_df.drop('source_file', axis=1)
     
     # Save files
-    train_path = output_path / "train.csv"
-    valid_path = output_path / "valid.csv"
+    train_path = output_path / "train_set.csv"
+    valid_path = output_path / "valid_set.csv"
     
     train_df.to_csv(train_path, index=False)
     valid_df.to_csv(valid_path, index=False)
