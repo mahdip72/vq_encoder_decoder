@@ -41,7 +41,7 @@ def merge_csv_files(csv_files):
             # Add source file information for tracking
             df['source_file'] = str(csv_file)
             all_dataframes.append(df)
-            print(f"  Loaded {len(df)} rows from {csv_file}")
+            # print(f"  Loaded {len(df)} rows from {csv_file}")
         except Exception as e:
             print(f"  Error loading {csv_file}: {e}")
     
