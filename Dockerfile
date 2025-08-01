@@ -76,5 +76,8 @@ RUN python3 -m pip install "bitsandbytes"
 ENV TOKENIZERS_PARALLELISM=false
 
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tmux \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        tmux \
+        htop \
+        nvtop \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
