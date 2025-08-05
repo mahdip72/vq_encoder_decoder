@@ -38,7 +38,7 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
     x_predicted (torch.Tensor): Predicted coordinates of shape [batch_size, seq_len, num_atoms, 3].
     x_true (torch.Tensor): True coordinates of shape [batch_size, seq_len, num_atoms, 3].
     masks (torch.Tensor): Binary masks of shape [batch_size, seq_len], where 1 indicates valid positions.
-    alignment_strategy (str): Strategy for alignment. Options: 'kabsch', 'kabsch_old', 'quaternion', 'no'.
+    alignment_strategy (str): Strategy for alignment. Options: 'kabsch', 'no'.
                               Use 'no' for no alignment (absolute position error).
 
     Returns:
