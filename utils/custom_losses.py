@@ -65,12 +65,11 @@ def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
                 # Flatten atoms across residues for Kabsch input
                 coords_true_flat = x_tru_valid.reshape(-1, 3)
                 coords_pred_flat = x_pred_valid.reshape(-1, 3)
-                # Perform Kabsch alignment on flattened points
+                # Perform Kabsch alignment on flattened points (using all coordinates)
                 aligned_flat = kabsch(
                     coords_true_flat, coords_pred_flat,
-                    ca_only=False,  # Use all backbone atoms for alignment
-                    allow_reflections=False,
-                    return_transformed=True
+                    return_transformed=True,
+                    allow_reflections=False
                 ).detach()
                 # Reshape back to per-residue atom layout
                 aligned_valid = aligned_flat.reshape_as(x_tru_valid)
@@ -362,4 +361,3 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
     else:
         loss_dict['rec_loss'] = sum(valid_losses)
     return loss_dict, x_pred_aligned, x_true_aligned
-
