@@ -160,28 +160,22 @@ def get_center(
 
 
 def kabsch(
-        A: Union[AtomTensor, CoordTensor],
-        B: Union[AtomTensor, CoordTensor],
-        ca_only: bool = True,
-        fill_value: float = 1e-5,
+        A: CoordTensor,
+        B: CoordTensor,
         return_transformed: bool = True,
         allow_reflections: bool = False,
 ) -> Union[
     CoordTensor,
-    Tuple[BackboneFrameTensor, torch.Tensor],
     Tuple[RotationMatrix, torch.Tensor],
 ]:
     """
-    Computes registration between two (2D or 3D) point clouds with known
-    correspondences using Kabsch algorithm for optimal rigid body alignment.
+    Computes registration between two 3-D point clouds with known
+    correspondences using the Kabsch algorithm for optimal rigid-body
+    alignment.
 
-    This implementation handles both AtomTensor (full protein structures) and
-    CoordTensor (coordinate arrays) inputs. When using AtomTensor with ca_only=True,
-    the algorithm extracts C-alpha coordinates for alignment computation but
-    applies the resulting transformation to the entire protein structure.
-
-    Registration occurs in the zero centered coordinate system, and then
-    must be transported back.
+    The function expects input tensors of shape ``(N_points, 3)``. Alignment is
+    carried out in a zero-centred coordinate system and the coordinates are
+    subsequently translated back to the original frame.
 
     .. see:: https://en.wikipedia.org/wiki/Kabsch_algorithm
 
@@ -190,21 +184,12 @@ def kabsch(
         Based on implementation by Guillaume Bouvier (@bougui505):
         https://gist.github.com/bougui505/e392a371f5bab095a3673ea6f4976cc8
 
-        Enhanced to handle AtomTensor inputs with proper coordinate extraction
-        and improved reflection prevention for protein structure alignment.
+        Enhanced with improved reflection prevention for protein structure alignment.
 
-    :param A: Point Cloud to Align (source). Can be AtomTensor of shape
-        ``(N_residues, 37, 3)`` or CoordTensor of shape ``(N_points, 3)``
-    :type A: Union[AtomTensor, CoordTensor]
+    :param A: Point Cloud to Align (source). CoordTensor of shape ``(N_points, 3)``
+    :type A: CoordTensor
     :param B: Reference Point Cloud (target). Same format as A.
-    :type B: Union[AtomTensor, CoordTensor]
-    :param ca_only: Whether to use only C-alpha atoms for alignment when input
-        is AtomTensor. If True, alignment is computed using C-alpha atoms but
-        transformation is applied to the full structure. Defaults to ``True``.
-    :type ca_only: bool
-    :param fill_value: Value used to denote missing atoms in AtomTensor.
-        Only relevant when ``ca_only=False``. Defaults to ``1e-5``.
-    :type fill_value: float
+    :type B: CoordTensor
     :param return_transformed: If True, returns the transformed coordinates.
         If False, returns the rotation matrix and translation vector.
         Defaults to ``True``.
@@ -214,28 +199,14 @@ def kabsch(
         Important for protein structures. Defaults to ``False``.
     :type allow_reflections: bool
     :return: Either the aligned point cloud (if return_transformed=True) or
-        a tuple of (rotation_matrix, translation_vector). For AtomTensor inputs
-        with ca_only=True, returns the full transformed protein structure.
-    :rtype: Union[CoordTensor, AtomTensor, Tuple[RotationMatrix, torch.Tensor]]
+        a tuple of (rotation_matrix, translation_vector).
+    :rtype: Union[CoordTensor, Tuple[RotationMatrix, torch.Tensor]]
 
-    .. note::
-        When ca_only=True and input is AtomTensor:
-        - Alignment is computed using only C-alpha atoms (index 1)
-        - Resulting transformation is applied to the full protein structure
-        - This preserves the protein's complete atomic structure while using
-          C-alpha atoms for optimal alignment computation
     """
 
     # Extract the coordinates to use for alignment
-    if ca_only and A.ndim == 3:  # AtomTensor case
-        coords_A = get_c_alpha(A)  # Shape: [residues, 3]
-        coords_B = get_c_alpha(B)  # Shape: [residues, 3]
-    elif not ca_only and A.ndim == 3:  # Full atom case
-        coords_A, _, _ = get_full_atom_coords(A, fill_value=fill_value)
-        coords_B, _, _ = get_full_atom_coords(B, fill_value=fill_value)
-    else:  # Already CoordTensor
-        coords_A = A
-        coords_B = B
+    coords_A = A
+    coords_B = B
 
     # Get center of mass
     centroid_A = coords_A.mean(dim=0)
@@ -247,24 +218,21 @@ def kabsch(
 
     # Covariance matrix
     H = AA.T @ BB
-    U, _, Vt = torch.svd(H)
+    # Correct SVD: Get U, S (vector), Vh (V.T)
+    U, S, Vh = torch.linalg.svd(H, full_matrices=False)
 
     if not allow_reflections:
-        with torch.no_grad():
-            det = torch.det(U) * torch.det(Vt.T)
-            if det < 0.0:
-                Vt[-1, :] *= -1
+        if torch.det(Vh.T @ U.T) < 0:
+            Vh = Vh.clone()
+            Vh[-1, :] *= -1  # enforce proper rotation in 3-D: flip last row of Vh
 
-    R = Vt @ U.T
+    # Compute optimal rotation matrix (minimises RMSD)
+    R = Vh.T @ U.T
+
     t = centroid_B - R @ centroid_A
 
     if return_transformed:
         # Apply transformation to the original coordinates
-        if ca_only and A.ndim == 3:  # Transform the full AtomTensor
-            A_transformed = A.clone()
-            A_transformed[:, 1, :] = (R @ coords_A.T).T + t
-            return A_transformed
-        else:  # Transform CoordTensor or full atoms
-            return (R @ coords_A.T).T + t
+        return (R @ coords_A.T).T + t
     else:
         return (R, t)
