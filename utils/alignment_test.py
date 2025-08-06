@@ -28,16 +28,18 @@ def test_identity_alignment():
 
     protein_B = protein_A.clone()  # Identical protein
 
-    # Perform alignment
-    aligned_A = kabsch(protein_A, protein_B, ca_only=True, allow_reflections=False)
-
-    # Get rotation matrix and translation
-    R, t = kabsch(protein_A, protein_B, ca_only=True, allow_reflections=False, return_transformed=False)
-
-    # Calculate RMSD before and after alignment
+    # Extract C-alpha coordinates
     ca_A = get_c_alpha(protein_A)
     ca_B = get_c_alpha(protein_B)
-    ca_aligned = get_c_alpha(aligned_A.view_as(protein_A))
+
+    # Perform alignment on C-alpha coordinates
+    aligned_ca = kabsch(ca_A, ca_B, allow_reflections=False)
+
+    # Get rotation matrix and translation for the same coordinates
+    R, t = kabsch(ca_A, ca_B, allow_reflections=False, return_transformed=False)
+
+    # Calculate RMSD before and after alignment
+    ca_aligned = aligned_ca
 
     rmsd_before = torch.sqrt(torch.mean((ca_A - ca_B) ** 2))
     rmsd_after = torch.sqrt(torch.mean((ca_aligned - ca_B) ** 2))
@@ -104,12 +106,12 @@ def test_known_transformation():
     protein_transformed = protein_orig.clone()
     protein_transformed[:, 1, :] = ca_transformed
 
-    # Now align transformed back to original
-    aligned_back = kabsch(protein_transformed, protein_orig, ca_only=True, allow_reflections=False)
+    # Now align transformed back to original using C-alpha coordinates
+    aligned_back = kabsch(ca_transformed, ca_orig, allow_reflections=False)
 
     # Get the recovered transformation
-    recovered_R, recovered_t = kabsch(protein_transformed, protein_orig, ca_only=True,
-                                    allow_reflections=False, return_transformed=False)
+    recovered_R, recovered_t = kabsch(ca_transformed, ca_orig,
+                                      allow_reflections=False, return_transformed=False)
 
     # Calculate what the inverse transformation should be
     expected_R_inv = known_R.T  # Inverse of rotation matrix
@@ -120,7 +122,7 @@ def test_known_transformation():
     translation_error = torch.norm(recovered_t - expected_t_inv)
 
     # Calculate RMSD
-    ca_aligned_back = get_c_alpha(aligned_back.view_as(protein_orig))
+    ca_aligned_back = aligned_back
     rmsd_final = torch.sqrt(torch.mean((ca_aligned_back - ca_orig) ** 2))
 
     print(f"Known rotation angle: {angle * 180 / math.pi:.2f} degrees")
@@ -164,12 +166,12 @@ def test_translation_only():
     protein_translated = protein_orig.clone()
     protein_translated[:, 1, :] = protein_orig[:, 1, :] + translation_vector
 
-    # Align translated protein back to original
-    aligned_back = kabsch(protein_translated, protein_orig, ca_only=True, allow_reflections=False)
+    # Align translated protein back to original using C-alpha coordinates
+    aligned_back = kabsch(get_c_alpha(protein_translated), get_c_alpha(protein_orig), allow_reflections=False)
 
     # Get transformation parameters
-    recovered_R, recovered_t = kabsch(protein_translated, protein_orig, ca_only=True,
-                                    allow_reflections=False, return_transformed=False)
+    recovered_R, recovered_t = kabsch(get_c_alpha(protein_translated), get_c_alpha(protein_orig),
+                                      allow_reflections=False, return_transformed=False)
 
     # Expected inverse translation
     expected_t_inv = -translation_vector
@@ -181,7 +183,7 @@ def test_translation_only():
 
     # Calculate RMSD
     ca_orig = get_c_alpha(protein_orig)
-    ca_aligned_back = get_c_alpha(aligned_back.view_as(protein_orig))
+    ca_aligned_back = aligned_back
     rmsd_final = torch.sqrt(torch.mean((ca_aligned_back - ca_orig) ** 2))
 
     print(f"Applied translation: {translation_vector.numpy()}")
@@ -240,12 +242,12 @@ def test_rotation_only():
     protein_rotated = protein_orig.clone()
     protein_rotated[:, 1, :] = ca_rotated
 
-    # Align rotated protein back to original
-    aligned_back = kabsch(protein_rotated, protein_orig, ca_only=True, allow_reflections=False)
+    # Align rotated protein back to original using C-alpha coordinates
+    aligned_back = kabsch(ca_rotated, ca_orig, allow_reflections=False)
 
     # Get transformation parameters
-    recovered_R, recovered_t = kabsch(protein_rotated, protein_orig, ca_only=True,
-                                    allow_reflections=False, return_transformed=False)
+    recovered_R, recovered_t = kabsch(ca_rotated, ca_orig,
+                                      allow_reflections=False, return_transformed=False)
 
     # Expected inverse rotation
     expected_R_inv = known_R.T  # Inverse of rotation matrix
@@ -255,7 +257,7 @@ def test_rotation_only():
     translation_norm = torch.norm(recovered_t)  # Should be small since no net translation
 
     # Calculate RMSD
-    ca_aligned_back = get_c_alpha(aligned_back.view_as(protein_orig))
+    ca_aligned_back = aligned_back
     rmsd_final = torch.sqrt(torch.mean((ca_aligned_back - ca_orig) ** 2))
 
     print(f"Applied rotation angle: {angle * 180 / math.pi:.2f} degrees around x-axis")
@@ -318,22 +320,20 @@ def test_reflection_prevention():
 
     # Test alignment with reflections disabled
     print("Testing with allow_reflections=False...")
-    aligned_no_reflect = kabsch(protein_reflected, protein_orig, ca_only=True,
-                               allow_reflections=False)
-    R_no_reflect, t_no_reflect = kabsch(protein_reflected, protein_orig, ca_only=True,
-                                       allow_reflections=False, return_transformed=False)
+    aligned_no_reflect = kabsch(ca_reflected, ca_coords, allow_reflections=False)
+    R_no_reflect, t_no_reflect = kabsch(ca_reflected, ca_coords,
+                                        allow_reflections=False, return_transformed=False)
 
     # Test alignment with reflections enabled for comparison
     print("Testing with allow_reflections=True...")
-    aligned_with_reflect = kabsch(protein_reflected, protein_orig, ca_only=True,
-                                 allow_reflections=True)
-    R_with_reflect, t_with_reflect = kabsch(protein_reflected, protein_orig, ca_only=True,
-                                           allow_reflections=True, return_transformed=False)
+    aligned_with_reflect = kabsch(ca_reflected, ca_coords, allow_reflections=True)
+    R_with_reflect, t_with_reflect = kabsch(ca_reflected, ca_coords,
+                                            allow_reflections=True, return_transformed=False)
 
     # Calculate RMSDs
     ca_orig = get_c_alpha(protein_orig)
-    ca_aligned_no_reflect = get_c_alpha(aligned_no_reflect.view_as(protein_orig))
-    ca_aligned_with_reflect = get_c_alpha(aligned_with_reflect.view_as(protein_orig))
+    ca_aligned_no_reflect = aligned_no_reflect
+    ca_aligned_with_reflect = aligned_with_reflect
 
     rmsd_no_reflect = torch.sqrt(torch.mean((ca_aligned_no_reflect - ca_orig) ** 2))
     rmsd_with_reflect = torch.sqrt(torch.mean((ca_aligned_with_reflect - ca_orig) ** 2))
@@ -387,4 +387,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ TEST FAILED: {e}")
         import traceback
+
         traceback.print_exc()
