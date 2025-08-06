@@ -170,7 +170,6 @@ def benchmark_single_pdb(pdb_file: str,
                     # Since we're now using CoordTensor (all 3 backbone atoms), set ca_only=False
                     recovered_R, recovered_t = kabsch(
                         transformed_coords, original_coords,
-                        ca_only=False,  # Use all backbone atoms for alignment
                         allow_reflections=False,
                         return_transformed=False
                     )
@@ -186,7 +185,6 @@ def benchmark_single_pdb(pdb_file: str,
                     # Calculate RMSD after alignment using all backbone atoms
                     aligned_coords = kabsch(
                         transformed_coords, original_coords,
-                        ca_only=False,  # Use all backbone atoms for alignment
                         allow_reflections=False,
                         return_transformed=True
                     )
