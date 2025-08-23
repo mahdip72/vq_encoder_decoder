@@ -4,21 +4,6 @@ import csv
 import re
 
 
-def extract_base_name(filename):
-    """
-    From any .pdb, .pdb_pred, .pdb_A_pred etc, return base name (no chain, no _pred).
-    2abc_A.pdb      -> 2abc
-    2xyz_pred.pdb   -> 2xyz
-    1foo_B_pred.pdb -> 1foo
-    """
-    name = filename
-    if name.endswith('.pdb'):
-        name = name[:-4]
-    if name.endswith('_pred'):
-        name = name[:-5]
-    name = re.sub(r'_[A-Z]+$', '', name)
-    return name
-
 
 def calculate_tm_rmsd(real_dir, pred_dir, output_csv, log_file="processing_log.txt"):
     results = []
@@ -81,17 +66,17 @@ def calculate_tm_rmsd(real_dir, pred_dir, output_csv, log_file="processing_log.t
         rmsd_values.append(rmsd_value)
 
     # Write log file
-        with open(log_file, "w") as f:
-            for log_entry in logs:
-                f.write(log_entry + "\n")
+    with open(log_file, "w") as f:
+        for log_entry in logs:
+            f.write(log_entry + "\n")
 
-        avg_tm_score = sum(tm_scores) / len(tm_scores) if tm_scores else 0
-        avg_rmsd = sum(rmsd_values) / len(rmsd_values) if rmsd_values else 0
+    avg_tm_score = sum(tm_scores) / len(tm_scores) if tm_scores else 0
+    avg_rmsd = sum(rmsd_values) / len(rmsd_values) if rmsd_values else 0
 
-        with open(output_csv, mode='w', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=["id_real", "id_pred", "tm-score", "rmsd"])
-            writer.writeheader()
-            writer.writerows(results)
+    with open(output_csv, mode='w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=["id_real", "id_pred", "tm-score", "rmsd"])
+        writer.writeheader()
+        writer.writerows(results)
 
     print("\nSummary:")
     print(f"Average TM-score: {avg_tm_score}")
