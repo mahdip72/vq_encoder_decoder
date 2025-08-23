@@ -169,23 +169,6 @@ class Aligning(object):
 
         return tm
 
-    def get_current_values(self):
-        return self._values
-
-    def _tm(self, theta, phi, psi, dx, dy, dz):
-        """
-        Compute the minimisation target, not normalised.
-        """
-        matrix = self.get_matrix(theta, phi, psi, dx, dy, dz)
-        coord = matrix.dot(self.coord2)
-        dist = coord - self.coord1
-
-        d_i2 = (dist * dist).sum(axis=0)
-
-        tm = -(1 / (1 + (d_i2 / self.d02)))
-
-        return tm
-
     def _s(self, theta, phi, psi, dx, dy, dz):
         """
         Compute the minimisation target, not normalised.
@@ -219,7 +202,7 @@ class Aligning(object):
         return -self._s(theta, phi, psi, dx, dy, dz)
 
     def rmsd(self, theta, phi, psi, dx, dy, dz):
-        return np.sqrt(np.mean(self._rmsd(theta, phi, psi, dx, dy, dz)))
+        return np.sqrt(np.mean(np.sum(self._rmsd(theta, phi, psi, dx, dy, dz), axis=0)))
 
     def write(self, outputfile='out.pdb', appended=False):
         """
