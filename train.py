@@ -485,17 +485,17 @@ def main(dict_config, config_file_path):
 
     net, start_epoch = load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator)
 
-    net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
-        net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
-    )
-
-    net.to(accelerator.device)
-
     # compile models to train faster and efficiently
     if configs.model.compile_model:
         if hasattr(net, 'vqvae'):
             net.vqvae = torch.compile(net.vqvae)
             logging.info('VQVAE component compiled.')
+
+    net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
+    )
+
+    net.to(accelerator.device)
 
     if accelerator.is_main_process:
         # initialize tensorboards
