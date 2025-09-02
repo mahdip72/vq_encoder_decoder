@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from utils.alignment import kabsch
+import torch.distributed as dist
 
 
 def compute_grad_norm(loss, parameters, norm_type=2):
@@ -27,6 +28,210 @@ def compute_grad_norm(loss, parameters, norm_type=2):
         return torch.tensor(0.0)
     norm = torch.norm(torch.stack([torch.norm(g.detach(), norm_type) for g in grads]), norm_type)
     return norm
+
+
+def adjust_coeff_by_grad(coeff, grad_norm, decrease_factor=0.9, increase_factor=1.1,
+                        upper_thresh=1.0, lower_thresh=0.1):
+    """
+    Adjust a coefficient based on gradient norm magnitude.
+
+    Args:
+        coeff (float): Current coefficient value
+        grad_norm (float): Gradient norm of corresponding loss component
+        decrease_factor (float): Multiplier when grad_norm > upper_thresh
+        increase_factor (float): Multiplier when grad_norm < lower_thresh
+        upper_thresh (float): Upper threshold for coefficient reduction
+        lower_thresh (float): Lower threshold for coefficient increase
+
+    Returns:
+        float: Adjusted coefficient
+    """
+    if grad_norm > upper_thresh:
+        return coeff * decrease_factor
+    elif grad_norm < lower_thresh:
+        return coeff * increase_factor
+    else:
+        return coeff
+
+
+def aggregate_grad_norms(local_grad_norms, accelerator):
+    """
+    Aggregate gradient norms across all ranks for global signal.
+
+    Args:
+        local_grad_norms (dict): Local gradient norms per rank
+        accelerator: HuggingFace Accelerator
+
+    Returns:
+        dict: Globally averaged gradient norms
+    """
+    global_grad_norms = {}
+    for key, local_norm in local_grad_norms.items():
+        gathered_norms = accelerator.gather_for_metrics(local_norm)
+        global_grad_norms[key] = gathered_norms.mean().item()
+    return global_grad_norms
+
+
+def broadcast_coefficients(adaptive_loss_coeffs, accelerator):
+    """
+    Broadcast updated coefficients to all ranks.
+
+    Args:
+        adaptive_loss_coeffs (dict): Dictionary of adaptive coefficients
+        accelerator: HuggingFace Accelerator
+
+    Returns:
+        dict: Updated coefficients (same across all ranks)
+    """
+    if accelerator.num_processes > 1:
+        # Convert dict to list for broadcasting
+        coeff_list = [adaptive_loss_coeffs]
+        dist.broadcast_object_list(coeff_list, src=0)
+        adaptive_loss_coeffs = coeff_list[0]
+    return adaptive_loss_coeffs
+
+
+def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms):
+    """
+    Adjust adaptive loss coefficients based on global gradient norms.
+
+    Args:
+        adaptive_loss_coeffs (dict): Current adaptive coefficients.
+        global_grad_norms (dict): Global gradient norms for each loss component.
+
+    Returns:
+        dict: Updated adaptive coefficients.
+    """
+    # Adjust each coefficient based on its global grad norm
+    if 'mse' in global_grad_norms:
+        adaptive_loss_coeffs['mse'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['mse'], global_grad_norms['mse']
+        )
+
+    if 'backbone_distance' in global_grad_norms:
+        adaptive_loss_coeffs['backbone_distance'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['backbone_distance'], global_grad_norms['backbone_distance']
+        )
+
+    if 'backbone_direction' in global_grad_norms:
+        adaptive_loss_coeffs['backbone_direction'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['backbone_direction'], global_grad_norms['backbone_direction']
+        )
+
+    if 'binned_direction_classification' in global_grad_norms:
+        adaptive_loss_coeffs['binned_direction_classification'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['binned_direction_classification'], global_grad_norms['binned_direction_classification']
+        )
+
+    if 'binned_distance_classification' in global_grad_norms:
+        adaptive_loss_coeffs['binned_distance_classification'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['binned_distance_classification'], global_grad_norms['binned_distance_classification']
+        )
+
+    if 'commit' in global_grad_norms:
+        adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['commit'], global_grad_norms['commit']
+        )
+
+    return adaptive_loss_coeffs
+
+
+def log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step):
+    """
+    Log gradient norms and adaptive coefficients to TensorBoard.
+
+    Args:
+        writer (SummaryWriter): TensorBoard writer.
+        global_grad_norms (dict): Global gradient norms for each loss component.
+        adaptive_loss_coeffs (dict): Current adaptive coefficients.
+        global_step (int): Current global training step.
+    """
+    # Log gradient norms
+    for key, norm in global_grad_norms.items():
+        writer.add_scalar(f'gradient norm/{key}', norm, global_step)
+
+    # Log adaptive coefficients
+    for coeff_name, coeff_val in adaptive_loss_coeffs.items():
+        writer.add_scalar(f'adaptive_coeff/{coeff_name}', coeff_val, global_step)
+
+
+def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global_step, adaptive_loss_coeffs):
+    """
+    Log per-loss gradient norms and adjust adaptive coefficients based on global gradient norms.
+    Only activates when adaptive mode is enabled and warmup period is complete.
+
+    Args:
+        loss_dict (dict): Loss components from calculate_decoder_loss
+        net (torch.nn.Module): The model
+        configs: Configuration object
+        writer (SummaryWriter): TensorBoard writer
+        accelerator: HuggingFace Accelerator
+        global_step (int): Current global training step
+        adaptive_loss_coeffs (dict): Current adaptive coefficients
+
+    Returns:
+        dict: Updated adaptive coefficients
+    """
+    # Early return if not logging step or not sync gradients
+    if not (accelerator.sync_gradients and
+            global_step % configs.train_settings.gradient_norm_logging_freq == 0):
+        return adaptive_loss_coeffs
+
+    # Compute local gradient norms for each enabled loss
+    local_grad_norms = {}
+
+    if configs.train_settings.losses.mse.enabled:
+        mse_weight = configs.train_settings.losses.mse.weight
+        local_grad_norms['mse'] = compute_grad_norm(mse_weight * loss_dict['mse_loss'], net.parameters())
+
+    if configs.train_settings.losses.backbone_distance.enabled:
+        backbone_distance_weight = configs.train_settings.losses.backbone_distance.weight
+        local_grad_norms['backbone_distance'] = compute_grad_norm(
+            backbone_distance_weight * loss_dict['backbone_distance_loss'], net.parameters()
+        )
+
+    if configs.train_settings.losses.backbone_direction.enabled:
+        backbone_direction_weight = configs.train_settings.losses.backbone_direction.weight
+        local_grad_norms['backbone_direction'] = compute_grad_norm(
+            backbone_direction_weight * loss_dict['backbone_direction_loss'], net.parameters()
+        )
+
+    if configs.train_settings.losses.binned_direction_classification.enabled:
+        binned_direction_weight = configs.train_settings.losses.binned_direction_classification.weight
+        local_grad_norms['binned_direction_classification'] = compute_grad_norm(
+            binned_direction_weight * loss_dict['binned_direction_classification_loss'], net.parameters()
+        )
+
+    if configs.train_settings.losses.binned_distance_classification.enabled:
+        binned_distance_weight = configs.train_settings.losses.binned_distance_classification.weight
+        local_grad_norms['binned_distance_classification'] = compute_grad_norm(
+            binned_distance_weight * loss_dict['binned_distance_classification_loss'], net.parameters()
+        )
+
+    if configs.model.vqvae.vector_quantization.enabled:
+        local_grad_norms['commit'] = compute_grad_norm(loss_dict.get('commit', torch.tensor(0.0)), net.parameters())
+
+    # Aggregate across ranks for global signal
+    global_grad_norms = aggregate_grad_norms(local_grad_norms, accelerator)
+
+    # Adjust coefficients and broadcast (only after warmup and if adaptive enabled)
+    if (accelerator.is_main_process and
+        configs.train_settings.adaptive_loss_coefficient and
+        global_step > configs.optimizer.decay.warmup):
+
+        adaptive_loss_coeffs = adjust_adaptive_coefficients(
+            adaptive_loss_coeffs, global_grad_norms
+        )
+
+        # Log gradient norms and coefficients
+        if configs.tensorboard_log:
+            log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step)
+
+    if (configs.train_settings.adaptive_loss_coefficient and
+        global_step > configs.optimizer.decay.warmup):
+        adaptive_loss_coeffs = broadcast_coefficients(adaptive_loss_coeffs, accelerator)
+
+    return adaptive_loss_coeffs
 
 
 def calculate_aligned_mse_loss(x_predicted, x_true, masks, alignment_strategy):
@@ -307,55 +512,69 @@ def calculate_binned_distance_classification_loss(dist_loss_logits, x_true, mask
 
 
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
-                           alignment_strategy='kabsch'):
+                           alignment_strategy='kabsch', adaptive_loss_coeffs=None):
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
         x_predicted, x_true, masks, alignment_strategy=alignment_strategy)
     device = x_predicted.device
+
+    # Initialize adaptive coefficients (defaults to 1.0 if not provided)
+    adaptive = adaptive_loss_coeffs or {
+        'mse': 1.0,
+        'backbone_distance': 1.0,
+        'backbone_direction': 1.0,
+        'binned_direction_classification': 1.0,
+        'binned_distance_classification': 1.0
+    }
 
     # Prepare loss dict with weighted components or 0.0 if disabled
     loss_dict = {}
     # MSE reconstruction
     if configs.train_settings.losses.mse.enabled:
         w = configs.train_settings.losses.mse.weight
-        loss_dict['mse_loss'] = mse_raw.mean() * w
+        mse_coeff = adaptive.get('mse', 1.0)
+        loss_dict['mse_loss'] = mse_raw.mean() * w * mse_coeff
     else:
         loss_dict['mse_loss'] = torch.tensor(0.0, device=device)
     # Backbone distance
     if configs.train_settings.losses.backbone_distance.enabled:
         w = configs.train_settings.losses.backbone_distance.weight
+        backbone_distance_coeff = adaptive.get('backbone_distance', 1.0)
         loss_dict['backbone_distance_loss'] = calculate_backbone_distance_loss(
-            x_pred_aligned, x_true_aligned, masks).mean() * w
+            x_pred_aligned, x_true_aligned, masks).mean() * w * backbone_distance_coeff
     else:
         loss_dict['backbone_distance_loss'] = torch.tensor(0.0, device=device)
     # Backbone direction
     if configs.train_settings.losses.backbone_direction.enabled:
         w = configs.train_settings.losses.backbone_direction.weight
+        backbone_direction_coeff = adaptive.get('backbone_direction', 1.0)
         loss_dict['backbone_direction_loss'] = calculate_backbone_direction_loss(
-            x_pred_aligned, x_true_aligned, masks).mean() * w
+            x_pred_aligned, x_true_aligned, masks).mean() * w * backbone_direction_coeff
     else:
         loss_dict['backbone_direction_loss'] = torch.tensor(0.0, device=device)
     # Binned direction classification
     if configs.train_settings.losses.binned_direction_classification.enabled:
         w = configs.train_settings.losses.binned_direction_classification.weight
+        binned_direction_coeff = adaptive.get('binned_direction_classification', 1.0)
         val = calculate_binned_direction_classification_loss(
             dir_loss_logits, x_true_aligned, masks).mean() if dir_loss_logits is not None else torch.tensor(0.0,
                                                                                                             device=device)
-        loss_dict['binned_direction_classification_loss'] = val * w
+        loss_dict['binned_direction_classification_loss'] = val * w * binned_direction_coeff
     else:
         loss_dict['binned_direction_classification_loss'] = torch.tensor(0.0, device=device)
     # Binned distance classification
     if configs.train_settings.losses.binned_distance_classification.enabled:
         w = configs.train_settings.losses.binned_distance_classification.weight
+        binned_distance_coeff = adaptive.get('binned_distance_classification', 1.0)
         val = calculate_binned_distance_classification_loss(
             dist_loss_logits, x_true_aligned, masks).mean() if dist_loss_logits is not None else torch.tensor(0.0,
                                                                                                               device=device)
-        loss_dict['binned_distance_classification_loss'] = val * w
+        loss_dict['binned_distance_classification_loss'] = val * w * binned_distance_coeff
     else:
         loss_dict['binned_distance_classification_loss'] = torch.tensor(0.0, device=device)
 
     # Sum reconstruction components
-    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and k != 'rec_loss' and not torch.isnan(v)]
+    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v)]
     if not valid_losses:
         loss_dict['rec_loss'] = torch.tensor(0.0, device=device)
     else:

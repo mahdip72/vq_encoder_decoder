@@ -13,7 +13,7 @@ resume:
   enabled: False
   resume_path: results/dgx/vqvae/2025-07-02__01-28-28/checkpoints/epoch_8.pth
   restart_optimizer: True
-  discard_decoder_weights: True
+  discard_decoder_weights: False
 
 model:
   compile_model: False
@@ -47,11 +47,11 @@ model:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
       ff_mult: 4         # Multiplier for the feedforward dimension
-      depth: 12      # Number of layers in the Encoder
-      heads: 12      # Number of attention heads in the Encoder
+      depth: 10      # Number of layers in the Encoder
+      heads: 8      # Number of attention heads in the Encoder
       rotary_pos_emb: True
       attn_flash: True # FA-2 if installed
-      attn_kv_heads: 3 # GQA
+      attn_kv_heads: 2 # GQA
       qk_norm: True
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
@@ -62,24 +62,25 @@ model:
 
 train_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
-  num_epochs: 256
+  num_epochs: 128
   shuffle: True
   mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
-  batch_size: 16
+  batch_size: 8
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 2000
+  max_task_samples: 50000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
     probability: 0.5
     min_length: 25
   nan_augmentation:
-    enabled: True
-    probability: 0.05
-    max_length: 7
+    enabled: False
+    probability: 0.0
+    max_length: 30
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
+  adaptive_loss_coefficient: True  # Enable/disable adaptive loss coefficient system
   losses:
     alignment_strategy: kabsch # kabsch, no
     mse:
@@ -99,10 +100,10 @@ train_settings:
       weight: 0.01
 
 valid_settings:
-  data_path: ../../datasets/vqvae/whole_validation_2048_h5
-  do_every: 1
-  save_pdb_every: 1
-  batch_size: 32
+  data_path: ../../datasets/vqvae/whole_validation_2048_h5/
+  do_every: 4
+  save_pdb_every: 8
+  batch_size: 8
   num_workers: 0
 
 visualization_settings:
@@ -120,10 +121,10 @@ optimizer:
   eps: 1e-7
   beta_1: 0.9
   beta_2: 0.98
-  use_8bit_adam: False
+  use_8bit_adam: True
   grad_clip_norm: 1
   decay:
-    warmup: 2048
+    warmup: 768
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1

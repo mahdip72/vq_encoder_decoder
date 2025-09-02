@@ -3,7 +3,7 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.custom_losses import calculate_decoder_loss, compute_grad_norm
+from utils.custom_losses import calculate_decoder_loss, compute_grad_norm, log_per_loss_grad_norms
 from utils.utils import (
     save_backbone_pdb,
     load_configs,
@@ -24,7 +24,7 @@ from data.dataset import prepare_gcpnet_vqvae_dataloaders
 from models.super_model import prepare_model
 
 
-def train_loop(net, train_loader, epoch, **kwargs):
+def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     accelerator = kwargs.pop('accelerator')
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
@@ -95,35 +95,19 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 seq=data["inverse_folding_labels"],
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
-                alignment_strategy=alignment_strategy
+                alignment_strategy=alignment_strategy,
+                adaptive_loss_coeffs=adaptive_loss_coeffs
             )
-            rec_loss = loss_dict['rec_loss']
 
-            loss = rec_loss + alpha * commit_loss
+            loss_dict['commit'] = alpha * commit_loss
+            loss = loss_dict['rec_loss'] + loss_dict['commit']
 
-            # Log per-loss gradient norms before backward
-            if accelerator.sync_gradients and accelerator.is_main_process and global_step % configs.train_settings.gradient_norm_logging_freq == 0 and configs.tensorboard_log:
-                # reconstruction components
-                if configs.train_settings.losses.mse.enabled:
-                    gn = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/mse', gn.item(), global_step)
-                if configs.train_settings.losses.backbone_distance.enabled:
-                    gn = compute_grad_norm(loss_dict['backbone_distance_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/backbone_distance', gn.item(), global_step)
-                if configs.train_settings.losses.backbone_direction.enabled:
-                    gn = compute_grad_norm(loss_dict['backbone_direction_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/backbone_direction', gn.item(), global_step)
-                if configs.train_settings.losses.binned_direction_classification.enabled:
-                    gn = compute_grad_norm(loss_dict['binned_direction_classification_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/binned_direction_classification', gn.item(), global_step)
-                if configs.train_settings.losses.binned_distance_classification.enabled:
-                    gn = compute_grad_norm(loss_dict['binned_distance_classification_loss'], net.parameters())
-                    writer.add_scalar('gradient norm/binned_distance_classification', gn.item(), global_step)
+            # Log per-loss gradient norms and adjust adaptive coefficients
+            adaptive_loss_coeffs = log_per_loss_grad_norms(
+                loss_dict, net, configs, writer, accelerator,
+                global_step, adaptive_loss_coeffs
+            )
 
-                if configs.model.vqvae.vector_quantization.enabled:
-                    # commitment loss
-                    gn = compute_grad_norm(alpha * commit_loss, net.parameters())
-                    writer.add_scalar('gradient norm/commit', gn.item(), global_step)
 
             if accelerator.is_main_process and epoch % configs.train_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for training data in epoch {epoch}")
@@ -155,13 +139,13 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 tm_score_metric.update(pred_ca_coords, true_ca_coords, masks.detach().bool())
 
             # Gather the losses across all processes for logging (if we use distributed training).
-            avg_rec_loss = accelerator.gather(rec_loss.repeat(configs.train_settings.batch_size)).mean()
+            avg_rec_loss = accelerator.gather(loss_dict['rec_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
             train_rec_loss += avg_rec_loss.item() / accum_iter
 
-            avg_cmt_loss = accelerator.gather(commit_loss.repeat(configs.train_settings.batch_size)).mean()
+            avg_cmt_loss = accelerator.gather(loss_dict['commit'].repeat(configs.train_settings.batch_size)).mean()
             train_cmt_loss += avg_cmt_loss.item() / accum_iter
 
-            train_total_loss = train_rec_loss + alpha * train_cmt_loss
+            train_total_loss = train_rec_loss + train_cmt_loss
 
             gathered_indices = accelerator.gather(indices)
             epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
@@ -212,8 +196,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
             {
                 "lr": optimizer.param_groups[0]['lr'],
                 "step_loss": loss.detach().item(),
-                "rec_loss": rec_loss.detach().item(),
-                "cmt_loss": commit_loss.detach().item(),
+                "rec_loss": loss_dict['rec_loss'].detach().item(),
+                "cmt_loss": loss_dict['commit'].detach().item(),
                 "global_step": global_step
             }
         )
@@ -261,7 +245,8 @@ def train_loop(net, train_loader, epoch, **kwargs):
         "cmt_loss": avg_cmt_loss,
         "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
-        "global_step": global_step
+        "global_step": global_step,
+        "adaptive_loss_coeffs": adaptive_loss_coeffs
     }
     return return_dict
 
@@ -525,10 +510,21 @@ def main(dict_config, config_file_path):
     # Use this to keep track of the global step across all processes.
     # This is useful for continuing training from a checkpoint.
     global_step = 0
+
+    # Initialize adaptive loss coefficients (persistent across epochs)
+    adaptive_loss_coeffs = {
+        'mse': 1.0,
+        'backbone_distance': 1.0,
+        'backbone_direction': 1.0,
+        'binned_direction_classification': 1.0,
+        'binned_distance_classification': 1.0,
+        'commit': 1.0
+    }
+
     best_valid_metrics = {'gdtts': 0.0, 'mae': 1000.0, 'rmsd': 1000.0, 'lddt': 0.0, 'loss': 1000.0}
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
-        training_loop_reports = train_loop(net, train_dataloader, epoch,
+        training_loop_reports = train_loop(net, train_dataloader, epoch, adaptive_loss_coeffs,
                                            accelerator=accelerator,
                                            optimizer=optimizer,
                                            scheduler=scheduler, configs=configs,
@@ -555,6 +551,8 @@ def main(dict_config, config_file_path):
             f'activation {training_loop_reports["activation"]:.1f}')
 
         global_step = training_loop_reports["global_step"]
+        # Update adaptive coefficients from training loop
+        adaptive_loss_coeffs = training_loop_reports.get("adaptive_loss_coeffs", adaptive_loss_coeffs)
         accelerator.wait_for_everyone()
 
         if epoch % configs.checkpoints_every == 0:
