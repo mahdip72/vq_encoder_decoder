@@ -171,7 +171,7 @@ def train_loop(net, train_loader, epoch, **kwargs):
                 if global_step % configs.train_settings.gradient_norm_logging_freq == 0:
                     # Calculate the gradient norm every configs.train_settings.gradient_norm_logging_freq steps
                     grad_norm = torch.norm(
-                        torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None]),
+                        torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None and p.requires_grad]),
                         2)
                     if accelerator.is_main_process and configs.tensorboard_log:
                         writer.add_scalar('gradient norm/total', grad_norm.item(), global_step)
