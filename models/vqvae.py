@@ -110,6 +110,8 @@ class VQVAETransformer(nn.Module):
         return torch.ones((seq_len, seq_len), dtype=torch.bool, device=device).tril()
 
     def forward(self, x, mask, nan_mask, **kwargs):
+        # mask, nan_mask are (B, N) bool; keep passing the key-padding mask as (B, N)
+        valid = torch.logical_and(mask, nan_mask)
         if not self.decoder_only:
             # Apply input projection
             if self.use_ndlinear:
@@ -126,7 +128,7 @@ class VQVAETransformer(nn.Module):
                 seq_len = x.size(1)
                 encoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
 
-            x = self.encoder_blocks(x, mask=torch.logical_and(mask, nan_mask), attn_mask=encoder_attn_mask)
+            x = self.encoder_blocks(x, mask=valid, attn_mask=encoder_attn_mask)
 
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear
@@ -141,12 +143,12 @@ class VQVAETransformer(nn.Module):
         if self.vqvae_enabled:
             if not self.decoder_only:
                 # Apply vector quantization
-                x, indices, commit_loss = self.vector_quantizer(x, mask=torch.logical_and(mask, nan_mask))
+                x, indices, commit_loss = self.vector_quantizer(x, mask=valid)
 
                 if kwargs.get('return_vq_layer', False):
                     return x, indices, commit_loss
             else:
                 indices = x
                 x = self.vector_quantizer.get_output_from_indices(indices)
-        x = self.decoder(x, torch.logical_and(mask, nan_mask))
+        x = self.decoder(x, valid)
         return x, indices, commit_loss
