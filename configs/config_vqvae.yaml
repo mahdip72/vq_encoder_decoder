@@ -62,7 +62,7 @@ model:
       freeze_parameters: False
 
 train_settings:
-  data_path: ../../datasets/vqvae/whole_validation_2048_h5/
+  data_path: ../../datasets/vqvae/uniref_50/
   num_epochs: 128
   shuffle: True
   mixed_precision: bf16 # no, fp16, bf16, fp8
@@ -80,7 +80,7 @@ train_settings:
     enabled: False
     probability: 0.0
     max_length: 30
-  gradient_norm_logging_freq: 5  # How often to calculate and log gradient norm (in steps)
+  gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   adaptive_loss_coefficient: True  # Enable/disable adaptive loss coefficient system
   losses:
     alignment_strategy: kabsch # kabsch, no
@@ -125,7 +125,7 @@ optimizer:
   use_8bit_adam: True
   grad_clip_norm: 1
   decay:
-    warmup: 1024
+    warmup: 4
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1
