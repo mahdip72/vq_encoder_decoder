@@ -181,31 +181,26 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     local_grad_norms = {}
 
     if configs.train_settings.losses.mse.enabled:
-        mse_weight = configs.train_settings.losses.mse.weight
-        local_grad_norms['mse'] = compute_grad_norm(mse_weight * loss_dict['mse_loss'], net.parameters())
+        local_grad_norms['mse'] = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
 
     if configs.train_settings.losses.backbone_distance.enabled:
-        backbone_distance_weight = configs.train_settings.losses.backbone_distance.weight
         local_grad_norms['backbone_distance'] = compute_grad_norm(
-            backbone_distance_weight * loss_dict['backbone_distance_loss'], net.parameters()
+            loss_dict['backbone_distance_loss'], net.parameters()
         )
 
     if configs.train_settings.losses.backbone_direction.enabled:
-        backbone_direction_weight = configs.train_settings.losses.backbone_direction.weight
         local_grad_norms['backbone_direction'] = compute_grad_norm(
-            backbone_direction_weight * loss_dict['backbone_direction_loss'], net.parameters()
+            loss_dict['backbone_direction_loss'], net.parameters()
         )
 
     if configs.train_settings.losses.binned_direction_classification.enabled:
-        binned_direction_weight = configs.train_settings.losses.binned_direction_classification.weight
         local_grad_norms['binned_direction_classification'] = compute_grad_norm(
-            binned_direction_weight * loss_dict['binned_direction_classification_loss'], net.parameters()
+            loss_dict['binned_direction_classification_loss'], net.parameters()
         )
 
     if configs.train_settings.losses.binned_distance_classification.enabled:
-        binned_distance_weight = configs.train_settings.losses.binned_distance_classification.weight
         local_grad_norms['binned_distance_classification'] = compute_grad_norm(
-            binned_distance_weight * loss_dict['binned_distance_classification_loss'], net.parameters()
+            loss_dict['binned_distance_classification_loss'], net.parameters()
         )
 
     if configs.model.vqvae.vector_quantization.enabled:
