@@ -9,6 +9,7 @@ qk_norm: True
 pre_norm: True
 residual_attn: False # Set pre_norm to False if residual_attn is True
 num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
+causal: False # Enable causal masking for autoregressive attention
 
 direction_loss_bins: 16
 pos_scale_factor: 1.0

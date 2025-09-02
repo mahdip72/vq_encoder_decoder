@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+from torch_geometric.data.lightning.datamodule import kwargs_repr
 from x_transformers import ContinuousTransformerWrapper, Encoder
 from vector_quantize_pytorch import VectorQuantize
 from ndlinear import NdLinear
@@ -20,6 +21,8 @@ class VQVAETransformer(nn.Module):
 
         # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
         input_shape = 128
+
+        self.encoder_causal = configs.model.vqvae.encoder.causal
 
         if not self.decoder_only:
             # Encoder
@@ -99,6 +102,13 @@ class VQVAETransformer(nn.Module):
 
         self.decoder = decoder
 
+    def create_causal_mask(self, seq_len, device):
+        """
+        Create a lower-triangular (causal) boolean attention mask of shape (seq_len, seq_len),
+        where True indicates allowed attention (token i attends only to tokens j <= i).
+        """
+        return torch.ones((seq_len, seq_len), dtype=torch.bool, device=device).tril()
+
     def forward(self, x, mask, nan_mask, **kwargs):
         if not self.decoder_only:
             # Apply input projection
@@ -111,7 +121,12 @@ class VQVAETransformer(nn.Module):
                 x = self.encoder_tail(x)
                 x = x.permute(0, 2, 1)
 
-            x = self.encoder_blocks(x, mask=torch.logical_and(mask, nan_mask))
+            encoder_attn_mask = None
+            if self.encoder_causal:
+                seq_len = x.size(1)
+                encoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
+
+            x = self.encoder_blocks(x, mask=torch.logical_and(mask, nan_mask), attn_mask=encoder_attn_mask)
 
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear

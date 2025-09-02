@@ -34,12 +34,12 @@ model:
       dim: 256
       decay: 0.99
       codebook_size: 4096
-      commitment_weight: 0.5
+      commitment_weight: 0.25
       orthogonal_reg_weight: 10
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
       rotation_trick: True
-      threshold_ema_dead_code: 2
+      threshold_ema_dead_code: 1
       kmeans_init: True
       kmeans_iters: 10
       alpha: 1.0
@@ -56,6 +56,7 @@ model:
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
       num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
+      causal: False # Enable causal masking for autoregressive attention
     decoder:
       name: geometric_decoder # geometric_decoder
       freeze_parameters: False
@@ -66,7 +67,7 @@ train_settings:
   shuffle: True
   mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
-  batch_size: 8
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 50000
@@ -79,13 +80,13 @@ train_settings:
     enabled: False
     probability: 0.0
     max_length: 30
-  gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
+  gradient_norm_logging_freq: 5  # How often to calculate and log gradient norm (in steps)
   adaptive_loss_coefficient: True  # Enable/disable adaptive loss coefficient system
   losses:
     alignment_strategy: kabsch # kabsch, no
     mse:
       enabled: True
-      weight: 0.005
+      weight: 0.001
     backbone_distance:
       enabled: True
       weight: 0.01
@@ -124,7 +125,7 @@ optimizer:
   use_8bit_adam: True
   grad_clip_norm: 1
   decay:
-    warmup: 768
+    warmup: 1024
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1

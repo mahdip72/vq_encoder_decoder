@@ -11,6 +11,7 @@ class GeometricDecoder(nn.Module):
         super(GeometricDecoder, self).__init__()
 
         self.max_length = configs.model.max_length
+        self.decoder_causal = decoder_configs.causal
 
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
         self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim
@@ -73,6 +74,13 @@ class GeometricDecoder(nn.Module):
             bias=False,
         )
 
+    def create_causal_mask(self, seq_len, device):
+        """
+        Create a lower-triangular (causal) boolean attention mask of shape (seq_len, seq_len),
+        where True indicates allowed attention (token i attends only to tokens j <= i).
+        """
+        return torch.ones((seq_len, seq_len), dtype=torch.bool, device=device).tril()
+
     def forward(
             self,
             structure_tokens: torch.Tensor,
@@ -86,7 +94,12 @@ class GeometricDecoder(nn.Module):
             # Original linear approach
             x = self.projector_in(structure_tokens)
 
-        x = self.decoder_stack(x, mask=mask)
+        decoder_attn_mask = None
+        if self.decoder_causal:
+            seq_len = x.size(1)
+            decoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
+
+        x = self.decoder_stack(x, mask=mask, attn_mask=decoder_attn_mask)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
