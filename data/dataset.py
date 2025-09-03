@@ -554,13 +554,44 @@ class GCPNetDataset(Dataset):
         # random nan masking
         if nan_cfg.enabled and self.mode == 'train' and random.random() < nan_cfg.probability:
             segment_length = random.randint(1, nan_cfg.max_length)
-            if len(coords_list) > segment_length:
-                max_start = len(coords_list) - segment_length
-                start = random.randint(0, max_start)
-                for idx in range(start, start + segment_length):
-                    coords_list[idx] = [[float('nan')] * 3 for _ in range(4)]
-                    if idx < len(seq_list):
-                        seq_list[idx] = 'X'
+            N = len(coords_list)
+            if N > segment_length:
+                # choose 1..6 chunks, but not more than the segment_length
+                num_chunks = random.randint(1, min(6, segment_length))
+
+                # randomly partition segment_length into num_chunks positive integers
+                if num_chunks == 1:
+                    chunk_lengths = [segment_length]
+                else:
+                    split_points = sorted(random.sample(range(1, segment_length), num_chunks - 1))
+                    chunk_lengths = [split_points[0]] + \
+                                    [split_points[i] - split_points[i - 1] for i in range(1, len(split_points))] + \
+                                    [segment_length - split_points[-1]]
+
+                # place chunks randomly without overlap using free-interval sampling
+                free_intervals = [(0, N)]  # half-open intervals [start, end)
+                masked_ranges = []
+                for L in chunk_lengths:
+                    candidates = [iv for iv in free_intervals if (iv[1] - iv[0]) >= L]
+                    if not candidates:
+                        break  # no room left; stop early
+                    a, b = random.choice(candidates)
+                    start = random.randint(a, b - L)
+                    end = start + L
+                    masked_ranges.append((start, end))
+                    # update free intervals by splitting the chosen interval
+                    free_intervals.remove((a, b))
+                    if start > a:
+                        free_intervals.append((a, start))
+                    if end < b:
+                        free_intervals.append((end, b))
+
+                # apply masking
+                for s, e in masked_ranges:
+                    for idx in range(s, e):
+                        coords_list[idx] = [[float('nan')] * 3 for _ in range(4)]
+                        if idx < len(seq_list):
+                            seq_list[idx] = 'X'
 
         # random cutoff
         if cut_cfg.enabled and self.mode == 'train' and random.random() < cut_cfg.probability:

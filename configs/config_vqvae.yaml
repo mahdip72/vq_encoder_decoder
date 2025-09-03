@@ -82,9 +82,9 @@ train_settings:
     probability: 0.5
     min_length: 25
   nan_augmentation:
-    enabled: False
-    probability: 0.0
-    max_length: 30
+    enabled: True
+    probability: 0.05
+    max_length: 50
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   adaptive_loss_coefficient: True  # Enable/disable adaptive loss coefficient system
   losses:
