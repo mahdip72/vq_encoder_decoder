@@ -170,11 +170,11 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 if optimizer_name != 'schedulerfree':
                     accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
 
-            if optimizer_name != 'schedulerfree':
-                optimizer.step()
-                scheduler.step()
-            else:
-                optimizer.step()
+                if optimizer_name != 'schedulerfree':
+                    optimizer.step()
+                    scheduler.step()
+                else:
+                    optimizer.step()
 
                 progress_bar.update(1)
                 global_step += 1
