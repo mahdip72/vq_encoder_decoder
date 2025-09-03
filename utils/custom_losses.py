@@ -181,7 +181,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     """
     # Early return if not logging step or not sync gradients
     if not (accelerator.sync_gradients and
-            global_step % configs.train_settings.gradient_norm_logging_freq == 0):
+            global_step % configs.train_settings.gradient_norm_logging_freq == 0 and global_step > 0):
         return adaptive_loss_coeffs
 
     # Compute local gradient norms for each enabled loss
