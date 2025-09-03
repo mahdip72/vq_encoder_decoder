@@ -222,8 +222,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
     # Log the metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
-        writer.add_scalar('loss', avg_loss, epoch)
-        writer.add_scalar('rec_loss', avg_rec_loss, epoch)
+        writer.add_scalar('loss/total', avg_loss, epoch)
+        writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('mae', denormalized_rec_mae, epoch)
         writer.add_scalar('rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
@@ -385,8 +385,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
-        writer.add_scalar('loss', avg_loss, epoch)
-        writer.add_scalar('rec_loss', avg_rec_loss, epoch)
+        writer.add_scalar('loss/total', avg_loss, epoch)
+        writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('mae', denormalized_rec_mae, epoch)
         writer.add_scalar('rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('gdtts', gdtts_score, epoch)
