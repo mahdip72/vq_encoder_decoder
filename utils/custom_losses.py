@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from utils.alignment import kabsch
 import torch.distributed as dist
+from typing import Optional
 
 
 def compute_grad_norm(loss, parameters, norm_type=2):
@@ -31,7 +32,7 @@ def compute_grad_norm(loss, parameters, norm_type=2):
 
 
 def adjust_coeff_by_grad(coeff, grad_norm, decrease_factor=0.9, increase_factor=1.1,
-                        upper_thresh=0.5, lower_thresh=0.05):
+                         upper_thresh=0.5, lower_thresh=0.05):
     """
     Adjust a coefficient based on gradient norm magnitude.
 
@@ -120,7 +121,8 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms):
 
     if 'binned_direction_classification' in global_grad_norms:
         adaptive_loss_coeffs['binned_direction_classification'] = adjust_coeff_by_grad(
-            adaptive_loss_coeffs['binned_direction_classification'], global_grad_norms['binned_direction_classification']
+            adaptive_loss_coeffs['binned_direction_classification'],
+            global_grad_norms['binned_direction_classification']
         )
 
     if 'binned_distance_classification' in global_grad_norms:
@@ -131,6 +133,11 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms):
     if 'commit' in global_grad_norms:
         adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs['commit'], global_grad_norms['commit']
+        )
+
+    if 'ntp' in global_grad_norms:
+        adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
         )
 
     return adaptive_loss_coeffs
@@ -203,6 +210,11 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             loss_dict['binned_distance_classification_loss'], net.parameters()
         )
 
+    if getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
+            configs.train_settings.losses.next_token_prediction.enabled and \
+            ('ntp_loss' in loss_dict):
+        local_grad_norms['ntp'] = compute_grad_norm(loss_dict['ntp_loss'], net.parameters())
+
     if configs.model.vqvae.vector_quantization.enabled:
         local_grad_norms['commit'] = compute_grad_norm(loss_dict.get('commit', torch.tensor(0.0)), net.parameters())
 
@@ -215,8 +227,8 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
 
     # Adjust coefficients and broadcast (only after warmup and if adaptive enabled)
     if (accelerator.is_main_process and
-        configs.train_settings.adaptive_loss_coefficient and
-        global_step > configs.optimizer.decay.warmup):
+            configs.train_settings.adaptive_loss_coefficient and
+            global_step > configs.optimizer.decay.warmup):
 
         adaptive_loss_coeffs = adjust_adaptive_coefficients(
             adaptive_loss_coeffs, global_grad_norms
@@ -227,7 +239,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step)
 
     if (configs.train_settings.adaptive_loss_coefficient and
-        global_step > configs.optimizer.decay.warmup):
+            global_step > configs.optimizer.decay.warmup):
         adaptive_loss_coeffs = broadcast_coefficients(adaptive_loss_coeffs, accelerator)
 
     return adaptive_loss_coeffs
@@ -510,8 +522,45 @@ def calculate_binned_distance_classification_loss(dist_loss_logits, x_true, mask
     return torch.stack(loss_list)
 
 
+def calculate_ntp_loss(ntp_logits: Optional[torch.Tensor], indices: Optional[torch.Tensor],
+                       masks: torch.Tensor) -> torch.Tensor:
+    """
+    Next-token prediction loss using codebook indices as labels.
+
+    Args:
+        ntp_logits: (B, L, K) logits from ntp_head; may be None if disabled
+        indices: (B, L) integer code indices from VQ layer; may be None if disabled
+        masks: (B, L) bool/float mask where True indicates valid residues
+
+    Returns:
+        (B,) per-sample loss tensor; zeros when not computable
+    """
+    device = masks.device
+    if ntp_logits is None or indices is None:
+        # Return per-batch zeros
+        B = masks.size(0)
+        return torch.zeros(B, device=device)
+
+    B, L, K = ntp_logits.shape
+    loss_list = []
+    masks = masks.bool()
+    for i in range(B):
+        # shift: predict token t+1 from state at t
+        logits_i = ntp_logits[i, :-1, :]  # (L-1, K)
+        targets_i = indices[i, 1:]  # (L-1,)
+        valid_next = masks[i, 1:]  # (L-1,)
+        if valid_next.any():
+            # compute CE per position
+            ce = F.cross_entropy(logits_i[valid_next], targets_i[valid_next].long(), reduction='mean')
+            loss_list.append(ce)
+        else:
+            loss_list.append(torch.zeros((), device=device))
+    return torch.stack(loss_list)
+
+
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
-                           alignment_strategy='kabsch', adaptive_loss_coeffs=None):
+                           alignment_strategy='kabsch', adaptive_loss_coeffs=None, ntp_logits=None, indices=None,
+                           valid_mask=None):
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
         x_predicted, x_true, masks, alignment_strategy=alignment_strategy)
@@ -523,7 +572,8 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         'backbone_distance': 1.0,
         'backbone_direction': 1.0,
         'binned_direction_classification': 1.0,
-        'binned_distance_classification': 1.0
+        'binned_distance_classification': 1.0,
+        'ntp': 1.0
     }
 
     # Prepare loss dict with weighted components or 0.0 if disabled
@@ -571,6 +621,14 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         loss_dict['binned_distance_classification_loss'] = val * w * binned_distance_coeff
     else:
         loss_dict['binned_distance_classification_loss'] = torch.tensor(0.0, device=device)
+
+    if configs.train_settings.losses.next_token_prediction.enabled:
+        w = configs.train_settings.losses.next_token_prediction.weight
+        ntp_coeff = adaptive.get('ntp', 1.0)
+        ntp_per_sample = calculate_ntp_loss(ntp_logits, indices, valid_mask)
+        loss_dict['ntp_loss'] = ntp_per_sample.mean() * w * ntp_coeff
+    else:
+        loss_dict['ntp_loss'] = torch.tensor(0.0, device=device)
 
     # Sum reconstruction components
     valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v)]
