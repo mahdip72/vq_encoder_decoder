@@ -165,7 +165,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                         torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None and p.requires_grad]),
                         2)
                     if accelerator.is_main_process and configs.tensorboard_log:
-                        writer.add_scalar('gradient norm/total', grad_norm.item(), global_step)
+                        writer.add_scalar('gradient norm/total_amp_scaled', grad_norm.item(), global_step)
 
                 if optimizer_name != 'schedulerfree':
                     accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
