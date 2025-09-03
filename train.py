@@ -291,29 +291,24 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             optimizer.zero_grad()
-            net_outputs, indices, commit_loss = net(data)
+            output_dict = net(data)
 
-            # Unpack outputs and optional NTP logits
-            ntp_logits = None
-            if isinstance(net_outputs, tuple) and len(net_outputs) == 4:
-                outputs, dir_loss_logits, dist_loss_logits, ntp_logits = net_outputs
-            else:
-                outputs, dir_loss_logits, dist_loss_logits = net_outputs
-
-            # Compute the loss components
+            # Compute the loss components using dict-style outputs like train loop
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
-                x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                x_predicted=output_dict["outputs"].reshape(output_dict["outputs"].shape[0], output_dict["outputs"].shape[1], 3, 3),
                 x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks=masks.float(),
                 configs=configs,
                 seq=data["inverse_folding_labels"],
-                dir_loss_logits=dir_loss_logits,
-                dist_loss_logits=dist_loss_logits,
+                dir_loss_logits=output_dict["dir_loss_logits"],
+                dist_loss_logits=output_dict["dist_loss_logits"],
                 alignment_strategy=alignment_strategy,
-                ntp_logits=ntp_logits,
-                indices=indices
+                ntp_logits=output_dict["ntp_logits"],
+                indices=output_dict["indices"],
+                valid_mask=output_dict["valid_mask"],
             )
             rec_loss = loss_dict['rec_loss']
+            commit_loss = output_dict["commit_loss"]
             loss = rec_loss + alpha * commit_loss
 
             if accelerator.is_main_process and epoch % configs.valid_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
@@ -365,7 +360,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                                      + f"rec loss: {total_rec_loss / counter:.3f}, "
                                      + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
-        # Compute average losses
+    # Compute average losses
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
     avg_cmt_loss = total_cmt_loss / counter
