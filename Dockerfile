@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:24.10-py3
+FROM nvcr.io/nvidia/pytorch:25.06-py3
 
 # Use bash as default shell
 SHELL ["/bin/bash", "-c"]
@@ -6,11 +6,11 @@ SHELL ["/bin/bash", "-c"]
 
 # Graph and geometric deep learning libraries
 RUN pip install torch_geometric
-RUN pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu126.html
-RUN pip install torch-cluster -f https://data.pyg.org/whl/torch-2.5.0+cu126.html
+RUN pip install torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
+RUN pip install torch-cluster -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
 
 # ProteinWorkshop from specific commit
-RUN pip install --no-deps git+https://github.com/a-r-j/ProteinWorkshop.git@da7cfe6d3e469ef64d4899dc31a9391a3b69c8cc
+RUN pip install --no-deps git+https://github.com/mahdip72/ProteinWorkshop.git
 
 # Additional PyTorch-related packages
 # RUN pip install torchtext
@@ -46,7 +46,7 @@ RUN pip install omegaconf
 RUN pip install ndlinear
 RUN pip install torch_tb_profiler
 
-RUN python3 -m pip install "graphein==1.7.5"
+RUN python3 -m pip install "graphein==1.7.7"
 RUN python3 -m pip install "loguru==0.7.0"
 RUN python3 -m pip install "fair-esm==2.0.0"
 RUN python3 -m pip install "hydra-core==1.3.2"
@@ -55,8 +55,8 @@ RUN python3 -m pip install "e3nn==0.5.1"
 RUN python3 -m pip install "einops==0.6.1"
 RUN python3 -m pip install "beartype==0.15.0"
 RUN python3 -m pip install "rich==13.5.2"
-RUN python3 -m pip install "pytdc==0.4.1"
-RUN python3 -m pip install "wandb==0.15.8"
+RUN python3 -m pip install "pytdc"
+RUN python3 -m pip install "wandb"
 RUN python3 -m pip install "lovely-tensors==0.1.15"
 RUN python3 -m pip install "psutil==5.9.5"
 RUN python3 -m pip install "tqdm==4.66.1"
