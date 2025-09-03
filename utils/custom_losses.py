@@ -525,37 +525,48 @@ def calculate_binned_distance_classification_loss(dist_loss_logits, x_true, mask
 def calculate_ntp_loss(ntp_logits: Optional[torch.Tensor], indices: Optional[torch.Tensor],
                        masks: torch.Tensor) -> torch.Tensor:
     """
-    Next-token prediction loss using codebook indices as labels.
+    Vectorized next-token prediction loss using VQ code indices as labels.
 
-    Args:
-        ntp_logits: (B, L, K) logits from ntp_head; may be None if disabled
-        indices: (B, L) integer code indices from VQ layer; may be None if disabled
-        masks: (B, L) bool/float mask where True indicates valid residues
-
-    Returns:
-        (B,) per-sample loss tensor; zeros when not computable
+    Steps:
+    - Apply valid mask to indices; set invalid positions to ignore_index (-100)
+    - Shift labels by one (labels[t] = indices[t+1]) and pad last with ignore_index
+    - Compute cross-entropy with ignore_index=-100
+    - Return per-sample mean loss over non-ignored positions (zeros if none)
     """
-    device = masks.device
     if ntp_logits is None or indices is None:
-        # Return per-batch zeros
         B = masks.size(0)
-        return torch.zeros(B, device=device)
+        return torch.zeros(B, device=masks.device)
+
+    ignore_index = -100
+    device = ntp_logits.device
+
+    # Ensure dtypes
+    indices = indices.to(dtype=torch.long, device=device)
+    masks = masks.to(dtype=torch.bool, device=device)
 
     B, L, K = ntp_logits.shape
-    loss_list = []
-    masks = masks.bool()
-    for i in range(B):
-        # shift: predict token t+1 from state at t
-        logits_i = ntp_logits[i, :-1, :]  # (L-1, K)
-        targets_i = indices[i, 1:]  # (L-1,)
-        valid_next = masks[i, 1:]  # (L-1,)
-        if valid_next.any():
-            # compute CE per position
-            ce = F.cross_entropy(logits_i[valid_next], targets_i[valid_next].long(), reduction='mean')
-            loss_list.append(ce)
-        else:
-            loss_list.append(torch.zeros((), device=device))
-    return torch.stack(loss_list)
+
+    # Mask invalid positions to ignore_index
+    labels_masked = indices.masked_fill(~masks, ignore_index)
+
+    # Shift left by one and pad last as ignore
+    pad_col = torch.full((B, 1), ignore_index, dtype=torch.long, device=device)
+    labels = torch.cat([labels_masked[:, 1:], pad_col], dim=1)  # (B, L)
+
+    # Flatten for CE
+    logits_flat = ntp_logits.reshape(B * L, K)
+    labels_flat = labels.reshape(B * L)
+
+    # Per-position loss (ignored positions contribute 0 with 'none' + manual mask)
+    loss_flat = F.cross_entropy(logits_flat, labels_flat, ignore_index=ignore_index, reduction='none')
+    loss = loss_flat.view(B, L)
+
+    # Per-sample mean over non-ignored positions
+    valid_pos = (labels != ignore_index)
+    denom = valid_pos.sum(dim=1).clamp(min=1)
+    per_sample_loss = (loss.sum(dim=1) / denom)
+
+    return per_sample_loss
 
 
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
