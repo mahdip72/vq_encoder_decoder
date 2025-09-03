@@ -1,7 +1,7 @@
 fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
-tqdm_progress_bar: False
+tqdm_progress_bar: True
 result_path: ./results/test/
 find_unused_parameters: True
 dispatch_batches: False
@@ -29,7 +29,7 @@ model:
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   vqvae:
     vector_quantization:
-      enabled: False
+      enabled: True
       freeze_parameters: False
       dim: 128
       decay: 0.99
@@ -47,7 +47,7 @@ model:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
       ff_mult: 4         # Multiplier for the feedforward dimension
-      depth: 10      # Number of layers in the Encoder
+      depth: 8      # Number of layers in the Encoder
       heads: 8      # Number of attention heads in the Encoder
       rotary_pos_emb: True
       attn_flash: True # FA-2 if installed
@@ -65,14 +65,14 @@ train_settings:
   data_path: ../../datasets/vqvae/uniref_50/
   num_epochs: 32
   sample_weighting:
-    enabled: True
+    enabled: False
     min_weight: 1.0
-    max_weight: 10.0
+    max_weight: 5.0
     threshold_length: 384
-  shuffle: True
-  mixed_precision: bf16 # no, fp16, bf16, fp8
+  shuffle: False
+  mixed_precision: fp16 # no, fp16, bf16, fp8
   save_pdb_every: 8
-  batch_size: 16
+  batch_size: 8
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 20000
