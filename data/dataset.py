@@ -185,11 +185,13 @@ def custom_collate(one_batch):
     inverse_folding_labels = torch.stack([item[7] for item in one_batch])
 
     nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
+    sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
                     'target_coords': coords, 'masks': masks, 'nan_masks': nan_mask,
-                    "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels}
+                    "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels,
+                    "sample_weights": sample_weights}
     return batched_data
 
 
@@ -210,11 +212,13 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
     inverse_folding_labels = torch.stack([item[7] for item in one_batch])
 
     nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
+    sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
                  'target_coords': coords, 'masks': masks, "nan_masks": nan_mask,
-                 "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels}
+                 "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels,
+                 "sample_weights": sample_weights}
 
     # build input graph one_batch to be featurized
     device = one_batch["graph"].x.device
@@ -570,6 +574,40 @@ class GCPNetDataset(Dataset):
 
         return coords_list, "".join(seq_list)
 
+    def _calculate_sample_weight(self, sequence_length):
+        """
+        Calculate sample weight based on sequence length.
+
+        Args:
+            sequence_length (int): Length of the amino acid sequence
+
+        Returns:
+            float: Sample weight between min_weight and max_weight
+        """
+        if not self.configs.train_settings.sample_weighting.enabled:
+            return 1.0
+
+        min_weight = self.configs.train_settings.sample_weighting.min_weight
+        max_weight = self.configs.train_settings.sample_weighting.max_weight
+        threshold_length = self.configs.train_settings.sample_weighting.threshold_length
+
+        if sequence_length <= threshold_length:
+            return min_weight
+
+        # Logarithmic increase from threshold_length to max_length
+        # Weight increases from min_weight to max_weight
+        weight_range = max_weight - min_weight
+        length_ratio = min(sequence_length - threshold_length, self.max_length - threshold_length) / (self.max_length - threshold_length)
+
+        # Apply logarithmic scaling
+        if length_ratio > 0:
+            log_ratio = (length_ratio * 9) + 1  # Scale to 1-10 range for log
+            weight = min_weight + weight_range * (log_ratio - 1) / 9
+        else:
+            weight = min_weight
+
+        return min(weight, max_weight)
+
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
@@ -616,7 +654,11 @@ class GCPNetDataset(Dataset):
         coords = coords.squeeze(0)
         masks = masks.squeeze(0)
 
-        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels, nan_mask]
+        # Calculate sample weight based on sequence length
+        sequence_length = len(raw_sequence)
+        sample_weight = self._calculate_sample_weight(sequence_length)
+
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels, nan_mask, sample_weight]
 
     def _featurize_as_graph(self, protein):
         import torch_cluster

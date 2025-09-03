@@ -29,12 +29,12 @@ model:
       checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt # define your checkpoint directory here
   vqvae:
     vector_quantization:
-      enabled: True
+      enabled: False
       freeze_parameters: False
-      dim: 256
+      dim: 128
       decay: 0.99
       codebook_size: 4096
-      commitment_weight: 0.25
+      commitment_weight: 0.5
       orthogonal_reg_weight: 10
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
@@ -63,14 +63,19 @@ model:
 
 train_settings:
   data_path: ../../datasets/vqvae/uniref_50/
-  num_epochs: 128
+  num_epochs: 32
+  sample_weighting:
+    enabled: True
+    min_weight: 1.0
+    max_weight: 10.0
+    threshold_length: 384
   shuffle: True
   mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
   batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 50000
+  max_task_samples: 20000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
@@ -116,16 +121,16 @@ visualization_settings:
 
 optimizer:
   name: adam
-  lr: 1e-4
+  lr: 5e-5
   weight_decouple: True
-  weight_decay: 1e-3
+  weight_decay: 1e-2
   eps: 1e-7
   beta_1: 0.9
   beta_2: 0.98
   use_8bit_adam: True
-  grad_clip_norm: 1
+  grad_clip_norm: 1.0
   decay:
-    warmup: 4
+    warmup: 128
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1
