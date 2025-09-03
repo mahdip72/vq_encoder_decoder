@@ -3,7 +3,7 @@ import numpy as np
 import yaml
 import os
 import torch
-from utils.custom_losses import calculate_decoder_loss, compute_grad_norm, log_per_loss_grad_norms
+from utils.custom_losses import calculate_decoder_loss, log_per_loss_grad_norms
 from utils.utils import (
     save_backbone_pdb,
     load_configs,
