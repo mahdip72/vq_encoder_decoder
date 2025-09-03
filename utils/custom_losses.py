@@ -143,6 +143,21 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms):
     return adaptive_loss_coeffs
 
 
+def log_per_loss_components(writer, loss_dict, global_step):
+    """
+    Log individual loss components to TensorBoard with hierarchical naming.
+
+    Args:
+        writer (SummaryWriter): TensorBoard writer.
+        loss_dict (dict): Dictionary containing individual loss components.
+        global_step (int): Current global training step.
+    """
+    # Log each loss component with hierarchical naming
+    for loss_name, loss_value in loss_dict.items():
+        if torch.is_tensor(loss_value) and loss_value.numel() == 1:
+            writer.add_scalar(f'loss/{loss_name}', loss_value.item(), global_step)
+
+
 def log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step):
     """
     Log gradient norms and adaptive coefficients to TensorBoard.
@@ -164,8 +179,9 @@ def log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeff
 
 def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global_step, adaptive_loss_coeffs):
     """
-    Log per-loss gradient norms and adjust adaptive coefficients based on global gradient norms.
+    Log per-loss gradient norms, individual loss components, and adjust adaptive coefficients based on global gradient norms.
     Only activates when adaptive mode is enabled and warmup period is complete.
+    Logs gradient norms, adaptive coefficients, and individual loss components to TensorBoard with hierarchical naming.
 
     Args:
         loss_dict (dict): Loss components from calculate_decoder_loss
@@ -235,9 +251,10 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         )
 
     if accelerator.is_main_process:
-        # Log gradient norms and coefficients
+        # Log gradient norms, coefficients, and individual loss components
         if configs.tensorboard_log:
             log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step)
+            log_per_loss_components(writer, loss_dict, global_step)
 
     if (configs.train_settings.adaptive_loss_coefficient and
             global_step > configs.optimizer.decay.warmup):
