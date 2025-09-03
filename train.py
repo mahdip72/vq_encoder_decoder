@@ -106,7 +106,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 loss_dict['rec_loss'] = loss_dict['rec_loss'] * batch_weight
 
             loss_dict['commit'] = alpha * output_dict["commit_loss"]
-            loss = loss_dict['rec_loss'] + loss_dict['commit']
+            loss = loss_dict['rec_loss'] + loss_dict['commit'] + loss_dict['ntp_loss']
 
             # Log per-loss gradient norms and adjust adaptive coefficients
             adaptive_loss_coeffs = log_per_loss_grad_norms(
@@ -307,9 +307,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 indices=output_dict["indices"],
                 valid_mask=output_dict["valid_mask"],
             )
-            rec_loss = loss_dict['rec_loss']
-            commit_loss = output_dict["commit_loss"]
-            loss = rec_loss + alpha * commit_loss
+
+            loss = loss_dict['rec_loss'] + loss_dict["commit_loss"] + loss_dict['ntp_loss']
 
             if accelerator.is_main_process and epoch % configs.valid_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for validation data in epoch {epoch}")
@@ -352,8 +351,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
         batch_size = data['target_coords'].shape[0]
         total_loss += accelerator.gather(loss.repeat(batch_size)).mean().item()
-        total_rec_loss += accelerator.gather(rec_loss.repeat(batch_size)).mean().item()
-        total_cmt_loss += accelerator.gather(commit_loss.repeat(batch_size)).mean().item()
+        total_rec_loss += accelerator.gather(loss_dict['rec_loss'].repeat(batch_size)).mean().item()
+        total_cmt_loss += accelerator.gather(loss_dict["commit_loss"].repeat(batch_size)).mean().item()
 
         progress_bar.set_description(f"validation epoch {epoch} "
                                      + f"[loss: {total_loss / counter:.3f}, "
