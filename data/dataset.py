@@ -820,6 +820,7 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               num_workers=configs.train_settings.num_workers,
+                              shuffle=configs.train_settings.shuffle,
                               pin_memory=False,  # page-lock host buffers
                               persistent_workers=False,  # keep workers alive between epochs
                               collate_fn=selected_collate)
