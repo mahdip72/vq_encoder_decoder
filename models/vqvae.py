@@ -1,6 +1,5 @@
 import torch.nn as nn
 import torch
-from torch_geometric.data.lightning.datamodule import kwargs_repr
 from x_transformers import ContinuousTransformerWrapper, Encoder
 from vector_quantize_pytorch import VectorQuantize
 from ndlinear import NdLinear
@@ -18,6 +17,8 @@ class VQVAETransformer(nn.Module):
 
         self.vqvae_enabled = configs.model.vqvae.vector_quantization.enabled
         self.vqvae_dim = configs.model.vqvae.vector_quantization.dim
+        self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
+        self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
 
         # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
         input_shape = 128
@@ -57,6 +58,10 @@ class VQVAETransformer(nn.Module):
                     residual_attn=configs.model.vqvae.encoder.residual_attn,
                 )
             )
+
+            # Next-token prediction head from encoder block embeddings
+            if self.ntp_enabled:
+                self.ntp_head = nn.Linear(configs.model.vqvae.encoder.dimension, self.codebook_size)
 
             if self.use_ndlinear:
                 self.encoder_head = NdLinear(
@@ -112,6 +117,7 @@ class VQVAETransformer(nn.Module):
     def forward(self, x, mask, nan_mask, **kwargs):
         # mask, nan_mask are (B, N) bool; keep passing the key-padding mask as (B, N)
         valid = torch.logical_and(mask, nan_mask)
+        ntp_logits = None
         if not self.decoder_only:
             # Apply input projection
             if self.use_ndlinear:
@@ -130,6 +136,10 @@ class VQVAETransformer(nn.Module):
 
             x = self.encoder_blocks(x, mask=valid, attn_mask=encoder_attn_mask)
 
+            # NTP logits from encoder block outputs
+            if self.ntp_enabled:
+                ntp_logits = self.ntp_head(x)
+
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear
                 x = self.encoder_head(x)
@@ -146,9 +156,10 @@ class VQVAETransformer(nn.Module):
                 x, indices, commit_loss = self.vector_quantizer(x, mask=valid)
 
                 if kwargs.get('return_vq_layer', False):
-                    return x, indices, commit_loss
+                    return x, indices, commit_loss, ntp_logits
             else:
                 indices = x
                 x = self.vector_quantizer.get_output_from_indices(indices)
         x = self.decoder(x, valid)
-        return x, indices, commit_loss
+
+        return x, indices, commit_loss, ntp_logits, valid

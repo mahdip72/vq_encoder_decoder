@@ -104,10 +104,13 @@ train_settings:
     binned_direction_classification:
       enabled: False
       weight: 0.01
+    next_token_prediction:
+      enabled: False
+      weight: 0.1
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
-  do_every: 4
+  do_every: 1
   save_pdb_every: 8
   batch_size: 8
   num_workers: 0

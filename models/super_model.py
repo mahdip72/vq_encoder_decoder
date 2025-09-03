@@ -15,7 +15,7 @@ class SuperModel(nn.Module):
         self.vqvae = vqvae
 
         self.configs = configs
-        self.max_length = configs.model.max_length
+        self.max_length = int(configs.model.max_length)
 
     def forward(self, batch, **kwargs):
         """
@@ -27,7 +27,15 @@ class SuperModel(nn.Module):
             **kwargs: Additional arguments passed to VQVAETransformer.
 
         Returns:
-            tuple: (output, indices, commit_loss), where output is either decoded coordinates or quantized embeddings when return_vq_layer=True.
+            dict: {
+                'indices': Tensor of shape (B, L) with VQ indices,
+                'commit_loss': Commitment loss from VQ layer,
+                'ntp_logits': NTP logits if NTP is enabled,
+                'outputs': Decoded outputs of shape (B, L, 3),
+                'dir_loss_logits': Direction loss logits if applicable,
+                'dist_loss_logits': Distance loss logits if applicable
+                'valid_mask': Valid mask of shape (B, L)
+            }
         """
         nan_mask = batch['nan_masks']
         mask = batch['masks']
@@ -54,9 +62,19 @@ class SuperModel(nn.Module):
             x = batch['indices']
 
         # give kwargs to vqvae
-        x, indices, commit_loss = self.vqvae(x, mask, nan_mask, **kwargs)
+        x, indices, commit_loss, ntp_logits, valid_mask = self.vqvae(x, mask, nan_mask, **kwargs)
 
-        return x, indices, commit_loss
+        outputs, dir_loss_logits, dist_loss_logits = x
+
+        return {
+            'indices': indices,
+            'commit_loss': commit_loss,
+            'ntp_logits': ntp_logits,
+            "outputs": outputs,
+            "dir_loss_logits": dir_loss_logits,
+            "dist_loss_logits": dist_loss_logits,
+            "valid_mask": valid_mask
+        }
 
 
 def prepare_model(configs, logger, **kwargs):

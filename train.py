@@ -72,7 +72,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         with accelerator.accumulate(net):
             if profile_train_loop:
                 profiler.step()
-                if i >= 1 + 1 + 30:
+                if i >= 1000:  # Profile only the first 1000 steps
                     logging.info("Profiler finished, exiting train step loop.")
                     break
 
@@ -80,21 +80,22 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
             masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             optimizer.zero_grad()
-            net_outputs, indices, commit_loss = net(data)
-
-            outputs, dir_loss_logits, dist_loss_logits = net_outputs
+            output_dict = net(data)
 
             # Compute the loss components
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
-                x_predicted=outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3),
+                x_predicted=output_dict["outputs"].reshape(output_dict["outputs"].shape[0], output_dict["outputs"].shape[1], 3, 3),
                 x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
                 masks=masks.float(),
                 configs=configs,
                 seq=data["inverse_folding_labels"],
-                dir_loss_logits=dir_loss_logits,
-                dist_loss_logits=dist_loss_logits,
+                dir_loss_logits=output_dict["dir_loss_logits"],
+                dist_loss_logits=output_dict["dist_loss_logits"],
                 alignment_strategy=alignment_strategy,
-                adaptive_loss_coeffs=adaptive_loss_coeffs
+                adaptive_loss_coeffs=adaptive_loss_coeffs,
+                ntp_logits=output_dict["ntp_logits"],
+                indices=output_dict["indices"],
+                valid_mask=output_dict["valid_mask"]
             )
 
             # Apply sample weights to loss if enabled
@@ -104,7 +105,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 batch_weight = sample_weights.mean()
                 loss_dict['rec_loss'] = loss_dict['rec_loss'] * batch_weight
 
-            loss_dict['commit'] = alpha * commit_loss
+            loss_dict['commit'] = alpha * output_dict["commit_loss"]
             loss = loss_dict['rec_loss'] + loss_dict['commit']
 
             # Log per-loss gradient norms and adjust adaptive coefficients
@@ -152,7 +153,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
             train_total_loss = train_rec_loss + train_cmt_loss
 
-            gathered_indices = accelerator.gather(indices)
+            gathered_indices = accelerator.gather(output_dict["indices"])
             epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
 
             accelerator.backward(loss)
@@ -292,10 +293,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             optimizer.zero_grad()
             net_outputs, indices, commit_loss = net(data)
 
-            gathered_indices = accelerator.gather(indices)
-            epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
-
-            outputs, dir_loss_logits, dist_loss_logits = net_outputs
+            # Unpack outputs and optional NTP logits
+            ntp_logits = None
+            if isinstance(net_outputs, tuple) and len(net_outputs) == 4:
+                outputs, dir_loss_logits, dist_loss_logits, ntp_logits = net_outputs
+            else:
+                outputs, dir_loss_logits, dist_loss_logits = net_outputs
 
             # Compute the loss components
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
@@ -306,7 +309,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 seq=data["inverse_folding_labels"],
                 dir_loss_logits=dir_loss_logits,
                 dist_loss_logits=dist_loss_logits,
-                alignment_strategy=alignment_strategy
+                alignment_strategy=alignment_strategy,
+                ntp_logits=ntp_logits,
+                indices=indices
             )
             rec_loss = loss_dict['rec_loss']
             loss = rec_loss + alpha * commit_loss
@@ -518,7 +523,8 @@ def main(dict_config, config_file_path):
         'backbone_direction': 1.0,
         'binned_direction_classification': 1.0,
         'binned_distance_classification': 1.0,
-        'commit': 1.0
+        'commit': 1.0,
+        'ntp': 1.0
     }
 
     best_valid_metrics = {'gdtts': 0.0, 'mae': 1000.0, 'rmsd': 1000.0, 'lddt': 0.0, 'loss': 1000.0}
