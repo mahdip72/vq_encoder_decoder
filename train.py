@@ -176,38 +176,37 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
             else:
                 optimizer.step()
 
-        if accelerator.sync_gradients:
-            progress_bar.update(1)
-            global_step += 1
-            counter += 1
+                progress_bar.update(1)
+                global_step += 1
+                counter += 1
 
-            # Keep track of total combined loss, total reconstruction loss, and total commit loss
-            total_loss += train_total_loss
-            total_rec_loss += train_rec_loss
-            total_cmt_loss += train_cmt_loss
-            # epoch_unique_indices_collector.update(indices.unique().cpu().tolist()) # Removed from here
+                # Keep track of total combined loss, total reconstruction loss, and total commit loss
+                total_loss += train_total_loss
+                total_rec_loss += train_rec_loss
+                total_cmt_loss += train_cmt_loss
+                # epoch_unique_indices_collector.update(indices.unique().cpu().tolist()) # Removed from here
 
-            train_total_loss = 0.0
-            train_rec_loss = 0.0
-            train_cmt_loss = 0.0
+                train_total_loss = 0.0
+                train_rec_loss = 0.0
+                train_cmt_loss = 0.0
 
-            if accelerator.is_main_process and configs.tensorboard_log:
-                writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
+                if accelerator.is_main_process and configs.tensorboard_log:
+                    writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
 
-            progress_bar.set_description(f"epoch {epoch} "
-                                         + f"[loss: {total_loss / counter:.3f}, "
-                                         + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                         + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+                progress_bar.set_description(f"epoch {epoch} "
+                                             + f"[loss: {total_loss / counter:.3f}, "
+                                             + f"rec loss: {total_rec_loss / counter:.3f}, "
+                                             + f"cmt loss: {total_cmt_loss / counter:.3f}]")
 
-        progress_bar.set_postfix(
-            {
-                "lr": optimizer.param_groups[0]['lr'],
-                "step_loss": loss.detach().item(),
-                "rec_loss": loss_dict['rec_loss'].detach().item(),
-                "cmt_loss": loss_dict['commit'].detach().item(),
-                "global_step": global_step
-            }
-        )
+            progress_bar.set_postfix(
+                {
+                    "lr": optimizer.param_groups[0]['lr'],
+                    "step_loss": loss.detach().item(),
+                    "rec_loss": loss_dict['rec_loss'].detach().item(),
+                    "cmt_loss": loss_dict['commit'].detach().item(),
+                    "global_step": global_step
+                }
+            )
 
     # Compute average losses and metrics
     avg_loss = total_loss / counter
