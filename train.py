@@ -99,6 +99,13 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 adaptive_loss_coeffs=adaptive_loss_coeffs
             )
 
+            # Apply sample weights to loss if enabled
+            if configs.train_settings.sample_weighting.enabled:
+                sample_weights = data['sample_weights']
+                # Use the mean sample weight for the batch (could be weighted by batch size)
+                batch_weight = sample_weights.mean()
+                loss_dict['rec_loss'] = loss_dict['rec_loss'] * batch_weight
+
             loss_dict['commit'] = alpha * commit_loss
             loss = loss_dict['rec_loss'] + loss_dict['commit']
 
@@ -149,13 +156,6 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
             gathered_indices = accelerator.gather(indices)
             epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
-
-            # Apply sample weights to loss if enabled
-            if configs.train_settings.sample_weighting.enabled:
-                sample_weights = data['sample_weights']
-                # Use the mean sample weight for the batch (could be weighted by batch size)
-                batch_weight = sample_weights.mean()
-                loss = loss * batch_weight
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
