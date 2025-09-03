@@ -39,7 +39,6 @@ RUN pip install fair-esm
 RUN pip install vector-quantize-pytorch
 RUN pip install x_transformers
 RUN pip install tmtools
-RUN pip install schedulefree
 RUN pip install jaxtyping
 RUN pip install beartype
 RUN pip install omegaconf

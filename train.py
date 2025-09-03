@@ -68,8 +68,6 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     progress_bar.set_description(f"Epoch {epoch}")
 
     net.train()
-    if optimizer_name == 'schedulerfree':
-        optimizer.train()
     for i, data in enumerate(train_loader):
         with accelerator.accumulate(net):
             if profile_train_loop:
@@ -167,14 +165,11 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                     if accelerator.is_main_process and configs.tensorboard_log:
                         writer.add_scalar('gradient norm/total_amp_scaled', grad_norm.item(), global_step)
 
-                if optimizer_name != 'schedulerfree':
-                    accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
+                # Accelerate Gradient clipping: unscale the gradients (only when using FP16 AMP) and then apply clipping
+                accelerator.clip_grad_norm_(net.parameters(), configs.optimizer.grad_clip_norm)
 
-                if optimizer_name != 'schedulerfree':
-                    optimizer.step()
-                    scheduler.step()
-                else:
-                    optimizer.step()
+                optimizer.step()
+                scheduler.step()
 
                 progress_bar.update(1)
                 global_step += 1
@@ -288,8 +283,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     net.eval()
-    if optimizer_name != 'schedulerfree':
-        optimizer.eval()
+    optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_coords']
