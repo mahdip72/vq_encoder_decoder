@@ -158,7 +158,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
-                if global_step % configs.train_settings.gradient_norm_logging_freq == 0:
+                if global_step % configs.train_settings.gradient_norm_logging_freq == 0 and global_step > 0:
                     # Calculate the gradient norm every configs.train_settings.gradient_norm_logging_freq steps
                     grad_norm = torch.norm(
                         torch.stack([torch.norm(p.grad.detach(), 2) for p in net.parameters() if p.grad is not None and p.requires_grad]),
