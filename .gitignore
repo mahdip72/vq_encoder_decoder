@@ -164,4 +164,4 @@ cython_debug/
 data/validation/
 log/
 models/checkpoints/
-results/
+./results/
