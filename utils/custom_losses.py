@@ -155,7 +155,7 @@ def log_per_loss_components(writer, loss_dict, global_step):
     # Log each loss component with hierarchical naming
     for loss_name, loss_value in loss_dict.items():
         if torch.is_tensor(loss_value) and loss_value.numel() == 1:
-            writer.add_scalar(f'loss/{loss_name}', loss_value.item(), global_step)
+            writer.add_scalar(f'step_loss/{loss_name}', loss_value.item(), global_step)
 
 
 def log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step):
