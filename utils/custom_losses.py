@@ -234,6 +234,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             adaptive_loss_coeffs, global_grad_norms
         )
 
+    if accelerator.is_main_process:
         # Log gradient norms and coefficients
         if configs.tensorboard_log:
             log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step)
