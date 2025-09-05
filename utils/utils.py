@@ -146,7 +146,7 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
 
 
 def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False):
-    model_checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    model_checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     pretrained_state_dict = model_checkpoint['model_state_dict']
 
     if decoder_only:
