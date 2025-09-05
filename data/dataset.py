@@ -615,7 +615,10 @@ class GCPNetDataset(Dataset):
         Returns:
             float: Sample weight between min_weight and max_weight
         """
-        if not self.configs.train_settings.sample_weighting.enabled:
+        if getattr(self.configs.train_settings, "sample_weighting", True):
+            return 1.0
+
+        elif not self.configs.train_settings.sample_weighting.enabled:
             return 1.0
 
         min_weight = self.configs.train_settings.sample_weighting.min_weight
