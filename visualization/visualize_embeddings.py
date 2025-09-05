@@ -64,7 +64,8 @@ def main():
             c = color_map[pid]
             plt.scatter(pts[:, 0], pts[:, 1], c=[c], label=pid, s=5, alpha=0.6)
 
-    plt.legend(loc='best', markerscale=3, fontsize='small')
+            plt.legend(loc='best', markerscale=3, fontsize='small')
+    
     out_name = os.path.basename(latest_dir.rstrip('/'))
     suffix = "_centroids" if overlay_protein_centroids else ""
     out_path = os.path.join(output_base_dir, f"tsne_{out_name}{suffix}.png")
