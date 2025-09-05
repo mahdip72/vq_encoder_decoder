@@ -11,7 +11,7 @@ class GeometricDecoder(nn.Module):
         super(GeometricDecoder, self).__init__()
 
         self.max_length = configs.model.max_length
-        self.decoder_causal = decoder_configs.causal
+        self.decoder_causal = getattr(decoder_configs, "causal", False)
 
         self.use_ndlinear = getattr(configs.model, 'use_ndlinear', False)
         self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim

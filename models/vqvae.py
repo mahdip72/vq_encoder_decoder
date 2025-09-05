@@ -18,12 +18,15 @@ class VQVAETransformer(nn.Module):
         self.vqvae_enabled = configs.model.vqvae.vector_quantization.enabled
         self.vqvae_dim = configs.model.vqvae.vector_quantization.dim
         self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
-        self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
+        if getattr(configs.train_settings.losses, "next_token_prediction", False):
+            self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
+        else:
+            self.ntp_enabled = False
 
         # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
         input_shape = 128
 
-        self.encoder_causal = configs.model.vqvae.encoder.causal
+        self.encoder_causal = getattr(configs.model.vqvae.encoder, 'causal', False)
 
         if not self.decoder_only:
             # Encoder
