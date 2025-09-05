@@ -168,7 +168,7 @@ def main():
     embeddings_records = accelerator.gather_for_metrics(embeddings_records, use_gather_object=True)
 
     if accelerator.is_main_process:
-        h5_path = os.path.join(result_dir, infer_cfg.get('vq_embeddings_h5_filename', 'vq_embed.h5'))
+        h5_path = os.path.join(result_dir, infer_cfg.vq_embeddings_h5_filename)
         with h5py.File(h5_path, 'w') as hf:
             for rec in embeddings_records:
                 pid = rec['pid']
