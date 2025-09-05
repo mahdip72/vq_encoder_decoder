@@ -13,7 +13,7 @@ def random_color():
 def main():
     # Hardcoded paths and parameters (modify as needed)
     latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/2025-09-05__17-32-53"  # folder containing the HDF5 file
-    output_base_dir = "visualization/plots"
+    output_base_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/2025-09-05__17-32-53/plots"
     os.makedirs(output_base_dir, exist_ok=True)
     perplexity = 30
     n_iter = 1000
