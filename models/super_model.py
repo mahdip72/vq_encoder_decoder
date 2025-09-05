@@ -64,7 +64,11 @@ class SuperModel(nn.Module):
         # give kwargs to vqvae
         x, indices, commit_loss, ntp_logits, valid_mask = self.vqvae(x, mask, nan_mask, **kwargs)
 
-        outputs, dir_loss_logits, dist_loss_logits = x
+        if kwargs.get('return_vq_layer', False):
+            outputs, dir_loss_logits, dist_loss_logits = False, False, False
+        else:
+            outputs, dir_loss_logits, dist_loss_logits = x
+
 
         return {
             'indices': indices,
