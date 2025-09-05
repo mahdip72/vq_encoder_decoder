@@ -160,7 +160,8 @@ def main():
             batch['nan_masks'] = batch['nan_masks'].to(accelerator.device)
 
             # Forward pass: get either decoded outputs or VQ layer outputs
-            output, indices, _ = model(batch, return_vq_layer=True)
+            output_dict = model(batch, return_vq_layer=True)
+            indices = output_dict['indices']
             pids = batch['pid']  # list of identifiers
             sequences = batch['seq']
 

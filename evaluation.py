@@ -269,15 +269,16 @@ def main():
             batch['nan_masks'] = batch['nan_masks'].to(accelerator.device)
 
             # Forward pass: get either decoded outputs or VQ layer outputs
-            output, indices, _ = model(batch)
+            output_dict = model(batch)
+            indices = output_dict['indices']
             pids = batch['pid']  # list of identifiers
             sequences = batch['seq']
 
             # record indices per sample
             record_indices(pids, indices, sequences, indices_records)
 
-            # output is tuple of (bb_pred, ...)
-            bb_pred = output[0]
+            # output is dictionary with 'outputs' key
+            bb_pred = output_dict["outputs"]
             # reshape from (B, L, 9) to (B, L, 3, 3)
             preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
             masks = torch.logical_and(batch['masks'], batch['nan_masks'])

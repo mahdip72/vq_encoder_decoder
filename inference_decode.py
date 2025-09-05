@@ -169,9 +169,9 @@ def main():
             masks = batch['masks']
 
             # Forward pass through the decoder
-            output, _, _ = model(batch, decoder_only=True)
+            output_dict = model(batch, decoder_only=True)
 
-            bb_pred = output[0]
+            bb_pred = output_dict["outputs"]
             preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
 
             pids = batch['pid']
