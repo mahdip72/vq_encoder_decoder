@@ -106,7 +106,7 @@ train_settings:
       weight: 0.01
     next_token_prediction:
       enabled: False
-      weight: 0.1
+      weight: 0.01
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
