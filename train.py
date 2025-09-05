@@ -293,6 +293,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             optimizer.zero_grad()
             output_dict = net(data)
 
+            gathered_indices = accelerator.gather(output_dict["indices"])
+            epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
+
             # Compute the loss components using dict-style outputs like train loop
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
                 x_predicted=output_dict["outputs"].reshape(output_dict["outputs"].shape[0], output_dict["outputs"].shape[1], 3, 3),
