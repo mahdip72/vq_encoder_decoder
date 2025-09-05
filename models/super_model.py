@@ -37,6 +37,7 @@ class SuperModel(nn.Module):
                 'valid_mask': Valid mask of shape (B, L)
             }
         """
+        output_dict = {}
         nan_mask = batch['nan_masks']
         mask = batch['masks']
 
@@ -64,21 +65,21 @@ class SuperModel(nn.Module):
         # give kwargs to vqvae
         x, indices, commit_loss, ntp_logits, valid_mask = self.vqvae(x, mask, nan_mask, **kwargs)
 
+        output_dict["indices"] = indices
+        output_dict["commit_loss"] = commit_loss
+        output_dict["ntp_logits"] = ntp_logits
+        output_dict["valid_mask"] = valid_mask
+
         if kwargs.get('return_vq_layer', False):
-            outputs, dir_loss_logits, dist_loss_logits = False, False, False
+            output_dict["embeddings"] = x
         else:
             outputs, dir_loss_logits, dist_loss_logits = x
+            output_dict["outputs"] = outputs
+            output_dict["dir_loss_logits"] = dir_loss_logits
+            output_dict["dist_loss_logits"] = dist_loss_logits
 
 
-        return {
-            'indices': indices,
-            'commit_loss': commit_loss,
-            'ntp_logits': ntp_logits,
-            "outputs": outputs,
-            "dir_loss_logits": dir_loss_logits,
-            "dist_loss_logits": dist_loss_logits,
-            "valid_mask": valid_mask
-        }
+        return output_dict
 
 
 def prepare_model(configs, logger, **kwargs):
