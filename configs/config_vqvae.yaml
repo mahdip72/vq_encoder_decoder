@@ -92,21 +92,27 @@ train_settings:
     mse:
       enabled: True
       weight: 0.001
+      adaptive_coefficient: True
     backbone_distance:
       enabled: True
       weight: 0.01
+      adaptive_coefficient: True
     backbone_direction:
       enabled: True
       weight: 0.05
+      adaptive_coefficient: True
     binned_distance_classification:
       enabled: False
       weight: 0.01
+      adaptive_coefficient: True
     binned_direction_classification:
       enabled: False
       weight: 0.01
+      adaptive_coefficient: True
     next_token_prediction:
       enabled: False
       weight: 0.01
+      adaptive_coefficient: True
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/

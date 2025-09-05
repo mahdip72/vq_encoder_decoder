@@ -92,50 +92,59 @@ def broadcast_coefficients(adaptive_loss_coeffs, accelerator):
     return adaptive_loss_coeffs
 
 
-def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms):
+def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, configs):
     """
     Adjust adaptive loss coefficients based on global gradient norms.
 
     Args:
         adaptive_loss_coeffs (dict): Current adaptive coefficients.
         global_grad_norms (dict): Global gradient norms for each loss component.
+        configs: Configuration object containing adaptive coefficient settings.
 
     Returns:
         dict: Updated adaptive coefficients.
     """
-    # Adjust each coefficient based on its global grad norm
-    if 'mse' in global_grad_norms:
+    # Get individual adaptive coefficient settings for each loss
+    mse_adaptive = configs.train_settings.losses.mse.adaptive_coefficient
+    backbone_distance_adaptive = configs.train_settings.losses.backbone_distance.adaptive_coefficient
+    backbone_direction_adaptive = configs.train_settings.losses.backbone_direction.adaptive_coefficient
+    binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
+    binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
+    ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
+
+    # Adjust each coefficient based on its global grad norm only if adaptive is enabled for that loss
+    if 'mse' in global_grad_norms and mse_adaptive:
         adaptive_loss_coeffs['mse'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs['mse'], global_grad_norms['mse']
         )
 
-    if 'backbone_distance' in global_grad_norms:
+    if 'backbone_distance' in global_grad_norms and backbone_distance_adaptive:
         adaptive_loss_coeffs['backbone_distance'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs['backbone_distance'], global_grad_norms['backbone_distance']
         )
 
-    if 'backbone_direction' in global_grad_norms:
+    if 'backbone_direction' in global_grad_norms and backbone_direction_adaptive:
         adaptive_loss_coeffs['backbone_direction'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs['backbone_direction'], global_grad_norms['backbone_direction']
         )
 
-    if 'binned_direction_classification' in global_grad_norms:
+    if 'binned_direction_classification' in global_grad_norms and binned_direction_adaptive:
         adaptive_loss_coeffs['binned_direction_classification'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs['binned_direction_classification'],
             global_grad_norms['binned_direction_classification']
         )
 
-    if 'binned_distance_classification' in global_grad_norms:
+    if 'binned_distance_classification' in global_grad_norms and binned_distance_adaptive:
         adaptive_loss_coeffs['binned_distance_classification'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs['binned_distance_classification'], global_grad_norms['binned_distance_classification']
         )
 
-    if 'commit' in global_grad_norms:
-        adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
-            adaptive_loss_coeffs['commit'], global_grad_norms['commit']
-        )
+    # if 'commit' in global_grad_norms:
+    #     adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
+    #         adaptive_loss_coeffs['commit'], global_grad_norms['commit']
+    #     )
 
-    if 'ntp' in global_grad_norms:
+    if 'ntp' in global_grad_norms and ntp_adaptive:
         adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
         )
@@ -200,35 +209,43 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             global_step % configs.train_settings.gradient_norm_logging_freq == 0 and global_step > 0):
         return adaptive_loss_coeffs
 
-    # Compute local gradient norms for each enabled loss
+    # Compute local gradient norms for each enabled loss with adaptive coefficients
     local_grad_norms = {}
 
-    if configs.train_settings.losses.mse.enabled:
+    # Get individual adaptive coefficient settings for each loss
+    mse_adaptive = configs.train_settings.losses.mse.adaptive_coefficient
+    backbone_distance_adaptive = configs.train_settings.losses.backbone_distance.adaptive_coefficient
+    backbone_direction_adaptive = configs.train_settings.losses.backbone_direction.adaptive_coefficient
+    binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
+    binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
+    ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
+
+    if configs.train_settings.losses.mse.enabled and mse_adaptive:
         local_grad_norms['mse'] = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
 
-    if configs.train_settings.losses.backbone_distance.enabled:
+    if configs.train_settings.losses.backbone_distance.enabled and backbone_distance_adaptive:
         local_grad_norms['backbone_distance'] = compute_grad_norm(
             loss_dict['backbone_distance_loss'], net.parameters()
         )
 
-    if configs.train_settings.losses.backbone_direction.enabled:
+    if configs.train_settings.losses.backbone_direction.enabled and backbone_direction_adaptive:
         local_grad_norms['backbone_direction'] = compute_grad_norm(
             loss_dict['backbone_direction_loss'], net.parameters()
         )
 
-    if configs.train_settings.losses.binned_direction_classification.enabled:
+    if configs.train_settings.losses.binned_direction_classification.enabled and binned_direction_adaptive:
         local_grad_norms['binned_direction_classification'] = compute_grad_norm(
             loss_dict['binned_direction_classification_loss'], net.parameters()
         )
 
-    if configs.train_settings.losses.binned_distance_classification.enabled:
+    if configs.train_settings.losses.binned_distance_classification.enabled and binned_distance_adaptive:
         local_grad_norms['binned_distance_classification'] = compute_grad_norm(
             loss_dict['binned_distance_classification_loss'], net.parameters()
         )
 
     if getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
             configs.train_settings.losses.next_token_prediction.enabled and \
-            ('ntp_loss' in loss_dict):
+            ntp_adaptive and ('ntp_loss' in loss_dict):
         local_grad_norms['ntp'] = compute_grad_norm(loss_dict['ntp_loss'], net.parameters())
 
     if configs.model.vqvae.vector_quantization.enabled:
@@ -241,13 +258,13 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     # Aggregate across ranks for global signal
     global_grad_norms = aggregate_grad_norms(local_grad_norms, accelerator)
 
-    # Adjust coefficients and broadcast (only after warmup and if adaptive enabled)
+    # Adjust coefficients and broadcast (only after warmup and if any adaptive coefficients are enabled)
     if (accelerator.is_main_process and
-            configs.train_settings.adaptive_loss_coefficient and
-            global_step > configs.optimizer.decay.warmup):
+            global_step > configs.optimizer.decay.warmup and
+            len(local_grad_norms) > 0):  # Only proceed if we have any losses with adaptive coefficients
 
         adaptive_loss_coeffs = adjust_adaptive_coefficients(
-            adaptive_loss_coeffs, global_grad_norms
+            adaptive_loss_coeffs, global_grad_norms, configs
         )
 
     if accelerator.is_main_process:
@@ -256,8 +273,8 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step)
             log_per_loss_components(writer, loss_dict, global_step)
 
-    if (configs.train_settings.adaptive_loss_coefficient and
-            global_step > configs.optimizer.decay.warmup):
+    if (global_step > configs.optimizer.decay.warmup and
+            len(local_grad_norms) > 0):  # Only broadcast if we have any losses with adaptive coefficients
         adaptive_loss_coeffs = broadcast_coefficients(adaptive_loss_coeffs, accelerator)
 
     return adaptive_loss_coeffs
