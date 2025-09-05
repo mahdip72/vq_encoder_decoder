@@ -159,7 +159,7 @@ class VQVAETransformer(nn.Module):
                 x, indices, commit_loss = self.vector_quantizer(x, mask=valid)
 
                 if kwargs.get('return_vq_layer', False):
-                    return x, indices, commit_loss, ntp_logits
+                    return x, indices, commit_loss, ntp_logits, valid
             else:
                 indices = x
                 x = self.vector_quantizer.get_output_from_indices(indices)
