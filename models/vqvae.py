@@ -20,7 +20,7 @@ class VQVAETransformer(nn.Module):
         self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
         if getattr(configs.train_settings.losses, "next_token_prediction", False):
             self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
-            self.ntp_blocks = configs.train_settings.losses.next_token_prediction.blocks
+            self.ntp_depth = configs.train_settings.losses.next_token_prediction.blocks
         else:
             self.ntp_enabled = False
 
@@ -65,10 +65,9 @@ class VQVAETransformer(nn.Module):
 
             # Next-token prediction head from encoder block embeddings
             if self.ntp_enabled:
-                if self.ntp_blocks == 0:
-                    self.ntp_head = nn.Linear(configs.model.vqvae.encoder.dimension, self.codebook_size)
-                elif self.ntp_blocks > 0:
-                    self.ntp_head = ContinuousTransformerWrapper(
+                self.ntp_projector_head = nn.Linear(configs.model.vqvae.encoder.dimension, self.codebook_size)
+                if self.ntp_depth > 0:
+                    self.ntp_blocks = ContinuousTransformerWrapper(
                         dim_in=configs.model.vqvae.encoder.dimension,
                         dim_out=configs.model.vqvae.encoder.dimension,
                         max_seq_len=configs.model.max_length,
@@ -89,7 +88,7 @@ class VQVAETransformer(nn.Module):
                             residual_attn=configs.model.vqvae.encoder.residual_attn,
                         )
                     )
-                else:
+                elif self.ntp_depth < 0:
                     raise ValueError("Invalid number of next-token prediction blocks specified.")
 
             if self.use_ndlinear:
@@ -148,10 +147,10 @@ class VQVAETransformer(nn.Module):
         seq_len = x.size(1)
         ntp_attn_mask = self.create_causal_mask(seq_len, device=x.device)
 
-        if self.ntp_blocks == 0:
-            ntp_logits = self.ntp_head(x)
-        else:
-            ntp_logits = self.ntp_head(x, mask=valid, attn_mask=ntp_attn_mask)
+        if self.ntp_depth > 0:
+            x = self.ntp_blocks(x, mask=valid, attn_mask=ntp_attn_mask)
+
+        ntp_logits = self.ntp_projector_head(x)
 
         return ntp_logits
 
