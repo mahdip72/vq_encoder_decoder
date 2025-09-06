@@ -168,4 +168,6 @@ models/checkpoints/
 ./inference_decode_results
 ./inference_encode_results
 ./inference_results
+./inference_embed_results
+./inference_codebook_extraction_results
 ./evaluation_results
