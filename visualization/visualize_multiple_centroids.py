@@ -56,12 +56,12 @@ def main():
         idx = [i for i, l in enumerate(origin_labels) if l == fname]
         pts = Y[idx]
         c = file_colors[fname]
-        plt.scatter(pts[:, 0], pts[:, 1], c=[c], label=fname, s=50, alpha=0.8)
+        plt.scatter(pts[:, 0], pts[:, 1], c=[c], label=fname, s=5, alpha=0.8)
 
-    plt.legend(loc='best', markerscale=2, fontsize='small')
-    out_path = os.path.join(output_base_dir, f"tsne_multi_centroids.png")
+    # plt.legend(loc='best', markerscale=2, fontsize='small')
+    out_path = os.path.join(output_base_dir, f"tsne_multi_centroids.svg")
     plt.title(f"t-SNE centroids per HDF5 file under {os.path.basename(results_root)}")
-    plt.savefig(out_path, dpi=200)
+    plt.savefig(out_path)
     print(f"Saved multi-file t-SNE centroids plot to: {out_path}")
 
 
