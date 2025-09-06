@@ -20,7 +20,7 @@ class VQVAETransformer(nn.Module):
         self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
         if getattr(configs.train_settings.losses, "next_token_prediction", False):
             self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
-            self.ntp_depth = configs.train_settings.losses.next_token_prediction.blocks
+            self.ntp_depth = getattr(configs.train_settings.losses, "next_token_prediction", 0).get('blocks', 0)
         else:
             self.ntp_enabled = False
 
