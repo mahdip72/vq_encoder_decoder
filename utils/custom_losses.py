@@ -34,7 +34,19 @@ def compute_grad_norm(loss, parameters, norm_type=2):
 def adjust_coeff_by_grad(coeff, grad_norm, decrease_factor=0.9, increase_factor=1.1,
                          upper_thresh=0.5, lower_thresh=0.05):
     """
-    Adjust a coefficient based on gradient norm magnitude.
+    Adjust a coefficient based on gradient norm magnitude with hard bounds.
+
+    The function proposes a new coefficient by either decreasing it (multiplying
+    by ``decrease_factor``) when the gradient norm exceeds ``upper_thresh``, or
+    increasing it (multiplying by ``increase_factor``) when the gradient norm is
+    below ``lower_thresh``. If the gradient norm is between the thresholds, the
+    coefficient is left unchanged.
+
+    Before returning, the function enforces hard bounds on the coefficient: the
+    proposed update is skipped (the original ``coeff`` is returned) if the new
+    value would fall outside the inclusive range [0.01, 100.0]. This prevents
+    runaway shrinking or growth of adaptive coefficients. These bounds are
+    currently hard-coded but can be made configurable in the future.
 
     Args:
         coeff (float): Current coefficient value
@@ -45,14 +57,23 @@ def adjust_coeff_by_grad(coeff, grad_norm, decrease_factor=0.9, increase_factor=
         lower_thresh (float): Lower threshold for coefficient increase
 
     Returns:
-        float: Adjusted coefficient
+        float: Updated coefficient (original ``coeff`` if proposed update
+               would exceed the hard bounds [0.01, 100.0]).
     """
+    # Proposed new value depending on gradient magnitude
     if grad_norm > upper_thresh:
-        return coeff * decrease_factor
+        new_coeff = coeff * decrease_factor
     elif grad_norm < lower_thresh:
-        return coeff * increase_factor
+        new_coeff = coeff * increase_factor
     else:
+        new_coeff = coeff
+
+    # Enforce hard bounds on coefficients: skip update if it would go outside [0.01, 100]
+    MIN_COEFF = 0.01
+    MAX_COEFF = 100.0
+    if new_coeff < MIN_COEFF or new_coeff > MAX_COEFF:
         return coeff
+    return new_coeff
 
 
 def aggregate_grad_norms(local_grad_norms, accelerator):
