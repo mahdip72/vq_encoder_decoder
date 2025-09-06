@@ -111,6 +111,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
+    vq_adaptive = configs.train_settings.losses.vq.adaptive_coefficient
 
     # Adjust each coefficient based on its global grad norm only if adaptive is enabled for that loss
     if 'mse' in global_grad_norms and mse_adaptive:
@@ -139,10 +140,10 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
             adaptive_loss_coeffs['binned_distance_classification'], global_grad_norms['binned_distance_classification']
         )
 
-    # if 'commit' in global_grad_norms:
-    #     adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
-    #         adaptive_loss_coeffs['commit'], global_grad_norms['commit']
-    #     )
+    if 'commit' in global_grad_norms and vq_adaptive:
+        adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['commit'], global_grad_norms['commit']
+        )
 
     if 'ntp' in global_grad_norms and ntp_adaptive:
         adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(

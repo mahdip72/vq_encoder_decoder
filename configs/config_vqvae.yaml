@@ -2,7 +2,7 @@ fix_seed: 0
 checkpoints_every: 256
 tensorboard_log: True
 tqdm_progress_bar: False
-result_path: ./results/test/
+result_path: ./results/ablation/ntp_depth
 find_unused_parameters: True
 dispatch_batches: False
 even_batches: True
@@ -56,7 +56,7 @@ model:
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
       num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
-      causal: False # Enable causal masking for autoregressive attention
+      causal: True # Enable causal masking for autoregressive attention
     decoder:
       name: geometric_decoder # geometric_decoder
       freeze_parameters: False
@@ -65,17 +65,17 @@ train_settings:
   data_path: ../../datasets/vqvae/uniref_50/
   num_epochs: 32
   sample_weighting:
-    enabled: False
+    enabled: True
     min_weight: 1.0
-    max_weight: 5.0
+    max_weight: 4.0
     threshold_length: 384
   shuffle: False
-  mixed_precision: fp16 # no, fp16, bf16, fp8
+  mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
   batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 50000
+  max_task_samples: 100000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
@@ -114,6 +114,8 @@ train_settings:
       weight: 0.001
       adaptive_coefficient: True
       blocks: 1  # Number of transformer blocks, 0 means a linear layer only
+    vq:
+      adaptive_coefficient: True
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
