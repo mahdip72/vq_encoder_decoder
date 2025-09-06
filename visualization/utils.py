@@ -56,3 +56,22 @@ def load_embeddings_from_h5(h5_path: str) -> Dict[str, np.ndarray]:
     return out
 
 
+def find_all_h5_under(results_root: str) -> list:
+    """Recursively find all .h5 files under results_root and return list of (label, path)
+
+    Label is the immediate parent folder name (useful for dated result directories).
+    """
+    if not os.path.exists(results_root):
+        raise FileNotFoundError(results_root)
+
+    h5_paths = []
+    for root, dirs, files in os.walk(results_root):
+        for f in files:
+            if f.endswith('.h5'):
+                full = os.path.join(root, f)
+                parent = os.path.basename(os.path.dirname(full))
+                label = parent if parent else os.path.basename(full)
+                h5_paths.append((label, full))
+    return h5_paths
+
+
