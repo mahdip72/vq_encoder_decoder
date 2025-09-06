@@ -70,12 +70,12 @@ train_settings:
     max_weight: 5.0
     threshold_length: 384
   shuffle: False
-  mixed_precision: bf16 # no, fp16, bf16, fp8
+  mixed_precision: fp16 # no, fp16, bf16, fp8
   save_pdb_every: 8
-  batch_size: 8
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 20000
+  max_task_samples: 50000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
@@ -110,9 +110,10 @@ train_settings:
       weight: 0.01
       adaptive_coefficient: True
     next_token_prediction:
-      enabled: False
-      weight: 0.01
+      enabled: True
+      weight: 0.001
       adaptive_coefficient: True
+      blocks: 1  # Number of transformer blocks, 0 means a linear layer only
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
@@ -139,7 +140,7 @@ optimizer:
   use_8bit_adam: True
   grad_clip_norm: 1.0
   decay:
-    warmup: 128
+    warmup: 4000
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1

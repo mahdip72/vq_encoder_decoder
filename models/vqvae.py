@@ -20,6 +20,7 @@ class VQVAETransformer(nn.Module):
         self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
         if getattr(configs.train_settings.losses, "next_token_prediction", False):
             self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
+            self.ntp_blocks = configs.train_settings.losses.next_token_prediction.blocks
         else:
             self.ntp_enabled = False
 
@@ -64,7 +65,32 @@ class VQVAETransformer(nn.Module):
 
             # Next-token prediction head from encoder block embeddings
             if self.ntp_enabled:
-                self.ntp_head = nn.Linear(configs.model.vqvae.encoder.dimension, self.codebook_size)
+                if self.ntp_blocks == 0:
+                    self.ntp_head = nn.Linear(configs.model.vqvae.encoder.dimension, self.codebook_size)
+                elif self.ntp_blocks > 0:
+                    self.ntp_head = ContinuousTransformerWrapper(
+                        dim_in=configs.model.vqvae.encoder.dimension,
+                        dim_out=configs.model.vqvae.encoder.dimension,
+                        max_seq_len=configs.model.max_length,
+                        num_memory_tokens=configs.model.vqvae.encoder.num_memory_tokens,
+                        attn_layers=Encoder(
+                            dim=configs.model.vqvae.encoder.dimension,
+                            ff_mult=configs.model.vqvae.encoder.ff_mult,
+                            ff_glu=True,  # gate-based feed-forward (GLU family)
+                            ff_swish=True,  # use Swish instead of GELU → SwiGLU
+                            ff_no_bias=True,  # removes the two Linear biases in SwiGLU / MLP
+                            depth=configs.train_settings.losses.next_token_prediction.blocks,
+                            heads=configs.model.vqvae.encoder.heads,
+                            rotary_pos_emb=configs.model.vqvae.encoder.rotary_pos_emb,
+                            attn_flash=configs.model.vqvae.encoder.attn_flash,
+                            attn_kv_heads=configs.model.vqvae.encoder.attn_kv_heads,
+                            attn_qk_norm=configs.model.vqvae.encoder.qk_norm,
+                            pre_norm=configs.model.vqvae.encoder.pre_norm,
+                            residual_attn=configs.model.vqvae.encoder.residual_attn,
+                        )
+                    )
+                else:
+                    raise ValueError("Invalid number of next-token prediction blocks specified.")
 
             if self.use_ndlinear:
                 self.encoder_head = NdLinear(
@@ -117,6 +143,18 @@ class VQVAETransformer(nn.Module):
         """
         return torch.ones((seq_len, seq_len), dtype=torch.bool, device=device).tril()
 
+    def ntp_forward(self, x, valid):
+
+        seq_len = x.size(1)
+        ntp_attn_mask = self.create_causal_mask(seq_len, device=x.device)
+
+        if self.ntp_blocks == 0:
+            ntp_logits = self.ntp_head(x)
+        else:
+            ntp_logits = self.ntp_head(x, mask=valid, attn_mask=ntp_attn_mask)
+
+        return ntp_logits
+
     def forward(self, x, mask, nan_mask, **kwargs):
         # mask, nan_mask are (B, N) bool; keep passing the key-padding mask as (B, N)
         valid = torch.logical_and(mask, nan_mask)
@@ -141,7 +179,7 @@ class VQVAETransformer(nn.Module):
 
             # NTP logits from encoder block outputs
             if self.ntp_enabled:
-                ntp_logits = self.ntp_head(x)
+                ntp_logits = self.ntp_forward(x, valid=valid)
 
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear
