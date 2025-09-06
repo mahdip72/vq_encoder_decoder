@@ -6,6 +6,8 @@ import argparse
 import torch
 import h5py
 from box import Box
+from accelerate import Accelerator, DataLoaderConfiguration
+from accelerate.utils import broadcast_object_list
 
 from utils.utils import load_configs, load_checkpoints_simple, get_logging
 from models.super_model import prepare_model
@@ -58,11 +60,32 @@ def main(config_path: str):
         infer_cfg = yaml.full_load(f)
     infer_cfg = Box(infer_cfg)
 
-    # Create result directory with timestamp
+    dataloader_config = DataLoaderConfiguration(
+        non_blocking=True,
+        even_batches=False
+    )
+
+    # Initialize accelerator (needed for accelerate logging utilities)
+    accelerator = Accelerator(
+        mixed_precision=infer_cfg.get('mixed_precision', None),
+        dataloader_config=dataloader_config
+    )
+
+    # Create result directory with timestamp only on main process and broadcast
     now = datetime.datetime.now().strftime('%Y-%m-%d__%H-%M-%S')
-    result_dir = os.path.join(infer_cfg.output_base_dir, now)
-    os.makedirs(result_dir, exist_ok=True)
-    shutil.copy(config_path, result_dir)
+
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        result_dir = os.path.join(infer_cfg.output_base_dir, now)
+        os.makedirs(result_dir, exist_ok=True)
+        shutil.copy(config_path, result_dir)
+        paths = [result_dir]
+    else:
+        paths = [None]
+
+    # Broadcast the result_dir to all processes
+    broadcast_object_list(paths, from_process=0)
+    result_dir = paths[0]
 
     # Paths to training configs
     vqvae_cfg_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.config_vqvae)
