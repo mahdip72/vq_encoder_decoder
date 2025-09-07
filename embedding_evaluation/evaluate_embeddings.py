@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from sklearn.manifold import TSNE  # This import can be removed if not used elsewhere
-from visualization.utils import find_h5_file_in_dir, load_embeddings_from_h5
+from embedding_evaluation.utils import find_h5_file_in_dir, load_embeddings_from_h5
 
 
 def compute_consecutive_metrics(emb):
