@@ -57,7 +57,7 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
     ys = Y[:, 1]
 
     # larger, faint halo (rasterize for faster file sizes if complex)
-    ax.scatter(xs, ys, s=160, c=colors, alpha=0.12, linewidths=0, rasterized=True)
+    # ax.scatter(xs, ys, s=160, c=colors, alpha=0.12, linewidths=0, rasterized=True)
     # slightly smaller, mid halo
     ax.scatter(xs, ys, s=80, c=colors, alpha=0.22, linewidths=0, rasterized=True)
     # main dot
@@ -83,8 +83,8 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
 
 def main():
     # Hardcoded paths and parameters (modify as needed)
-    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-01__23-06-32/casp16/2025-09-07__17-58-00"
-    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-01__23-06-32/plots/casp16/plots_per_protein"
+    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-05__00-09-51/casp16/2025-09-07__17-48-59"
+    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-05__00-09-51/plots/casp16/plots_per_protein"
     os.makedirs(out_dir, exist_ok=True)
 
     perplexity = 30

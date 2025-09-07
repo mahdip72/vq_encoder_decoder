@@ -17,8 +17,8 @@ def random_color():
 
 def main():
     # Hardcoded root containing dated result subdirectories
-    results_root = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-05__00-09-51/test_set_b_2048_h5"
-    output_base_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-05__00-09-51/plots"
+    results_root = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-01__23-06-32/test_set_b_2048_h5"
+    output_base_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-01__23-06-32/plots"
     os.makedirs(output_base_dir, exist_ok=True)
 
     perplexity = 30
