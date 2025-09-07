@@ -5,6 +5,11 @@ from sklearn.manifold import TSNE
 import random
 from visualization.utils import find_h5_file_in_dir, load_embeddings_from_h5, find_all_h5_under
 
+# Set seed once so random color assignment is reproducible across runs
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+
 
 def random_color():
     return (random.random(), random.random(), random.random())
@@ -12,8 +17,8 @@ def random_color():
 
 def main():
     # Hardcoded root containing dated result subdirectories
-    results_root = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/test_set_b_2048_h5"
-    output_base_dir = "./visualization/plots"
+    results_root = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-05__00-09-51/test_set_b_2048_h5"
+    output_base_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-05__00-09-51/plots"
     os.makedirs(output_base_dir, exist_ok=True)
 
     perplexity = 30
@@ -24,6 +29,9 @@ def main():
 
     if not h5_paths:
         raise FileNotFoundError(f"No HDF5 files found under {results_root}")
+
+    # Sort to keep assignment stable even if filesystem order changes
+    h5_paths = sorted(h5_paths, key=lambda x: x[0])
 
     all_centroids = []
     origin_labels = []  # which h5 (entry) each centroid comes from
@@ -46,7 +54,7 @@ def main():
         raise RuntimeError("No centroids to visualize")
 
     # Run t-SNE on centroids
-    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, init='random', random_state=42)
+    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, init='random', random_state=SEED)
     Y = tsne.fit_transform(X)
 
     # Plot centroids colored per h5 file
@@ -67,5 +75,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
