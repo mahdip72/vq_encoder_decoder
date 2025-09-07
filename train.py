@@ -16,7 +16,7 @@ from utils.utils import (
     load_encoder_decoder_configs)
 from utils.metrics import GDTTS, TMScore
 from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
-from visualization.main import compute_visualization
+from embedding_evaluation.main import compute_visualization
 from tqdm import tqdm
 import time
 import torchmetrics
