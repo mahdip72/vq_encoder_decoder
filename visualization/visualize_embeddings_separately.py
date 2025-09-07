@@ -1,0 +1,119 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+from visualization.utils import find_h5_file_in_dir, load_embeddings_from_h5
+
+
+def gradient_color(start_color, end_color, t):
+    """Linear interpolation between two RGB tuples."""
+    return tuple((1 - t) * np.array(start_color) + t * np.array(end_color))
+
+
+def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_color=(1.0, 0.0, 0.0)):
+    """Plot residues for a single protein.
+
+    Y: (L, 2) array of projected points for the residues of this protein
+    pid: protein id (used for filename and title)
+    out_dir: where to save the figure
+    start_color: RGB color for first residue (purple by default)
+    end_color: RGB color for last residue (red by default)
+    """
+    L = Y.shape[0]
+    if L == 0:
+        return
+
+    plt.figure(figsize=(6, 6))
+    ax = plt.gca()
+
+    # Draw halos and dots from first residue to last so earlier residues are underneath later ones
+    for i in range(L):
+        t = i / max(1, L - 1)
+        c = gradient_color(start_color, end_color, t)
+
+        # larger, faint halo
+        ax.scatter(Y[i, 0], Y[i, 1], s=160, c=[c], alpha=0.12, linewidths=0)
+        # slightly smaller, mid halo
+        ax.scatter(Y[i, 0], Y[i, 1], s=80, c=[c], alpha=0.22, linewidths=0)
+        # main dot
+        ax.scatter(Y[i, 0], Y[i, 1], s=18, c=[c], edgecolors='k', linewidths=0.3)
+
+        # label residue index near the dot
+        ax.text(Y[i, 0], Y[i, 1], str(i), fontsize=6, va='center', ha='center')
+
+    ax.set_title(f"Residue embeddings (t-SNE) for {pid}")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    plt.tight_layout()
+
+    fname = f"tsne_{pid}.png"
+    out_path = os.path.join(out_dir, fname)
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+    print(f"Saved per-protein t-SNE plot: {out_path}")
+
+
+def main():
+    # Hardcoded paths and parameters (modify as needed)
+    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-01__23-06-32/casp14/2025-09-07__17-33-22"
+    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-01__23-06-32/plots_per_protein"
+    os.makedirs(out_dir, exist_ok=True)
+
+    perplexity = 30
+    n_iter = 1000
+    start_color = (0.5, 0.0, 0.5)  # purple
+    end_color = (1.0, 0.0, 0.0)    # red
+
+    h5_path = find_h5_file_in_dir(latest_dir)
+    if h5_path is None:
+        raise FileNotFoundError(f"No HDF5 file found under {latest_dir}")
+
+    embeddings = load_embeddings_from_h5(h5_path)
+
+    # Build consolidated array for t-SNE: concatenate all residues from all proteins
+    pids = []
+    points = []
+    pid_to_range = {}
+    idx = 0
+    for pid, emb in embeddings.items():
+        L = emb.shape[0]
+        if L == 0:
+            pid_to_range[pid] = (idx, idx)
+            continue
+        points.append(emb)
+        pid_to_range[pid] = (idx, idx + L)
+        idx += L
+        pids.append(pid)
+
+    if len(points) == 0:
+        raise RuntimeError("No embeddings found in HDF5 file")
+
+    X = np.vstack(points)
+
+    # Basic perplexity check
+    n_samples = X.shape[0]
+    if perplexity >= n_samples / 3:
+        p = max(5, int(n_samples / 5))
+        print(f"Adjusting perplexity from {perplexity} to {p} (n_samples={n_samples})")
+        perplexity = p
+
+    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, init='pca', random_state=42)
+    Y_all = tsne.fit_transform(X)
+
+    # Now iterate over proteins and save per-protein plots using the corresponding slice of Y_all
+    # We'll iterate over pid_to_range in insertion order but ensure we use the correct pids list
+    # pids contains only those appended to points; some embeddings with L==0 are skipped there
+    offset = 0
+    for pid in embeddings.keys():
+        start, end = pid_to_range.get(pid, (None, None))
+        if start is None or end is None or start == end:
+            print(f"Skipping {pid} (no residues)")
+            continue
+        Y = Y_all[start:end]
+        plot_protein_residues(Y, pid, out_dir, start_color=start_color, end_color=end_color)
+
+
+if __name__ == '__main__':
+    main()
+
+
