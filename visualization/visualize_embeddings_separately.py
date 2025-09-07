@@ -5,9 +5,33 @@ from sklearn.manifold import TSNE
 from visualization.utils import find_h5_file_in_dir, load_embeddings_from_h5
 
 
-def gradient_color(start_color, end_color, t):
-    """Linear interpolation between two RGB tuples."""
-    return tuple((1 - t) * np.array(start_color) + t * np.array(end_color))
+def spectrum_color(t):
+    """Return an RGB tuple on a visible-spectrum-like gradient from purple->red for t in [0,1].
+
+    This uses several hand-picked color stops and linearly interpolates between them.
+    """
+    # Color stops approximating the visible spectrum (purple -> indigo -> blue -> cyan -> green -> yellow -> orange -> red)
+    stops = [
+        (128, 0, 128),   # purple
+        (75, 0, 130),    # indigo / deep purple
+        (0, 0, 255),     # blue
+        (0, 255, 255),   # cyan
+        (0, 255, 0),     # green
+        (255, 255, 0),   # yellow
+        (255, 127, 0),   # orange
+        (255, 0, 0),     # red
+    ]
+    stops = [tuple(np.array(c) / 255.0) for c in stops]
+    t = float(np.clip(t, 0.0, 1.0))
+    n = len(stops)
+    if t >= 1.0:
+        return stops[-1]
+    pos = t * (n - 1)
+    i = int(np.floor(pos))
+    frac = pos - i
+    c0 = np.array(stops[i])
+    c1 = np.array(stops[min(i + 1, n - 1)])
+    return tuple((1 - frac) * c0 + frac * c1)
 
 
 def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_color=(1.0, 0.0, 0.0)):
@@ -29,7 +53,7 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
     # Draw halos and dots from first residue to last so earlier residues are underneath later ones
     for i in range(L):
         t = i / max(1, L - 1)
-        c = gradient_color(start_color, end_color, t)
+        c = spectrum_color(t)
 
         # larger, faint halo
         ax.scatter(Y[i, 0], Y[i, 1], s=160, c=[c], alpha=0.12, linewidths=0)
@@ -38,8 +62,10 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
         # main dot
         ax.scatter(Y[i, 0], Y[i, 1], s=18, c=[c], edgecolors='k', linewidths=0.3)
 
-        # label residue index near the dot
-        ax.text(Y[i, 0], Y[i, 1], str(i), fontsize=6, va='center', ha='center')
+        # label residue index near the dot (offset slightly to avoid overlapping the dot)
+        dx = 0.0
+        dy = 0.03 * (ax.get_ylim()[1] - ax.get_ylim()[0])
+        ax.text(Y[i, 0] + dx, Y[i, 1] + dy, str(i), fontsize=6, va='bottom', ha='center')
 
     ax.set_title(f"Residue embeddings (t-SNE) for {pid}")
     ax.set_xticks([])
@@ -55,8 +81,8 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
 
 def main():
     # Hardcoded paths and parameters (modify as needed)
-    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-01__23-06-32/casp14/2025-09-07__17-33-22"
-    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-01__23-06-32/plots_per_protein"
+    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-05__00-09-51/casp14/2025-09-07__17-48-34"
+    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-05__00-09-51/plots/casp14/plots_per_protein"
     os.makedirs(out_dir, exist_ok=True)
 
     perplexity = 30
