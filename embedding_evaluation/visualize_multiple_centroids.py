@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.manifold import TSNE
 import random
-from visualization.utils import find_h5_file_in_dir, load_embeddings_from_h5, find_all_h5_under
+from embedding_evaluation.utils import find_h5_file_in_dir, load_embeddings_from_h5, find_all_h5_under
 
 # Set seed once so random color assignment is reproducible across runs
 SEED = 42
