@@ -50,22 +50,24 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
     plt.figure(figsize=(6, 6))
     ax = plt.gca()
 
-    # Draw halos and dots from first residue to last so earlier residues are underneath later ones
+    # Vectorized scatter: prepare per-residue colors then draw each layer once (much faster)
+    t_vals = np.arange(L) / max(1, L - 1)
+    colors = [spectrum_color(float(t)) for t in t_vals]
+    xs = Y[:, 0]
+    ys = Y[:, 1]
+
+    # larger, faint halo (rasterize for faster file sizes if complex)
+    ax.scatter(xs, ys, s=160, c=colors, alpha=0.12, linewidths=0, rasterized=True)
+    # slightly smaller, mid halo
+    ax.scatter(xs, ys, s=80, c=colors, alpha=0.22, linewidths=0, rasterized=True)
+    # main dot
+    ax.scatter(xs, ys, s=18, c=colors, edgecolors='k', linewidths=0.3)
+
+    # label residue index near the dot (draw per-point Text objects; this remains per-point)
+    dx = 0.0
+    dy = 0.03 * (ax.get_ylim()[1] - ax.get_ylim()[0])
     for i in range(L):
-        t = i / max(1, L - 1)
-        c = spectrum_color(t)
-
-        # larger, faint halo
-        ax.scatter(Y[i, 0], Y[i, 1], s=160, c=[c], alpha=0.12, linewidths=0)
-        # slightly smaller, mid halo
-        ax.scatter(Y[i, 0], Y[i, 1], s=80, c=[c], alpha=0.22, linewidths=0)
-        # main dot
-        ax.scatter(Y[i, 0], Y[i, 1], s=18, c=[c], edgecolors='k', linewidths=0.3)
-
-        # label residue index near the dot (offset slightly to avoid overlapping the dot)
-        dx = 0.0
-        dy = 0.03 * (ax.get_ylim()[1] - ax.get_ylim()[0])
-        ax.text(Y[i, 0] + dx, Y[i, 1] + dy, str(i), fontsize=6, va='bottom', ha='center')
+        ax.text(xs[i] + dx, ys[i] + dy, str(i), fontsize=6, va='bottom', ha='center')
 
     ax.set_title(f"Residue embeddings (t-SNE) for {pid}")
     ax.set_xticks([])
@@ -81,8 +83,8 @@ def plot_protein_residues(Y, pid, out_dir, start_color=(0.5, 0.0, 0.5), end_colo
 
 def main():
     # Hardcoded paths and parameters (modify as needed)
-    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-05__00-09-51/casp14/2025-09-07__17-48-34"
-    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-05__00-09-51/plots/casp14/plots_per_protein"
+    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-01__23-06-32/casp16/2025-09-07__17-58-00"
+    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-01__23-06-32/plots/casp16/plots_per_protein"
     os.makedirs(out_dir, exist_ok=True)
 
     perplexity = 30
