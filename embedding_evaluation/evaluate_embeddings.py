@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from sklearn.manifold import TSNE  # This import can be removed if not used elsewhere
 from embedding_evaluation.utils import find_h5_file_in_dir, load_embeddings_from_h5
 
 
@@ -39,10 +38,23 @@ def compute_consecutive_metrics(emb):
     }
 
 
+def _to_serializable(obj):
+    """Recursively convert numpy types to native Python for JSON serialization."""
+    if isinstance(obj, (np.floating, np.integer)):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _to_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_serializable(v) for v in obj]
+    return obj
+
+
 def main():
     # Hardcoded paths and parameters (modify as needed)
-    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-09-05__00-09-51/casp16/2025-09-07__17-48-59"
-    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-09-05__00-09-51/plots/casp16/plots_per_protein"
+    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/ablation_2025-07-19__20-09-19/casp16/2025-09-07__18-34-36"
+    out_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/results/dgx/ablation/2025-07-19__20-09-19/plots/casp16/plots_per_protein"
     os.makedirs(out_dir, exist_ok=True)
 
     # Removed perplexity and n_iter since no t-SNE
@@ -89,10 +101,17 @@ def main():
         print(f"Average Path Length (per protein): {avg_path_length}")
 
         # Optionally save to file
-        # import json
-        # with open(os.path.join(out_dir, 'metrics_summary.json'), 'w') as f:
-        #     json.dump({'global_averages': {'avg_mean_dist': avg_mean_dist, 'avg_path_length': avg_path_length},
-        #                'per_protein': all_metrics}, f)
+        import json
+        serializable = {
+            'global_averages': {
+                'avg_mean_dist': avg_mean_dist,
+                'avg_path_length': avg_path_length,
+            },
+            'per_protein': all_metrics
+        }
+        serializable = _to_serializable(serializable)
+        with open(os.path.join(out_dir, 'metrics_summary.json'), 'w') as f:
+            json.dump(serializable, f, indent=2)
 
 
 if __name__ == '__main__':
