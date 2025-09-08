@@ -9,7 +9,7 @@ from collections import Counter
 
 # === Configure this ===
 CSV_PATH = "path/to/your/result_dir/vq_indices.csv"
-SKIP_TOKENS = None  # e.g., set to { -1 } if you want to ignore padding codes
+SKIP_TOKENS = {-1}  # e.g., set to { -1 } if you want to ignore padding codes
 
 def code_perplexity_from_counts(counts):
     """
