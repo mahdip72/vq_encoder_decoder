@@ -527,6 +527,53 @@ class GCPNetDataset(Dataset):
 
         return recentered_coordinates
 
+    def _apply_random_rotation(self, coords_list):
+        """Apply a single random 3D rotation (rigid body) to all non-NaN backbone coordinates.
+
+        This augmentation:
+        - Draws a random unit axis and an angle in [0, 2π)
+        - Builds a rotation matrix via Rodrigues' formula
+        - Applies it to every coordinate whose (x,y,z) are all finite
+        - Leaves any NaN entries untouched so downstream NaN logic still works
+        - Performs NO translation, scaling, or noise (pure rotation about origin)
+
+        Args:
+            coords_list (list): Nested list (L, 4, 3) of backbone coordinates
+        Returns:
+            list: Rotated coordinates in the same nested list structure
+        """
+        if not (hasattr(self.configs.train_settings, 'random_rotation') and
+                self.configs.train_settings.random_rotation.enabled and
+                self.mode == 'train'):
+            return coords_list
+        if not coords_list:
+            return coords_list
+        coords = torch.tensor(coords_list, dtype=torch.float32)
+        if coords.ndim != 3 or coords.size(-1) != 3:
+            return coords_list  # unexpected shape, skip
+        # mask of atoms where all components are finite
+        finite_mask = torch.isfinite(coords).all(dim=-1)  # (L,4)
+        if not finite_mask.any():
+            return coords_list
+        # sample random rotation
+        axis = torch.randn(3, dtype=coords.dtype)
+        axis_norm = axis.norm()
+        if axis_norm < 1e-8:
+            return coords_list  # degenerate, extremely unlikely
+        axis = axis / axis_norm
+        theta = torch.rand(1).item() * 2 * math.pi
+        K = torch.tensor([[0, -axis[2], axis[1]],
+                          [axis[2], 0, -axis[0]],
+                          [-axis[1], axis[0], 0]], dtype=coords.dtype)
+        I = torch.eye(3, dtype=coords.dtype)
+        R = I + math.sin(theta) * K + (1 - math.cos(theta)) * (K @ K)
+        # apply rotation to finite coordinates (broadcast over all selected atoms)
+        flat = coords.view(-1, 3)
+        finite_mask_flat = finite_mask.view(-1)
+        flat[finite_mask_flat] = flat[finite_mask_flat] @ R.T
+        coords = flat.view_as(coords)
+        return coords.tolist()
+
     def _apply_gaussian_jitter(self, coords_list):
         """Apply Cartesian Gaussian jitter to backbone atom coordinates.
 
@@ -682,6 +729,9 @@ class GCPNetDataset(Dataset):
         raw_sequence = sample[0].decode('utf-8').replace('U', 'X').replace('O', 'X')
         
         coords_list = torch.tensor(sample[1].tolist()).tolist()
+
+        # NEW: global random rotation BEFORE other augmentations
+        coords_list = self._apply_random_rotation(coords_list)
 
         if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or
                                      self.configs.train_settings.cutoff_augmentation.enabled or

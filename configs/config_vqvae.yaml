@@ -87,7 +87,9 @@ train_settings:
     max_length: 50
   gaussian_jitter:           # Added augmentation block
     enabled: False           # Set True to enable Gaussian coordinate jitter
-    std: 0.15                # Standard deviation in Angstroms for N(0, std^2) noise
+    std: 0.10                # Standard deviation in Angstroms for N(0, std^2) noise
+  random_rotation:           # New rotation-only augmentation (global rigid rotation)
+    enabled: True            # Applies a single random 3D rotation to all non-NaN backbone coords
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
   adaptive_loss_coefficient: True  # Enable/disable adaptive loss coefficient system
   losses:
