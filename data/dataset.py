@@ -67,7 +67,7 @@ def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -
                     v = coords[i, b] - coords[i, a]
 
                 norm = v.norm(dim=-1, keepdim=True)
-                if norm > 1e-6:
+                if norm.item() > 1e-6:
                     coords[i, b] = coords[i, a] + v / norm * BOND_LENGTHS[key]
         # peptide bond to next residue
         if i < N - 1:
@@ -256,12 +256,11 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
     return one_batch
 
 
-def _normalize(tensor, dim=-1):
+def _normalize(tensor, dim=-1, eps=1e-8):
     """
     Normalizes a `torch.Tensor` along dimension `dim` without `nan`s.
     """
-    return torch.nan_to_num(
-        torch.div(tensor, torch.norm(tensor, dim=dim, keepdim=True)))
+    return torch.nan_to_num(tensor / torch.norm(tensor, dim=dim, keepdim=True).clamp_min(eps))
 
 
 def _rbf(d, d_min=0., d_max=20., d_count=16, device='cpu'):
@@ -551,19 +550,18 @@ class GCPNetDataset(Dataset):
         """
         Applies a series of augmentations to the input coordinates and sequence.
 
-        This method performs two types of augmentations if enabled in the config:
-        1.  NaN Masking: Randomly replaces a segment of coordinates with NaNs and the
-            corresponding amino acids in the sequence with 'X'. The length of the
-            segment is a random integer between 1 and `max_length` from the config.
-        2.  Cutoff Augmentation: Truncates the sequence and coordinates to a random
-            length between `min_length` from the config and the current sequence length.
+        Augmentation steps (applied in this order if enabled):
+          0. Gaussian Jitter: Cartesian N(0, std^2) noise added to finite backbone coordinates.
+             Immediately after jitter, ideal bond lengths (N-CA, CA-C, C-O, C-N) and ~3.8 Å CA–CA spacing
+             are enforced ONLY on atoms/residues that originally contained NaNs (so valid regions stay untouched).
+          1. NaN Masking: Random multi-chunk masking -> coordinates set to NaN and sequence positions set to 'X'.
+          2. Random Cutoff: Truncate sequence + coordinates to a random length.
 
         Args:
-            coords_list (list): A list of coordinates to be augmented.
-            raw_sequence (str): The raw amino acid sequence to be augmented.
-
+            coords_list (list): Nested list of backbone coords shape (L, 4, 3) for [N, CA, C, O].
+            raw_sequence (str): Amino acid sequence.
         Returns:
-            tuple[list, str]: A tuple containing the augmented coordinate list and sequence.
+            (new_coords_list, new_sequence_str)
         """
         nan_cfg = self.configs.train_settings.nan_augmentation
         cut_cfg = self.configs.train_settings.cutoff_augmentation
@@ -572,6 +570,14 @@ class GCPNetDataset(Dataset):
         if hasattr(self.configs.train_settings, 'gaussian_jitter') and \
            self.configs.train_settings.gaussian_jitter.enabled and self.mode == 'train':
             coords_list = self._apply_gaussian_jitter(coords_list)
+            # Enforce bonds & CA spacing ONLY on originally NaN atoms/residues
+            coords_tensor = torch.tensor(coords_list, dtype=torch.float32)
+            if coords_tensor.ndim == 3 and coords_tensor.size(1) == 4 and coords_tensor.size(2) == 3:
+                nan_mask_atoms = torch.isnan(coords_tensor).any(dim=-1)  # (L,4) True where original NaNs remain
+                if nan_mask_atoms.any():
+                    coords_tensor = enforce_backbone_bonds(coords_tensor, changed=nan_mask_atoms)
+                    coords_tensor = enforce_ca_spacing(coords_tensor, changed=nan_mask_atoms)
+                    coords_list = coords_tensor.tolist()
 
         seq_list = list(raw_sequence)
 
