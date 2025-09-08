@@ -283,13 +283,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     progress_bar.set_description(f"Validation epoch {epoch}")
 
     net.eval()
-    optimizer.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
             labels = data['target_coords']
             masks = torch.logical_and(data['masks'], data['nan_masks'])
 
-            optimizer.zero_grad()
             output_dict = net(data)
 
             gathered_indices = accelerator.gather(output_dict["indices"])
