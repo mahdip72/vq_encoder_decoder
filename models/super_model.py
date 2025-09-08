@@ -150,7 +150,7 @@ def prepare_model(configs, logger, **kwargs):
     return vqvae
 
 
-def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead") -> nn.Module:
+def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead", backend: str | None = "eager") -> nn.Module:
     """
     Compile non-GCP parts of the SuperModel while excluding the VectorQuantizer.
 
@@ -162,15 +162,15 @@ def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead") -> 
 
     # Encoder tail / blocks / head
     if hasattr(net.vqvae, 'encoder_tail') and net.vqvae.encoder_tail is not None:
-        net.vqvae.encoder_tail = torch.compile(net.vqvae.encoder_tail, mode=mode)
+        net.vqvae.encoder_tail = torch.compile(net.vqvae.encoder_tail, mode=mode, backend=backend)
     if hasattr(net.vqvae, 'encoder_blocks') and net.vqvae.encoder_blocks is not None:
-        net.vqvae.encoder_blocks = torch.compile(net.vqvae.encoder_blocks, mode=mode)
+        net.vqvae.encoder_blocks = torch.compile(net.vqvae.encoder_blocks, mode=mode, backend=backend)
     if hasattr(net.vqvae, 'ntp_blocks') and net.vqvae.ntp_enabled:
-        net.vqvae.ntp_blocks = torch.compile(net.vqvae.ntp_blocks, mode=mode)
+        net.vqvae.ntp_blocks = torch.compile(net.vqvae.ntp_blocks, mode=mode, backend=backend)
     if hasattr(net.vqvae, 'ntp_projector_head') and net.vqvae.ntp_enabled:
-        net.vqvae.ntp_projector_head = torch.compile(net.vqvae.ntp_projector_head, mode=mode)
+        net.vqvae.ntp_projector_head = torch.compile(net.vqvae.ntp_projector_head, mode=mode, backend=backend)
     if hasattr(net.vqvae, 'encoder_head') and net.vqvae.encoder_head is not None:
-        net.vqvae.encoder_head = torch.compile(net.vqvae.encoder_head, mode=mode)
+        net.vqvae.encoder_head = torch.compile(net.vqvae.encoder_head, mode=mode, backend=backend)
 
     # Exclude vector_quantizer on purpose
     # if hasattr(net.vqvae, 'vector_quantizer'):  # do not compile
@@ -178,7 +178,7 @@ def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead") -> 
 
     # Decoder
     if hasattr(net.vqvae, 'decoder') and net.vqvae.decoder is not None:
-        net.vqvae.decoder = torch.compile(net.vqvae.decoder, mode=mode)
+        net.vqvae.decoder = torch.compile(net.vqvae.decoder, mode=mode, backend=backend)
 
     return net
 

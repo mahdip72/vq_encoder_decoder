@@ -472,7 +472,7 @@ def main(dict_config, config_file_path):
     # compile models to train faster and efficiently
     if configs.model.compile_model:
         if hasattr(net, 'vqvae'):
-            net = compile_non_gcp_and_exclude_vq(net, mode=None)
+            net = compile_non_gcp_and_exclude_vq(net, mode=None, backend="inductor")
             logging.info('VQVAE component compiled.')
 
     net, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(
