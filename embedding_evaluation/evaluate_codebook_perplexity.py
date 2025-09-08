@@ -1,14 +1,12 @@
-#!/usr/bin/env python3
-# Read a CSV of VQ indices and compute:
+# Compute:
 # - Unigram entropy & perplexity
-# - Zipf fit (unigram rank-frequency slope, R^2)
-# - Bigram conditional entropy & perplexity; ΔH = H1 - H(Z_t|Z_{t-1})
-# - Mutual information I(z_t; z_{t+Δ}) for selected lags
+# - Unigram Zipf fit
+# - Bigram conditional entropy & perplexity; ΔH1 = H1 - H2|1
+# - Trigram conditional entropy & perplexity; ΔH2 = H1 - H3|21; extra gain = H2|1 - H3|21
+# - Mutual information I(Z_t; Z_{t+Δ}) at selected lags
 #
 # CSV columns expected: pid, indices, protein_sequence
 # 'indices' must be space-separated token IDs.
-#
-# Keep it simple: no argparse—configure constants below.
 
 import csv
 import math
@@ -18,8 +16,8 @@ from collections import Counter, defaultdict
 CSV_PATH = "path/to/vq_indices.csv"
 SKIP_TOKENS = {-1}            # e.g., {-1} to ignore mask/padding
 CODEBOOK_SIZE = 4096          # set to None to skip bound check
-MI_LAGS = [1, 2, 4]           # lags at which to compute mutual information
-TOPK = 10                     # how many unigrams/bigrams to print
+MI_LAGS = [1, 2, 4]           # lags for MI computation
+TOPK = 10                     # how many unigrams/bigrams/trigrams to print
 # ==================================
 
 def safe_int(tok_s):
@@ -51,15 +49,10 @@ def perplexity_from_entropy_bits(H_bits):
     return 2.0 ** H_bits
 
 def zipf_fit(counts):
-    """
-    Fit log(freq) = a + b*log(rank) over the positive-count unigrams.
-    Returns (slope b, intercept a, R^2, n_points).
-    """
     freqs = [c for c in counts.values() if c > 0]
     if not freqs:
         return 0.0, 0.0, 0.0, 0
     freqs.sort(reverse=True)
-    # ranks start at 1
     xs = [math.log(r) for r in range(1, len(freqs) + 1)]
     ys = [math.log(f) for f in freqs]
     n = len(xs)
@@ -71,7 +64,6 @@ def zipf_fit(counts):
         return 0.0, mean_y, 0.0, n
     slope = sxy / sxx
     intercept = mean_y - slope * mean_x
-    # R^2
     yhat = [intercept + slope * x for x in xs]
     ss_res = sum((y - yh) ** 2 for y, yh in zip(ys, yhat))
     ss_tot = sum((y - mean_y) ** 2 for y in ys)
@@ -79,11 +71,6 @@ def zipf_fit(counts):
     return slope, intercept, r2, n
 
 def compute_mi_from_pairs(pair_counts):
-    """
-    pair_counts: dict[i] -> Counter({j: count_ij})
-    Returns MI in bits computed from the pair sample (plugin estimate).
-    """
-    # total pairs
     T = 0
     row_sums = {}
     col_sums = Counter()
@@ -95,33 +82,35 @@ def compute_mi_from_pairs(pair_counts):
             col_sums[j] += c
     if T == 0:
         return 0.0
-
-    # MI = sum_{i,j} p_ij * log2( p_ij / (p_i * p_j) )
     I = 0.0
     for i, row in pair_counts.items():
         p_i = row_sums[i] / T
         for j, c in row.items():
             p_ij = c / T
             p_j = col_sums[j] / T
-            # ensure numeric safety
             if p_ij > 0 and p_i > 0 and p_j > 0:
                 I += p_ij * math.log2(p_ij / (p_i * p_j))
     return I
 
 def main():
-    # Unigram and bigram storage
+    # Unigram
     unigram = Counter()
     total_rows = 0
     total_tokens = 0
 
-    # Bigram counts: prev -> Counter(next)
+    # Bigram: prev -> Counter(next)
     bigram = defaultdict(Counter)
     total_bigrams = 0
 
-    # Pair counts for MI at various lags: lag -> dict[i] -> Counter(j)
+    # Trigram: (prev2, prev1) -> Counter(next)
+    trigram = defaultdict(Counter)
+    total_trigrams = 0
+
+    # MI at selected lags: lag -> dict[i] -> Counter(j)
     lag_pair_counts = {d: defaultdict(Counter) for d in MI_LAGS}
     lag_totals = {d: 0 for d in MI_LAGS}
 
+    # Read CSV
     with open(CSV_PATH, "r", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -129,13 +118,11 @@ def main():
             idx_str = row.get("indices", "")
             if not idx_str:
                 continue
-            # Parse & filter tokens for this sequence
             seq = []
             for tok_s in idx_str.strip().split():
                 tok = safe_int(tok_s)
                 if valid_tok(tok):
                     seq.append(tok)
-
             L = len(seq)
             if L == 0:
                 continue
@@ -144,13 +131,19 @@ def main():
             unigram.update(seq)
             total_tokens += L
 
-            # Bigram (lag=1) within the row
+            # Bigrams
             for t in range(L - 1):
                 i, j = seq[t], seq[t + 1]
                 bigram[i][j] += 1
                 total_bigrams += 1
 
-            # MI at selected lags (within-row only)
+            # Trigrams
+            for t in range(L - 2):
+                i, j, k = seq[t], seq[t + 1], seq[t + 2]
+                trigram[(i, j)][k] += 1
+                total_trigrams += 1
+
+            # MI lags
             for d in MI_LAGS:
                 if L <= d:
                     continue
@@ -177,50 +170,75 @@ def main():
     # ==== Zipf fit on unigrams ====
     slope, intercept, r2, npts = zipf_fit(unigram)
     print("\n--- Unigram Zipf Fit ---")
-    print(f"log(freq) ≈ a + b*log(rank)")
+    print("log(freq) ≈ a + b*log(rank)")
     print(f"b (slope):                   {slope:.4f}")
     print(f"a (intercept):               {intercept:.4f}")
     print(f"R^2:                         {r2:.4f}")
     print(f"n (ranks used):              {npts}")
 
     # ==== Bigram conditional entropy H(Z_t | Z_{t-1}) ====
-    # Compute via expected conditional entropy weighted by p(i) estimated from bigram sample.
     if total_bigrams > 0:
         H2_given_1_bits = 0.0
         for i, row in bigram.items():
             row_total = sum(row.values())
             p_i = row_total / total_bigrams
-            # conditional entropy for this context i
             H_cond_i = 0.0
             for c in row.values():
                 p_j_given_i = c / row_total
                 H_cond_i -= p_j_given_i * math.log2(p_j_given_i)
             H2_given_1_bits += p_i * H_cond_i
-
-        PPL_cond = perplexity_from_entropy_bits(H2_given_1_bits)
-        delta_bits = H1_bits - H2_given_1_bits  # = I(Z_{t-1}; Z_t)
+        PPL2cond = perplexity_from_entropy_bits(H2_given_1_bits)
+        delta1_bits = H1_bits - H2_given_1_bits  # I(Z_{t-1}; Z_t)
 
         print("\n--- Bigram Conditional Statistics ---")
         print(f"Transitions counted:         {total_bigrams}")
-        print(f"H(Z_t | Z_t-1) (bits):       {H2_given_1_bits:.6f}")
-        print(f"Conditional PPL:             {PPL_cond:.6f}")
-        print(f"ΔH = H1 - H2|1 (bits):       {delta_bits:.6f}  (Mutual information at lag 1)")
+        print(f"H(Z_t | Z_{{t-1}}) (bits):     {H2_given_1_bits:.6f}")
+        print(f"Conditional PPL:             {PPL2cond:.6f}")
+        print(f"ΔH1 = H1 - H(Z_t|Z_{{t-1}}):   {delta1_bits:.6f}  (I(Z_{{t-1}}; Z_t))")
     else:
+        H2_given_1_bits = float("nan")
+        PPL2cond = float("nan")
+        delta1_bits = float("nan")
         print("\n--- Bigram Conditional Statistics ---")
-        print("No bigrams counted (insufficient tokens).")
+        print("No bigrams counted.")
+
+    # ==== Trigram conditional entropy H(Z_t | Z_{t-2}, Z_{t-1}) ====
+    if total_trigrams > 0:
+        H3_given_21_bits = 0.0
+        for ctx, row in trigram.items():
+            row_total = sum(row.values())
+            p_ctx = row_total / total_trigrams            # p(i,j)
+            H_cond_ctx = 0.0
+            for c in row.values():
+                p_k_given_ctx = c / row_total             # p(k | i,j)
+                H_cond_ctx -= p_k_given_ctx * math.log2(p_k_given_ctx)
+            H3_given_21_bits += p_ctx * H_cond_ctx
+
+        PPL3cond = perplexity_from_entropy_bits(H3_given_21_bits)
+        delta2_bits = H1_bits - H3_given_21_bits          # I((Z_{t-2},Z_{t-1}); Z_t)
+        extra_gain_bits = H2_given_1_bits - H3_given_21_bits  # additional info from Z_{t-2}
+
+        print("\n--- Trigram Conditional Statistics ---")
+        print(f"H(Z_t | Z_{{t-2}}, Z_{{t-1}}) (bits):  {H3_given_21_bits:.6f}")
+        print(f"Conditional PPL:                   {PPL3cond:.6f}")
+        print(f"ΔH2 = H1 - H(Z_t|Z_{{t-2}},Z_{{t-1}}): {delta2_bits:.6f}  (I((Z_{{t-2}},Z_{{t-1}}); Z_t))")
+        print(f"Extra gain over bigram:            {extra_gain_bits:.6f}  (= H(Z_t|Z_{{t-1}}) - H(Z_t|Z_{{t-2}},Z_{{t-1}}))")
+    else:
+        print("\n--- Trigram Conditional Statistics ---")
+        print("No trigrams counted.")
+
+    print(f"Trigram transitions counted:  {total_trigrams}")
+    print(f"Unique trigram contexts:      {len(trigram)}")
 
     # ==== Mutual Information at selected lags ====
     print("\n--- Mutual Information I(Z_t; Z_{t+Δ}) ---")
-    if not MI_LAGS:
-        print("No lags configured.")
-    else:
-        for d in MI_LAGS:
-            T = lag_totals[d]
-            if T == 0:
-                print(f"Δ={d}:                       n/a (no pairs)")
-                continue
-            I_bits = compute_mi_from_pairs(lag_pair_counts[d])
-            print(f"Δ={d}:                       {I_bits:.6f} bits  (pairs: {T})")
+    for d in MI_LAGS:
+        T = lag_totals[d]
+        if T == 0:
+            print(f"Δ={d}:                       n/a (no pairs)")
+            continue
+        I_bits = compute_mi_from_pairs(lag_pair_counts[d])
+        print(f"Δ={d}:                       {I_bits:.6f} bits  (pairs: {T})")
 
     # ==== Top-K reports ====
     print(f"\nTop-{TOPK} unigrams by frequency:")
@@ -229,7 +247,6 @@ def main():
         print(f"  code {code:>6}: {cnt}  ({pct:.4f}%)")
 
     print(f"\nTop-{TOPK} bigrams by frequency:")
-    # Flatten bigrams for ranking
     bigram_flat = Counter()
     for i, row in bigram.items():
         for j, c in row.items():
@@ -237,6 +254,15 @@ def main():
     for (i, j), c in bigram_flat.most_common(TOPK):
         pct = (c / total_bigrams * 100.0) if total_bigrams > 0 else 0.0
         print(f"  ({i:>4} -> {j:>4}): {c}  ({pct:.4f}%)")
+
+    print(f"\nTop-{TOPK} trigrams by frequency:")
+    trigram_flat = Counter()
+    for (i, j), row in trigram.items():
+        for k, c in row.items():
+            trigram_flat[(i, j, k)] = c
+    for (i, j, k), c in trigram_flat.most_common(TOPK):
+        pct = (c / total_trigrams * 100.0) if total_trigrams > 0 else 0.0
+        print(f"  ({i:>4} -> {j:>4} -> {k:>4}): {c}  ({pct:.4f}%)")
 
 if __name__ == "__main__":
     main()
