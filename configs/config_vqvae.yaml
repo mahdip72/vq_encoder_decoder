@@ -130,13 +130,6 @@ valid_settings:
   batch_size: 8
   num_workers: 0
 
-visualization_settings:
-  data_path: ../../datasets/vqvae/whole_validation_2048_h5
-  fasta_path: visualization/Rep_subfamily_basedon_S40pdb.fa
-  do_every: 8192
-  batch_size: 1
-  num_workers: 4
-
 optimizer:
   name: adam
   lr: 1e-4

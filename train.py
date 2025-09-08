@@ -16,7 +16,6 @@ from utils.utils import (
     load_encoder_decoder_configs)
 from utils.metrics import GDTTS, TMScore
 from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
-from embedding_evaluation.main import compute_visualization
 from tqdm import tqdm
 import time
 import torchmetrics
@@ -455,7 +454,7 @@ def main(dict_config, config_file_path):
 
     logging = get_logging(result_path, configs)
 
-    train_dataloader, valid_dataloader, visualization_loader = prepare_gcpnet_vqvae_dataloaders(
+    train_dataloader, valid_dataloader = prepare_gcpnet_vqvae_dataloaders(
         logging, accelerator, configs, encoder_configs=encoder_configs, decoder_configs=decoder_configs
     )
     logging.info('preparing dataloaders are done')
@@ -478,8 +477,8 @@ def main(dict_config, config_file_path):
             net.vqvae = torch.compile(net.vqvae)
             logging.info('VQVAE component compiled.')
 
-    net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler = accelerator.prepare(
-        net, optimizer, train_dataloader, valid_dataloader, visualization_loader, scheduler
+    net, optimizer, train_dataloader, visualization_loader, scheduler = accelerator.prepare(
+        net, optimizer, train_dataloader, valid_dataloader, scheduler
     )
 
     net.to(accelerator.device)
@@ -616,15 +615,6 @@ def main(dict_config, config_file_path):
                                 configs=configs)
                 logging.info(f'\tsaving the best models in {model_path}')
                 logging.info(f'\tbest valid rmsd: {best_valid_metrics["rmsd"]:.4f}')
-
-        if epoch % configs.visualization_settings.do_every == 0:
-            logging.info(f'\tstart visualization at epoch {epoch}')
-
-            accelerator.wait_for_everyone()
-            # Visualize the embeddings using T-SNE
-            logging.info(f'Calling compute_visualization for epoch {epoch}')
-            compute_visualization(net, visualization_loader, result_path, configs, logging, accelerator, epoch,
-                                  optimizer)
 
     logging.info("Training is completed!\n")
 

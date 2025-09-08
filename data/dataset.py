@@ -933,16 +933,12 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
     if accelerator.is_main_process:
         logging.info(f"train directory: {configs.train_settings.data_path}")
         logging.info(f"valid directory: {configs.valid_settings.data_path}")
-        logging.info(f"visualization directory: {configs.visualization_settings.data_path}")
 
         assert os.path.exists(configs.train_settings.data_path), (
             f"Data path {configs.train_settings.data_path} does not exist"
         )
         assert os.path.exists(configs.valid_settings.data_path), (
             f"Data path {configs.valid_settings.data_path} does not exist"
-        )
-        assert os.path.exists(configs.visualization_settings.data_path), (
-            f"Data path {configs.visualization_settings.data_path} does not exist"
         )
 
     train_dataset = GCPNetDataset(
@@ -955,14 +951,6 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
 
     valid_dataset = GCPNetDataset(
         configs.valid_settings.data_path,
-        top_k=kwargs["encoder_configs"].top_k,
-        num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
-        configs=configs,
-        mode="evaluation",
-    )
-
-    visualization_dataset = GCPNetDataset(
-        configs.visualization_settings.data_path,
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs,
@@ -994,12 +982,8 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
                               persistent_workers=False,  # keep workers alive between epochs
                               shuffle=False,
                               collate_fn=selected_collate)
-    visualization_loader = DataLoader(visualization_dataset, batch_size=configs.visualization_settings.batch_size,
-                                      num_workers=0,
-                                      pin_memory=False,
-                                      shuffle=False,
-                                      collate_fn=selected_collate)
-    return train_loader, valid_loader, visualization_loader
+
+    return train_loader, valid_loader
 
 
 if __name__ == '__main__':
