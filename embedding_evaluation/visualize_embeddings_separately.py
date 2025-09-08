@@ -2,7 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-from visualization.utils import find_h5_file_in_dir, load_embeddings_from_h5
+from embedding_evaluation.utils import find_h5_file_in_dir, load_embeddings_from_h5
 
 
 def spectrum_color(t):

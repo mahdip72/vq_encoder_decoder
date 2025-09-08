@@ -3,7 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import glob
-from visualization.tsne_plot import compute_plot
+from embedding_evaluation.tsne_plot import compute_plot
 import yaml
 import h5py
 from utils.utils import load_configs, get_dummy_logger
