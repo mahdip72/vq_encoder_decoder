@@ -144,8 +144,6 @@ def prepare_model(configs, logger, **kwargs):
 
     vqvae = SuperModel(encoder, vqvae, configs, decoder_only=kwargs.get("decoder_only", False))
 
-    vqvae = nn.SyncBatchNorm.convert_sync_batchnorm(vqvae)
-
     print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
 
     return vqvae
