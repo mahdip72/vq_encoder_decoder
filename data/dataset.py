@@ -528,6 +528,25 @@ class GCPNetDataset(Dataset):
 
         return recentered_coordinates
 
+    def _apply_gaussian_jitter(self, coords_list):
+        """Apply Cartesian Gaussian jitter to backbone atom coordinates.
+
+        Adds N(0, std^2) noise (in Å) independently to each finite coordinate.
+        NaN entries are left untouched so that subsequent NaN handling logic
+        can still identify originally missing atoms.
+        Controlled via config: train_settings.gaussian_jitter.enabled & std.
+        """
+        std = getattr(self.configs.train_settings.gaussian_jitter, 'std', 0.0)
+        if std <= 0:
+            return coords_list
+        coords = torch.tensor(coords_list, dtype=torch.float32)
+        if coords.ndim != 3 or coords.size(-1) != 3:
+            return coords_list  # safeguard unexpected shape
+        finite_mask = torch.isfinite(coords)
+        noise = torch.randn_like(coords) * std
+        coords = torch.where(finite_mask, coords + noise, coords)
+        return coords.tolist()
+
     def _apply_augmentations(self, coords_list, raw_sequence):
         """
         Applies a series of augmentations to the input coordinates and sequence.
@@ -548,6 +567,11 @@ class GCPNetDataset(Dataset):
         """
         nan_cfg = self.configs.train_settings.nan_augmentation
         cut_cfg = self.configs.train_settings.cutoff_augmentation
+
+        # Gaussian jitter first (does not change sequence)
+        if hasattr(self.configs.train_settings, 'gaussian_jitter') and \
+           self.configs.train_settings.gaussian_jitter.enabled and self.mode == 'train':
+            coords_list = self._apply_gaussian_jitter(coords_list)
 
         seq_list = list(raw_sequence)
 
@@ -653,7 +677,9 @@ class GCPNetDataset(Dataset):
         
         coords_list = torch.tensor(sample[1].tolist()).tolist()
 
-        if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or self.configs.train_settings.cutoff_augmentation.enabled):
+        if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or
+                                     self.configs.train_settings.cutoff_augmentation.enabled or
+                                     (hasattr(self.configs.train_settings, 'gaussian_jitter') and self.configs.train_settings.gaussian_jitter.enabled)):
             coords_list, raw_sequence = self._apply_augmentations(coords_list, raw_sequence)
 
         coords_list, nan_mask = self.handle_nan_coordinates(torch.tensor(coords_list))
