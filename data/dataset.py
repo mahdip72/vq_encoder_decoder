@@ -575,32 +575,91 @@ class GCPNetDataset(Dataset):
         return coords.tolist()
 
     def _apply_gaussian_jitter(self, coords_list):
-        """Apply Cartesian Gaussian jitter to backbone atom coordinates.
+        """Apply Gaussian jitter to input coordinates and enforce geometry.
 
-        Adds N(0, std^2) noise (in Å) independently to each finite coordinate.
-        NaN entries are left untouched so that subsequent NaN handling logic
-        can still identify originally missing atoms.
-        Controlled via config: train_settings.gaussian_jitter.enabled & std.
+        Behavior:
+        - No-op unless train_settings.gaussian_jitter.enabled and mode == 'train'.
+        - Supports either (L, 4, 3) backbone coords OR flattened (1, L, 12)/(L, 12).
+        - Adds N(0, std^2) noise to valid residues only (padded rows are preserved).
+        - Enforces ideal bonds and CA–CA spacing on valid region after jitter.
+
+        Returns the same structure type/shape as the input.
         """
-        std = getattr(self.configs.train_settings.gaussian_jitter, 'std', 0.0)
-        if std <= 0:
+        # Gate by config and mode
+        if not hasattr(self.configs.train_settings, 'gaussian_jitter'):
             return coords_list
-        coords = torch.tensor(coords_list, dtype=torch.float32)
-        if coords.ndim != 3 or coords.size(-1) != 3:
-            return coords_list  # safeguard unexpected shape
-        finite_mask = torch.isfinite(coords)
-        noise = torch.randn_like(coords) * std
-        coords = torch.where(finite_mask, coords + noise, coords)
-        return coords.tolist()
+        if not getattr(self.configs.train_settings.gaussian_jitter, 'enabled', False):
+            return coords_list
+        if self.mode != 'train':
+            return coords_list
+
+        std = float(getattr(self.configs.train_settings.gaussian_jitter, 'std', 0.0))
+        prob = float(getattr(self.configs.train_settings.gaussian_jitter, 'probability', 1.0))
+        if std <= 0.0:
+            return coords_list
+        if prob < 1.0 and random.random() >= prob:
+            return coords_list
+
+        # Convert to tensor while preserving original type/shape for output
+        input_is_tensor = torch.is_tensor(coords_list)
+        coords_tensor = coords_list.clone() if input_is_tensor else torch.tensor(coords_list, dtype=torch.float32)
+
+        # Handle (1, L, 12) or (L, 12) flattened inputs by reshaping to (L, 4, 3)
+        original_shape = coords_tensor.shape
+        if coords_tensor.ndim == 3 and coords_tensor.size(0) == 1 and coords_tensor.size(2) == 12:
+            # (1, L, 12) -> (L, 4, 3)
+            L = coords_tensor.size(1)
+            coords_bb = coords_tensor.view(L, 4, 3)
+            flattened_mode = True
+        else:
+            # Unrecognized shape; do nothing
+            return coords_list
+
+        # Determine valid (non-padded) residues: any non-zero across 12 dims
+        with torch.no_grad():
+            row_sums = coords_bb.reshape(L, 12).abs().sum(dim=1)
+            valid_mask_res = row_sums > 0
+            if valid_mask_res.any():
+                valid_length = int(valid_mask_res.nonzero(as_tuple=False).max().item()) + 1
+            else:
+                valid_length = 0
+
+        if valid_length == 0:
+            # nothing to jitter/enforce
+            return coords_list
+
+        # Slice valid region
+        coords_valid = coords_bb[:valid_length].clone()
+
+        # Add jitter only to finite entries
+        finite_mask = torch.isfinite(coords_valid)
+        coords_valid = torch.where(finite_mask, coords_valid + torch.randn_like(coords_valid) * std, coords_valid)
+
+        # Enforce geometry on valid slice
+        # Apply to all valid residues; no adjustments spill into padded tail
+        coords_valid = enforce_backbone_bonds(coords_valid)
+        coords_valid = enforce_ca_spacing(coords_valid)
+
+        # Merge back with padded tail unchanged
+        coords_bb = coords_bb.clone()
+        coords_bb[:valid_length] = coords_valid
+
+        # Restore original shape
+        if flattened_mode:
+            out_tensor = coords_bb.reshape(original_shape)
+        else:
+            out_tensor = coords_bb
+
+        if input_is_tensor:
+            return out_tensor
+        else:
+            return out_tensor.tolist()
 
     def _apply_augmentations(self, coords_list, raw_sequence):
         """
         Applies a series of augmentations to the input coordinates and sequence.
 
         Augmentation steps (applied in this order if enabled):
-          0. Gaussian Jitter: Cartesian N(0, std^2) noise added to finite backbone coordinates.
-             Immediately after jitter, ideal bond lengths (N-CA, CA-C, C-O, C-N) and ~3.8 Å CA–CA spacing
-             are enforced ONLY on atoms/residues that originally contained NaNs (so valid regions stay untouched).
           1. NaN Masking: Random multi-chunk masking -> coordinates set to NaN and sequence positions set to 'X'.
           2. Random Cutoff: Truncate sequence + coordinates to a random length.
 
@@ -612,19 +671,6 @@ class GCPNetDataset(Dataset):
         """
         nan_cfg = self.configs.train_settings.nan_augmentation
         cut_cfg = self.configs.train_settings.cutoff_augmentation
-
-        # Gaussian jitter first (does not change sequence)
-        if hasattr(self.configs.train_settings, 'gaussian_jitter') and \
-           self.configs.train_settings.gaussian_jitter.enabled and self.mode == 'train':
-            coords_list = self._apply_gaussian_jitter(coords_list)
-            # Enforce bonds & CA spacing ONLY on originally NaN atoms/residues
-            coords_tensor = torch.tensor(coords_list, dtype=torch.float32)
-            if coords_tensor.ndim == 3 and coords_tensor.size(1) == 4 and coords_tensor.size(2) == 3:
-                nan_mask_atoms = torch.isnan(coords_tensor).any(dim=-1)  # (L,4) True where original NaNs remain
-                if nan_mask_atoms.any():
-                    coords_tensor = enforce_backbone_bonds(coords_tensor, changed=nan_mask_atoms)
-                    coords_tensor = enforce_ca_spacing(coords_tensor, changed=nan_mask_atoms)
-                    coords_list = coords_tensor.tolist()
 
         seq_list = list(raw_sequence)
 
@@ -734,8 +780,7 @@ class GCPNetDataset(Dataset):
         coords_list = self._apply_random_rotation(coords_list)
 
         if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or
-                                     self.configs.train_settings.cutoff_augmentation.enabled or
-                                     (hasattr(self.configs.train_settings, 'gaussian_jitter') and self.configs.train_settings.gaussian_jitter.enabled)):
+                                     self.configs.train_settings.cutoff_augmentation.enabled):
             coords_list, raw_sequence = self._apply_augmentations(coords_list, raw_sequence)
 
         coords_list, nan_mask = self.handle_nan_coordinates(torch.tensor(coords_list))
@@ -764,6 +809,9 @@ class GCPNetDataset(Dataset):
         coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
 
         input_coordinates = coords.clone()
+        # Apply Gaussian jitter + geometry enforcement to inputs only (if enabled)
+        input_coordinates = self._apply_gaussian_jitter(input_coordinates)
+
         coords = coords[..., :9]  # only use N, CA, C atoms
 
         # squeeze coords and masks to return them to 2D

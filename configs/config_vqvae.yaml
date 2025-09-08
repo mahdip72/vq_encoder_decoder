@@ -88,6 +88,7 @@ train_settings:
   gaussian_jitter:           # Added augmentation block
     enabled: True           # Set True to enable Gaussian coordinate jitter
     std: 0.10                # Standard deviation in Angstroms for N(0, std^2) noise
+    probability: 1.0         # Probability to apply jitter to a sample
   random_rotation:           # New rotation-only augmentation (global rigid rotation)
     enabled: True            # Applies a single random 3D rotation to all non-NaN backbone coords
   gradient_norm_logging_freq: 50  # How often to calculate and log gradient norm (in steps)
@@ -138,7 +139,7 @@ visualization_settings:
 
 optimizer:
   name: adam
-  lr: 5e-5
+  lr: 1e-4
   weight_decouple: True
   weight_decay: 1e-2
   eps: 1e-7
