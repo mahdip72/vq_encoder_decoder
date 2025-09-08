@@ -27,30 +27,21 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
 
 
 def find_codebook_tensor(vq_layer, expected_count=None, expected_dim=None):
-    """Try to locate the codebook tensor inside the vector-quantizer by inspecting
-    its state_dict and parameters. Returns (tensor, key_name) or (None, None).
+    """Return the `codebook` tensor from the vq_layer if available.
+    This simplified function assumes the vector-quantizer exposes a `codebook`
+    attribute (torch.Tensor) of shape (codebook_size, dim), and returns it
+    directly. If expected_count/expected_dim are provided, the shape is
+    validated before returning.
     """
-    # Prefer state_dict tensors (captures buffers/params)
-    for key, tensor in vq_layer.state_dict().items():
-        if not isinstance(tensor, torch.Tensor):
-            continue
-        if tensor.ndim == 2:
+    if hasattr(vq_layer, 'codebook'):
+        cb = getattr(vq_layer, 'codebook')
+        if isinstance(cb, torch.Tensor) and cb.ndim == 2:
             if expected_count is not None and expected_dim is not None:
-                if tensor.shape[0] == expected_count and tensor.shape[1] == expected_dim:
-                    return tensor, key
-            else:
-                # fallback: take the first 2D tensor
-                return tensor, key
-
-    # Fallback to named_parameters
-    for key, param in vq_layer.named_parameters():
-        if param.ndim == 2:
-            if expected_count is not None and expected_dim is not None:
-                if param.shape[0] == expected_count and param.shape[1] == expected_dim:
-                    return param.data, key
-            else:
-                return param.data, key
-
+                if cb.shape[0] == expected_count and cb.shape[1] == expected_dim:
+                    return cb, 'codebook'
+                else:
+                    return None, None
+            return cb, 'codebook'
     return None, None
 
 
