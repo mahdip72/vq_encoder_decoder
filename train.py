@@ -20,7 +20,7 @@ from tqdm import tqdm
 import time
 import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.super_model import prepare_model
+from models.super_model import prepare_model, compile_non_gcp_and_exclude_vq
 
 
 def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
@@ -474,10 +474,10 @@ def main(dict_config, config_file_path):
     # compile models to train faster and efficiently
     if configs.model.compile_model:
         if hasattr(net, 'vqvae'):
-            net.vqvae = torch.compile(net.vqvae)
+            net = compile_non_gcp_and_exclude_vq(net, mode=None)
             logging.info('VQVAE component compiled.')
 
-    net, optimizer, train_dataloader, visualization_loader, scheduler = accelerator.prepare(
+    net, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, valid_dataloader, scheduler
     )
 

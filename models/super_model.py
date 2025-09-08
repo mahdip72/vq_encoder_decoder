@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 from models.vqvae import VQVAETransformer
 from models.decoders import GeometricDecoder
 from gcpnet.models.gcpnet import GCPNetModel
@@ -147,6 +148,39 @@ def prepare_model(configs, logger, **kwargs):
     print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
 
     return vqvae
+
+
+def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead") -> nn.Module:
+    """
+    Compile non-GCP parts of the SuperModel while excluding the VectorQuantizer.
+
+    - Does NOT compile `net.encoder` (GCPNet or pretrained BenchMarkModel).
+    - Compiles VQVAE submodules except `vector_quantizer`.
+    """
+    if not hasattr(net, 'vqvae'):
+        return net
+
+    # Encoder tail / blocks / head
+    if hasattr(net.vqvae, 'encoder_tail') and net.vqvae.encoder_tail is not None:
+        net.vqvae.encoder_tail = torch.compile(net.vqvae.encoder_tail, mode=mode)
+    if hasattr(net.vqvae, 'encoder_blocks') and net.vqvae.encoder_blocks is not None:
+        net.vqvae.encoder_blocks = torch.compile(net.vqvae.encoder_blocks, mode=mode)
+    if hasattr(net.vqvae, 'ntp_blocks') and net.vqvae.ntp_enabled:
+        net.vqvae.ntp_blocks = torch.compile(net.vqvae.ntp_blocks, mode=mode)
+    if hasattr(net.vqvae, 'ntp_projector_head') and net.vqvae.ntp_enabled:
+        net.vqvae.ntp_projector_head = torch.compile(net.vqvae.ntp_projector_head, mode=mode)
+    if hasattr(net.vqvae, 'encoder_head') and net.vqvae.encoder_head is not None:
+        net.vqvae.encoder_head = torch.compile(net.vqvae.encoder_head, mode=mode)
+
+    # Exclude vector_quantizer on purpose
+    # if hasattr(net.vqvae, 'vector_quantizer'):  # do not compile
+    #     pass
+
+    # Decoder
+    if hasattr(net.vqvae, 'decoder') and net.vqvae.decoder is not None:
+        net.vqvae.decoder = torch.compile(net.vqvae.decoder, mode=mode)
+
+    return net
 
 
 if __name__ == '__main__':
