@@ -136,16 +136,14 @@ def main(config_path: str):
     # Ensure we have CPU numpy array
     codebook_np = codebook_tensor.detach().cpu().numpy().astype('float32')
 
-    # Save to HDF5: store each code vector as dataset named by its index (string)
-    h5_filename = infer_cfg['codebook_h5_filename']
+    # Save to HDF5: store the entire codebook as a single dataset named 'codebook'
+    h5_filename = infer_cfg.get('vq_embeddings_h5_filename', infer_cfg.get('codebook_h5_filename', 'codebook_embeddings.h5'))
     h5_path = os.path.join(result_dir, h5_filename)
 
     with h5py.File(h5_path, 'w') as hf:
-        for idx, vec in enumerate(codebook_np):
-            ds_name = str(idx)
-            hf.create_dataset(ds_name, data=vec, compression='gzip')
+        hf.create_dataset('codebook', data=codebook_np, compression='gzip')
 
-    logger.info(f'Saved codebook embeddings ({codebook_np.shape[0]} x {codebook_np.shape[1]}) to {h5_path}')
+    logger.info(f"Saved codebook embeddings ({codebook_np.shape[0]} x {codebook_np.shape[1]}) to {h5_path}")
 
 
 if __name__ == '__main__':
