@@ -189,3 +189,4 @@ evaluation_results
 
 # all txts in root and subdirectories
 **/*.txt
+utils/source
