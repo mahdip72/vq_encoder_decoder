@@ -161,9 +161,9 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
             adaptive_loss_coeffs['binned_distance_classification'], global_grad_norms['binned_distance_classification']
         )
 
-    if 'commit' in global_grad_norms and vq_adaptive:
-        adaptive_loss_coeffs['commit'] = adjust_coeff_by_grad(
-            adaptive_loss_coeffs['commit'], global_grad_norms['commit']
+    if 'vq' in global_grad_norms and vq_adaptive:
+        adaptive_loss_coeffs['vq'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs['vq'], global_grad_norms['vq']
         )
 
     if 'ntp' in global_grad_norms and ntp_adaptive:
@@ -272,10 +272,10 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         local_grad_norms['ntp'] = compute_grad_norm(loss_dict['ntp_loss'], net.parameters())
 
     if configs.model.vqvae.vector_quantization.enabled:
-        local_grad_norms['commit'] = compute_grad_norm(loss_dict.get('commit', torch.tensor(0.0)), net.parameters())
+        local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq', torch.tensor(0.0)), net.parameters())
 
     zero = torch.tensor(0.0, device=loss_dict['rec_loss'].device)
-    total_loss_unscaled = loss_dict['rec_loss'] + loss_dict.get('commit', zero)
+    total_loss_unscaled = loss_dict['rec_loss'] + loss_dict.get('vq', zero)
     local_grad_norms['total_unscaled'] = compute_grad_norm(total_loss_unscaled, net.parameters())
 
     # Aggregate across ranks for global signal
