@@ -232,8 +232,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     # Compute average losses and metrics
     avg_step_loss = total_step_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    denormalized_rec_mae = mae.compute().cpu().item()
-    denormalized_rec_rmsd = rmsd.compute().cpu().item()
+    rec_mae = mae.compute().cpu().item()
+    rec_rmsd = rmsd.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
     tm_score = tm_score_metric.compute().cpu().item()
     avg_vq_loss = total_vq_loss / counter
@@ -253,8 +253,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     if accelerator.is_main_process and configs.tensorboard_log:
         writer.add_scalar('loss/total', avg_step_loss, epoch)
         writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('metric/mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('metric/rmsd', denormalized_rec_rmsd, epoch)
+        writer.add_scalar('metric/mae', rec_mae, epoch)
+        writer.add_scalar('metric/rmsd', rec_rmsd, epoch)
         writer.add_scalar('metric/gdtts', gdtts_score, epoch)
         writer.add_scalar('metric/tm_score', tm_score, epoch)
         writer.add_scalar('loss/vq', avg_vq_loss, epoch)
@@ -275,8 +275,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "rec_loss": avg_rec_loss,
         "ntp_loss": avg_ntp_loss,
         "vq_loss": avg_vq_loss,
-        "mae": denormalized_rec_mae,
-        "rmsd": denormalized_rec_rmsd,
+        "mae": rec_mae,
+        "rmsd": rec_rmsd,
         "gdtts": gdtts_score,
         "tm_score": tm_score,
         "perplexity": perplexity_value,
@@ -427,8 +427,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         avg_activation = 0.0  # Avoid division by zero
 
     # Compute final metrics using torchmetrics objects
-    denormalized_rec_mae = mae_metric_val.compute().cpu().item()
-    denormalized_rec_rmsd = rmsd_metric_val.compute().cpu().item()
+    rec_mae = mae_metric_val.compute().cpu().item()
+    rec_rmsd = rmsd_metric_val.compute().cpu().item()
     gdtts_score = gdtts_metric_val.compute().cpu().item()
     tm_score_val = tm_score_metric_val.compute().cpu().item()  # Compute TM-score
     perplexity_val = float('nan')
@@ -449,8 +449,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
         writer.add_scalar('loss/vq', avg_vq_loss, epoch)
         writer.add_scalar('loss/ntp', avg_ntp_loss, epoch)
-        writer.add_scalar('metric/mae', denormalized_rec_mae, epoch)
-        writer.add_scalar('metric/rmsd', denormalized_rec_rmsd, epoch)
+        writer.add_scalar('metric/mae', rec_mae, epoch)
+        writer.add_scalar('metric/rmsd', rec_rmsd, epoch)
         writer.add_scalar('metric/gdtts', gdtts_score, epoch)
         writer.add_scalar('metric/tm_score', tm_score_val, epoch)  # Log TM-score
         writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
@@ -462,8 +462,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "rec_loss": avg_rec_loss,
         "vq_loss": avg_vq_loss,
         "ntp_loss": avg_ntp_loss,
-        "mae": denormalized_rec_mae,
-        "rmsd": denormalized_rec_rmsd,
+        "mae": rec_mae,
+        "rmsd": rec_rmsd,
         "gdtts": gdtts_score,
         "tm_score": tm_score_val,  # Add TM-score to return dict
         "perplexity": perplexity_val,
