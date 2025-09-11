@@ -62,10 +62,10 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
     train_total_loss = 0.0
     train_rec_loss = 0.0
-    train_cmt_loss = 0.0
+    train_vq_loss = 0.0
     total_loss = 0.0
     total_rec_loss = 0.0
-    total_cmt_loss = 0.0
+    total_vq_loss = 0.0
     epoch_unique_indices_collector = set()  # Added for collecting unique indices
     counter = 0
     global_step = kwargs.get('global_step', 0)
@@ -113,8 +113,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 batch_weight = sample_weights.mean()
                 loss_dict['rec_loss'] = loss_dict['rec_loss'] * batch_weight
 
-            loss_dict['commit'] = alpha * output_dict["commit_loss"]
-            loss = loss_dict['rec_loss'] + loss_dict['commit'] + loss_dict['ntp_loss']
+            loss_dict['vq'] = alpha * output_dict["vq_loss"]
+            loss = loss_dict['rec_loss'] + loss_dict['vq'] + loss_dict['ntp_loss']
 
             # Log per-loss gradient norms and adjust adaptive coefficients
             adaptive_loss_coeffs = log_per_loss_grad_norms(
@@ -166,10 +166,10 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
             avg_rec_loss = accelerator.gather(loss_dict['rec_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
             train_rec_loss += avg_rec_loss.item() / accum_iter
 
-            avg_cmt_loss = accelerator.gather(loss_dict['commit'].repeat(configs.train_settings.batch_size)).mean()
-            train_cmt_loss += avg_cmt_loss.item() / accum_iter
+            avg_vq_loss = accelerator.gather(loss_dict['vq'].repeat(configs.train_settings.batch_size)).mean()
+            train_vq_loss += avg_vq_loss.item() / accum_iter
 
-            train_total_loss = train_rec_loss + train_cmt_loss
+            train_total_loss = train_rec_loss + train_vq_loss
 
             gathered_indices = accelerator.gather(output_dict["indices"])
             epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
@@ -194,15 +194,15 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 global_step += 1
                 counter += 1
 
-                # Keep track of total combined loss, total reconstruction loss, and total commit loss
+                # Keep track of total combined loss, total reconstruction loss, and total vq loss
                 total_loss += train_total_loss
                 total_rec_loss += train_rec_loss
-                total_cmt_loss += train_cmt_loss
+                total_vq_loss += train_vq_loss
                 # epoch_unique_indices_collector.update(indices.unique().cpu().tolist()) # Removed from here
 
                 train_total_loss = 0.0
                 train_rec_loss = 0.0
-                train_cmt_loss = 0.0
+                train_vq_loss = 0.0
 
                 if accelerator.is_main_process and configs.tensorboard_log:
                     writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
@@ -210,14 +210,14 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 progress_bar.set_description(f"epoch {epoch} "
                                              + f"[loss: {total_loss / counter:.3f}, "
                                              + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                             + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+                                             + f"vq loss: {total_vq_loss / counter:.3f}]")
 
             progress_bar.set_postfix(
                 {
                     "lr": optimizer.param_groups[0]['lr'],
                     "step_loss": loss.detach().item(),
                     "rec_loss": loss_dict['rec_loss'].detach().item(),
-                    "cmt_loss": loss_dict['commit'].detach().item(),
+                    "vq_loss": loss_dict['vq'].detach().item(),
                     "global_step": global_step
                 }
             )
@@ -229,7 +229,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     denormalized_rec_rmsd = rmsd.compute().cpu().item()
     gdtts_score = gdtts.compute().cpu().item()
     tm_score = tm_score_metric.compute().cpu().item()
-    avg_cmt_loss = total_cmt_loss / counter
+    avg_vq_loss = total_vq_loss / counter
 
     # Calculate global unique codebook activation
     num_truly_unique_codes = len(epoch_unique_indices_collector)
@@ -250,7 +250,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         writer.add_scalar('metric/rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('metric/gdtts', gdtts_score, epoch)
         writer.add_scalar('metric/tm_score', tm_score, epoch)
-        writer.add_scalar('loss/cmt', avg_cmt_loss, epoch)
+        writer.add_scalar('loss/vq', avg_vq_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
         if not np.isnan(perplexity_value):
             writer.add_scalar('metric/perplexity', perplexity_value, epoch)
@@ -271,7 +271,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "gdtts": gdtts_score,
         "tm_score": tm_score,
         "perplexity": perplexity_value,
-        "cmt_loss": avg_cmt_loss,
+        "vq_loss": avg_vq_loss,
         "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
         "global_step": global_step,
@@ -305,7 +305,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     total_loss = 0.0
     total_rec_loss = 0.0
-    total_cmt_loss = 0.0
+    total_vq_loss = 0.0
     epoch_unique_indices_collector = set()
     counter = 0
 
@@ -342,7 +342,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 valid_mask=output_dict["valid_mask"],
             )
 
-            loss = loss_dict['rec_loss'] + output_dict["commit_loss"] + loss_dict['ntp_loss']
+            loss = loss_dict['rec_loss'] + output_dict["vq_loss"] + loss_dict['ntp_loss']
 
             if accelerator.is_main_process and epoch % configs.valid_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
                 logging.info(f"Building PDB files for validation data in epoch {epoch}")
@@ -396,17 +396,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         batch_size = data['target_coords'].shape[0]
         total_loss += accelerator.gather(loss.repeat(batch_size)).mean().item()
         total_rec_loss += accelerator.gather(loss_dict['rec_loss'].repeat(batch_size)).mean().item()
-        total_cmt_loss += accelerator.gather(output_dict["commit_loss"].repeat(batch_size)).mean().item()
+        total_vq_loss += accelerator.gather(output_dict["vq_loss"].repeat(batch_size)).mean().item()
 
         progress_bar.set_description(f"validation epoch {epoch} "
                                      + f"[loss: {total_loss / counter:.3f}, "
                                      + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                     + f"cmt loss: {total_cmt_loss / counter:.3f}]")
+                                     + f"vq loss: {total_vq_loss / counter:.3f}]")
 
     # Compute average losses
     avg_loss = total_loss / counter
     avg_rec_loss = total_rec_loss / counter
-    avg_cmt_loss = total_cmt_loss / counter
+    avg_vq_loss = total_vq_loss / counter
 
     # Calculate global unique codebook activation
     num_truly_unique_codes = len(epoch_unique_indices_collector)
@@ -436,6 +436,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     if accelerator.is_main_process and configs.tensorboard_log:
         writer.add_scalar('loss/total', avg_loss, epoch)
         writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
+        writer.add_scalar('loss/vq', avg_vq_loss, epoch)
         writer.add_scalar('metric/mae', denormalized_rec_mae, epoch)
         writer.add_scalar('metric/rmsd', denormalized_rec_rmsd, epoch)
         writer.add_scalar('metric/gdtts', gdtts_score, epoch)
@@ -447,6 +448,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     return_dict = {
         "loss": avg_loss,
         "rec_loss": avg_rec_loss,
+        "vq_loss": avg_vq_loss,
         "mae": denormalized_rec_mae,
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
@@ -569,7 +571,7 @@ def main(dict_config, config_file_path):
         'backbone_direction': 1.0,
         'binned_direction_classification': 1.0,
         'binned_distance_classification': 1.0,
-        'commit': 1.0,
+        'vq': 1.0,
         'ntp': 1.0
     }
 
@@ -600,7 +602,7 @@ def main(dict_config, config_file_path):
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
             f'perplexity {training_loop_reports.get("perplexity", float("nan")):.2f}, '
-            f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, '
+            f'vq loss {training_loop_reports["vq_loss"]:.4f}, '
             f'activation {training_loop_reports["activation"]:.1f}')
 
         global_step = training_loop_reports["global_step"]
@@ -643,6 +645,7 @@ def main(dict_config, config_file_path):
                 f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
                 f'tm_score {valid_loop_reports["tm_score"]:.4f}, '
                 f'perplexity {valid_loop_reports.get("perplexity", float("nan")):.2f}, '
+                f'vq loss {valid_loop_reports["vq_loss"]:.4f}, '
                 f'activation {valid_loop_reports["activation"]:.1f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
             )

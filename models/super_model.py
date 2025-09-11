@@ -24,13 +24,13 @@ class SuperModel(nn.Module):
 
         Args:
             batch (dict): Input batch containing 'graph'.
-            return_vq_layer (bool, optional): If True, skip the decoder and return the VQ layer outputs (quantized embeddings, indices, commit loss) instead of decoded outputs.
+            return_vq_layer (bool, optional): If True, skip the decoder and return the VQ layer outputs (quantized embeddings, indices, vq loss) instead of decoded outputs.
             **kwargs: Additional arguments passed to VQVAETransformer.
 
         Returns:
             dict: {
                 'indices': Tensor of shape (B, L) with VQ indices,
-                'commit_loss': Commitment loss from VQ layer,
+                'vq_loss': VQ loss from VQ layer,
                 'ntp_logits': NTP logits if NTP is enabled,
                 'outputs': Decoded outputs of shape (B, L, 3),
                 'dir_loss_logits': Direction loss logits if applicable,
@@ -64,10 +64,10 @@ class SuperModel(nn.Module):
             x = batch['indices']
 
         # give kwargs to vqvae
-        x, indices, commit_loss, ntp_logits, valid_mask = self.vqvae(x, mask, nan_mask, **kwargs)
+        x, indices, vq_loss, ntp_logits, valid_mask = self.vqvae(x, mask, nan_mask, **kwargs)
 
         output_dict["indices"] = indices
-        output_dict["commit_loss"] = commit_loss
+        output_dict["vq_loss"] = vq_loss
         output_dict["ntp_logits"] = ntp_logits
         output_dict["valid_mask"] = valid_mask
 

@@ -188,18 +188,18 @@ class VQVAETransformer(nn.Module):
                 x = self.encoder_head(x)
                 x = x.permute(0, 2, 1)
 
-        indices, commit_loss = torch.Tensor([0]).to(mask.device), torch.Tensor([0]).to(mask.device)
+        indices, vq_loss = torch.Tensor([0]).to(mask.device), torch.Tensor([0]).to(mask.device)
 
         if self.vqvae_enabled:
             if not self.decoder_only:
                 # Apply vector quantization
-                x, indices, commit_loss = self.vector_quantizer(x, mask=valid)
+                x, indices, vq_loss = self.vector_quantizer(x, mask=valid)
 
                 if kwargs.get('return_vq_layer', False):
-                    return x, indices, commit_loss, ntp_logits, valid
+                    return x, indices, vq_loss, ntp_logits, valid
             else:
                 indices = x
                 x = self.vector_quantizer.get_output_from_indices(indices)
         x = self.decoder(x, valid)
 
-        return x, indices, commit_loss, ntp_logits, valid
+        return x, indices, vq_loss, ntp_logits, valid
