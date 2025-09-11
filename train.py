@@ -205,7 +205,6 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 total_rec_loss += train_rec_loss
                 total_vq_loss += train_vq_loss
                 total_ntp_loss += total_ntp_loss
-                # epoch_unique_indices_collector.update(indices.unique().cpu().tolist()) # Removed from here
 
                 train_step_loss = 0.0
                 train_rec_loss = 0.0
