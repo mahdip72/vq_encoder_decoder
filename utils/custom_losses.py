@@ -272,10 +272,10 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         local_grad_norms['ntp'] = compute_grad_norm(loss_dict['ntp_loss'], net.parameters())
 
     if configs.model.vqvae.vector_quantization.enabled:
-        local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq', torch.tensor(0.0)), net.parameters())
+        local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq_loss', torch.tensor(0.0)), net.parameters())
 
     zero = torch.tensor(0.0, device=loss_dict['rec_loss'].device)
-    total_loss_unscaled = loss_dict['rec_loss'] + loss_dict.get('vq', zero)
+    total_loss_unscaled = loss_dict['rec_loss'] + loss_dict.get('vq_loss', zero) + loss_dict.get('ntp_loss', zero)
     local_grad_norms['total_unscaled'] = compute_grad_norm(total_loss_unscaled, net.parameters())
 
     # Aggregate across ranks for global signal
@@ -628,8 +628,8 @@ def calculate_ntp_loss(ntp_logits: Optional[torch.Tensor], indices: Optional[tor
 
 
 def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
-                           alignment_strategy='kabsch', adaptive_loss_coeffs=None, ntp_logits=None, indices=None,
-                           valid_mask=None):
+                           alignment_strategy='kabsch', adaptive_loss_coeffs=None, ntp_logits=None, vq_loss=0,
+                           alpha=1, indices=None, valid_mask=None):
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
         x_predicted, x_true, masks, alignment_strategy=alignment_strategy)
@@ -642,7 +642,8 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         'backbone_direction': 1.0,
         'binned_direction_classification': 1.0,
         'binned_distance_classification': 1.0,
-        'ntp': 1.0
+        'ntp': 1.0,
+        'vq': 1.0
     }
 
     # Prepare loss dict with weighted components or 0.0 if disabled
@@ -700,9 +701,14 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         loss_dict['ntp_loss'] = torch.tensor(0.0, device=device)
 
     # Sum reconstruction components
-    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v)]
+    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v) and k != 'ntp_loss']
     if not valid_losses:
         loss_dict['rec_loss'] = torch.tensor(0.0, device=device)
     else:
         loss_dict['rec_loss'] = sum(valid_losses)
+
+    vq_coeff = adaptive.get('vq', 1.0)
+    loss_dict['vq_loss'] = vq_loss * alpha * vq_coeff
+
+    loss_dict['step_loss'] = loss_dict['rec_loss'] + loss_dict['vq_loss'] + loss_dict['ntp_loss']
     return loss_dict, x_pred_aligned, x_true_aligned
