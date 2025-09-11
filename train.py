@@ -166,7 +166,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_step_loss = accelerator.gather(loss_dict['step_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
-            train_step_loss = avg_step_loss.item() / accum_iter
+            train_step_loss += avg_step_loss.item() / accum_iter
 
             avg_rec_loss = accelerator.gather(loss_dict['rec_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
             train_rec_loss += avg_rec_loss.item() / accum_iter
