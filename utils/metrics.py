@@ -387,6 +387,37 @@ class LDDT(Metric):
         return torch.stack(lddt_per_res).mean()
 
 
+def update_perplexity_from_ntp(perplexity_metric, ntp_logits, indices, masks, ignore_index: int = -100):
+    """
+    Update a Perplexity metric (torchmetrics.text.Perplexity) from NTP logits and code indices.
+
+    - Creates next-token labels from indices and masks
+    - Uses ignore_index for invalid positions
+    - Calls metric.update(logits, labels)
+    """
+    if (
+        perplexity_metric is None or
+        ntp_logits is None or
+        indices is None or
+        masks is None
+    ):
+        return
+
+    device = ntp_logits.device
+
+    # Ensure correct dtypes/devices
+    logits_detached = ntp_logits.detach()
+    indices_long = indices.detach().to(dtype=torch.long, device=device)
+    masks_bool = masks.detach().to(dtype=torch.bool, device=device)
+
+    B, L, _ = logits_detached.shape
+    labels_masked = indices_long.masked_fill(~masks_bool, ignore_index)
+    pad_col = torch.full((B, 1), ignore_index, dtype=torch.long, device=device)
+    labels = torch.cat([labels_masked[:, 1:], pad_col], dim=1)
+
+    perplexity_metric.update(logits_detached, labels)
+
+
 if __name__ == "__main__":
     # Example usage of MDS
     batch_distance_map_example = torch.tensor([

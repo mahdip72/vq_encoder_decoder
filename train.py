@@ -14,7 +14,8 @@ from utils.utils import (
     prepare_tensorboard,
     save_checkpoint,
     load_encoder_decoder_configs)
-from utils.metrics import GDTTS, TMScore
+from utils.metrics import GDTTS, TMScore, update_perplexity_from_ntp
+from torchmetrics.text import Perplexity
 from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
 from tqdm import tqdm
 import time
@@ -43,11 +44,19 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     mae = torchmetrics.MeanAbsoluteError()
     gdtts = GDTTS()
     tm_score_metric = TMScore()
+    # Optional NTP perplexity metric
+    perplexity_metric = None
+    if getattr(configs.train_settings, 'losses', None) and \
+            getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
+            configs.train_settings.losses.next_token_prediction.enabled:
+        perplexity_metric = Perplexity(ignore_index=-100)
 
     rmsd.to(accelerator.device)
     mae.to(accelerator.device)
     gdtts.to(accelerator.device)
     tm_score_metric.to(accelerator.device)
+    if perplexity_metric is not None:
+        perplexity_metric.to(accelerator.device)
 
     optimizer.zero_grad()
 
@@ -143,6 +152,16 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                 true_ca_coords = trans_true_coords[:, :, 1, :].detach()
                 tm_score_metric.update(pred_ca_coords, true_ca_coords, masks.detach().bool())
 
+            # Update NTP perplexity if enabled
+            if perplexity_metric is not None:
+                update_perplexity_from_ntp(
+                    perplexity_metric,
+                    output_dict.get("ntp_logits", None),
+                    output_dict.get("indices", None),
+                    output_dict.get("valid_mask", None),
+                    ignore_index=-100
+                )
+
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_rec_loss = accelerator.gather(loss_dict['rec_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
             train_rec_loss += avg_rec_loss.item() / accum_iter
@@ -219,7 +238,11 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     else:
         avg_activation = 0.0  # Avoid division by zero
 
-    # Log the metrics to TensorBoard
+    # Compute perplexity (if applicable) and log the metrics to TensorBoard
+    perplexity_value = float('nan')
+    if perplexity_metric is not None:
+        perplexity_value = perplexity_metric.compute().cpu().item()
+
     if accelerator.is_main_process and configs.tensorboard_log:
         writer.add_scalar('loss/total', avg_loss, epoch)
         writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
@@ -229,12 +252,16 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         writer.add_scalar('metric/tm_score', tm_score, epoch)
         writer.add_scalar('loss/cmt', avg_cmt_loss, epoch)
         writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
+        if not np.isnan(perplexity_value):
+            writer.add_scalar('metric/perplexity', perplexity_value, epoch)
 
     # Reset the metrics for the next epoch
     mae.reset()
     rmsd.reset()
     gdtts.reset()
     tm_score_metric.reset()
+    if perplexity_metric is not None:
+        perplexity_metric.reset()
 
     return_dict = {
         "loss": avg_loss,
@@ -243,6 +270,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
         "tm_score": tm_score,
+        "perplexity": perplexity_value,
         "cmt_loss": avg_cmt_loss,
         "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
@@ -268,6 +296,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     rmsd_metric_val = torchmetrics.MeanSquaredError(squared=False).to(accelerator.device)
     gdtts_metric_val = GDTTS().to(accelerator.device)
     tm_score_metric_val = TMScore().to(accelerator.device)  # Ensure TMScore is initialized
+    # Optional NTP perplexity for validation
+    perplexity_metric_val = None
+    if getattr(configs.train_settings, 'losses', None) and \
+            getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
+            configs.train_settings.losses.next_token_prediction.enabled:
+        perplexity_metric_val = Perplexity(ignore_index=-100).to(accelerator.device)
 
     total_loss = 0.0
     total_rec_loss = 0.0
@@ -318,6 +352,16 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                 save_backbone_pdb(trans_true_coords.detach(), masks, data['pid'],
                                   os.path.join(kwargs['result_path'], 'pdb_files', f'valid_labels_step_{i + 1}'))
                 logging.info("PDB files are built")
+
+            # Update validation perplexity if enabled
+            if perplexity_metric_val is not None:
+                update_perplexity_from_ntp(
+                    perplexity_metric_val,
+                    output_dict.get("ntp_logits", None),
+                    output_dict.get("indices", None),
+                    output_dict.get("valid_mask", None),
+                    ignore_index=-100
+                )
 
             # Extract masked coordinates
             masked_outputs = trans_pred_coords[masks].reshape(-1, 3)
@@ -376,12 +420,17 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     denormalized_rec_rmsd = rmsd_metric_val.compute().cpu().item()
     gdtts_score = gdtts_metric_val.compute().cpu().item()
     tm_score_val = tm_score_metric_val.compute().cpu().item()  # Compute TM-score
+    perplexity_val = float('nan')
+    if perplexity_metric_val is not None:
+        perplexity_val = perplexity_metric_val.compute().cpu().item()
 
     # Reset metrics for the next epoch
     mae_metric_val.reset()
     rmsd_metric_val.reset()
     gdtts_metric_val.reset()
     tm_score_metric_val.reset()  # Reset TM-score metric
+    if perplexity_metric_val is not None:
+        perplexity_metric_val.reset()
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
@@ -392,6 +441,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         writer.add_scalar('metric/gdtts', gdtts_score, epoch)
         writer.add_scalar('metric/tm_score', tm_score_val, epoch)  # Log TM-score
         writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
+        if not np.isnan(perplexity_val):
+            writer.add_scalar('metric/perplexity', perplexity_val, epoch)
 
     return_dict = {
         "loss": avg_loss,
@@ -400,6 +451,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "rmsd": denormalized_rec_rmsd,
         "gdtts": gdtts_score,
         "tm_score": tm_score_val,  # Add TM-score to return dict
+        "perplexity": perplexity_val,
         "activation": np.round(avg_activation * 100, 1),
         "counter": counter,
     }
@@ -547,6 +599,7 @@ def main(dict_config, config_file_path):
             f'rmsd {training_loop_reports["rmsd"]:.4f}, '
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
+            f'perplexity {training_loop_reports.get("perplexity", float("nan")):.2f}, '
             f'cmt loss {training_loop_reports["cmt_loss"]:.4f}, '
             f'activation {training_loop_reports["activation"]:.1f}')
 
@@ -589,6 +642,7 @@ def main(dict_config, config_file_path):
                 f'rmsd {valid_loop_reports["rmsd"]:.4f}, '
                 f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
                 f'tm_score {valid_loop_reports["tm_score"]:.4f}, '
+                f'perplexity {valid_loop_reports.get("perplexity", float("nan")):.2f}, '
                 f'activation {valid_loop_reports["activation"]:.1f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
             )
