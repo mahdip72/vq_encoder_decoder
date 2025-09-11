@@ -157,17 +157,35 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
 
 # vq_encoder_decoder
 .vscode/
 data/validation/
 log/
 models/checkpoints/
-./results/
-./inference_decode_results
-./inference_encode_results
-./inference_results
-./inference_embed_results
-./inference_codebook_extraction_results
-./evaluation_results
+results/
+inference_decode_results
+inference_encode_results
+inference_results
+inference_embed_results
+inference_codebook_extraction_results
+evaluation_results
+
+# all images in root and subdirectories
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.bmp
+**/*.tiff
+**/*.ico
+**/*.webp
+**/*.svg
+**/*.pdf
+
+# all csvs in root and subdirectories
+**/*.csv
+
+# all txts in root and subdirectories
+**/*.txt
