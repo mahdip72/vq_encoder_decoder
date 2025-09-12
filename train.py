@@ -40,12 +40,10 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     optimizer = kwargs.pop('optimizer')
     scheduler = kwargs.pop('scheduler')
     configs = kwargs.pop('configs')
-    optimizer_name = configs.optimizer.name
     writer = kwargs.pop('writer')
     logging = kwargs.pop('logging')
     profiler = kwargs.pop('profiler')
     profile_train_loop = kwargs.pop('profile_train_loop')
-    alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     accum_iter = configs.train_settings.grad_accumulation
     alignment_strategy = configs.train_settings.losses.alignment_strategy
@@ -72,7 +70,6 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                     logging.info("Profiler finished, exiting train step loop.")
                     break
 
-            labels = data['target_coords']
             masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             optimizer.zero_grad()
@@ -189,11 +186,9 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 def valid_loop(net, valid_loader, epoch, **kwargs):
     optimizer = kwargs.pop('optimizer')
     configs = kwargs.pop('configs')
-    optimizer_name = configs.optimizer.name
     accelerator = kwargs.pop('accelerator')
     writer = kwargs.pop('writer')
     logging = kwargs.pop('logging')
-    alpha = configs.model.vqvae.vector_quantization.alpha
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     alignment_strategy = configs.train_settings.losses.alignment_strategy
 
@@ -211,7 +206,6 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     net.eval()
     for i, data in enumerate(valid_loader):
         with torch.inference_mode():
-            labels = data['target_coords']
             masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             output_dict = net(data)
