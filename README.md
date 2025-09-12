@@ -117,7 +117,7 @@ python inference_decode.py --config_path configs/inference_decode_config.yaml
 ## Requirements
 
 - Python 3.10+
-- PyTorch 2.0+
+- PyTorch 2.5+
 - CUDA-compatible GPU
 - 16GB+ GPU memory recommended for training
 
