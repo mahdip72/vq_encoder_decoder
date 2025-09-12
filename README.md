@@ -24,6 +24,14 @@ The system consists of three main components:
    - Decoder: Reconstructs 3D coordinates from quantized representations
 3. **Geometric Decoder**: Outputs backbone coordinates and pairwise relationship predictions
 
+## Requirements
+
+- Python 3.10+
+- PyTorch 2.5+
+- CUDA-compatible GPU
+- 16GB+ GPU memory recommended for training
+
+
 ## Installation
 
 ### Option 1: Using Pre-built Docker Images
@@ -114,11 +122,4 @@ python inference_decode.py --config_path configs/inference_decode_config.yaml
 ```
 
 
-## Requirements
 
-- Python 3.10+
-- PyTorch 2.5+
-- CUDA-compatible GPU
-- 16GB+ GPU memory recommended for training
-
-For detailed dependencies, see `Dockerfile` or installation scripts.
