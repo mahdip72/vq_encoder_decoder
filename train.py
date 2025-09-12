@@ -150,9 +150,9 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
                 avgs = average_losses(acc)
                 progress_bar.set_description(f"epoch {epoch} "
-                                             + f"[loss: {avgs['avg_step_loss']:.3f}, "
-                                             + f"rec loss: {avgs['avg_rec_loss']:.3f}, "
-                                             + f"vq loss: {avgs['avg_vq_loss']:.3f}]")
+                                             + f"[loss: {avgs['avg_unscaled_step_loss']:.3f}, "
+                                             + f"rec loss: {avgs['avg_unscaled_rec_loss']:.3f}, "
+                                             + f"vq loss: {avgs['avg_unscaled_vq_loss']:.3f}]")
 
             progress_bar.set_postfix(
                 progress_postfix(optimizer, loss_dict, global_step)
@@ -178,10 +178,10 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     reset_metrics(metrics)
 
     return_dict = {
-        "loss": avgs['avg_step_loss'],
-        "rec_loss": avgs['avg_rec_loss'],
-        "ntp_loss": avgs['avg_ntp_loss'],
-        "vq_loss": avgs['avg_vq_loss'],
+        "loss": avgs['avg_unscaled_step_loss'],
+        "rec_loss": avgs['avg_unscaled_rec_loss'],
+        "ntp_loss": avgs['avg_unscaled_ntp_loss'],
+        "vq_loss": avgs['avg_unscaled_vq_loss'],
         "mae": metrics_values['mae'],
         "rmsd": metrics_values['rmsd'],
         "gdtts": metrics_values['gdtts'],
@@ -256,13 +256,15 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             # Update metrics and losses
             update_metrics(metrics, trans_pred_coords, trans_true_coords, masks, output_dict, ignore_index=-100)
             accumulate_losses(acc, loss_dict, output_dict, configs, accelerator, use_output_vq=True)
+            # Finalize this validation step so totals/averages are updated
+            finalize_step(acc)
 
         progress_bar.update(1)
         avgs = average_losses(acc)
         progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"[loss: {avgs['avg_step_loss']:.3f}, "
-                                     + f"rec loss: {avgs['avg_rec_loss']:.3f}, "
-                                     + f"vq loss: {avgs['avg_vq_loss']:.3f}]")
+                                     + f"[loss: {avgs.get('avg_unscaled_step_loss', avgs['avg_step_loss']):.3f}, "
+                                     + f"rec loss: {avgs.get('avg_unscaled_rec_loss', avgs['avg_rec_loss']):.3f}, "
+                                     + f"vq loss: {avgs.get('avg_unscaled_vq_loss', avgs['avg_vq_loss']):.3f}]")
 
     # Compute averages and metrics
     avgs = average_losses(acc)
@@ -284,10 +286,10 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     reset_metrics(metrics)
 
     return_dict = {
-        "loss": avgs['avg_step_loss'],
-        "rec_loss": avgs['avg_rec_loss'],
-        "vq_loss": avgs['avg_vq_loss'],
-        "ntp_loss": avgs['avg_ntp_loss'],
+        "loss": avgs['avg_unscaled_step_loss'],
+        "rec_loss": avgs['avg_unscaled_rec_loss'],
+        "vq_loss": avgs['avg_unscaled_vq_loss'],
+        "ntp_loss": avgs['avg_unscaled_ntp_loss'],
         "mae": metrics_values['mae'],
         "rmsd": metrics_values['rmsd'],
         "gdtts": metrics_values['gdtts'],
