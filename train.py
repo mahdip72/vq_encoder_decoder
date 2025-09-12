@@ -399,7 +399,8 @@ def main(dict_config, config_file_path):
         'ntp': 1.0
     }
 
-    best_valid_metrics = {'gdtts': 0.0, 'mae': 1000.0, 'rmsd': 1000.0, 'lddt': 0.0, 'loss': 1000.0}
+    best_valid_metrics = {'gdtts': 0.0, 'mae': 1000.0, 'rmsd': 1000.0, 'lddt': 0.0, 'loss': 1000.0, 'tm_score': 0.0,
+                          'perplexity': 1000.0}
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch, adaptive_loss_coeffs,
@@ -482,6 +483,8 @@ def main(dict_config, config_file_path):
                 best_valid_metrics['mae'] = valid_loop_reports["mae"]
                 best_valid_metrics['rmsd'] = valid_loop_reports["rmsd"]
                 best_valid_metrics['loss'] = valid_loop_reports["loss"]
+                best_valid_metrics['tm_score'] = valid_loop_reports["tm_score"]
+                best_valid_metrics['perplexity'] = valid_loop_reports.get("perplexity", float("nan"))
 
                 tools = dict()
                 tools['net'] = net
@@ -501,8 +504,10 @@ def main(dict_config, config_file_path):
 
     # log best valid gdtts
     logging.info(f"best valid gdtts: {best_valid_metrics['gdtts']:.4f}")
-    logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
+    logging.info(f"best valid tm_score: {best_valid_metrics['tm_score']:.4f}")
     logging.info(f"best valid rmsd: {best_valid_metrics['rmsd']:.4f}")
+    logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
+    logging.info(f"best valid perplexity: {best_valid_metrics['perplexity']:.2f}")
     logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
     if accelerator.is_main_process:
