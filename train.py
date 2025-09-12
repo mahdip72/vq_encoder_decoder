@@ -262,9 +262,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         progress_bar.update(1)
         avgs = average_losses(acc)
         progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"[loss: {avgs.get('avg_unscaled_step_loss', avgs['avg_step_loss']):.3f}, "
-                                     + f"rec loss: {avgs.get('avg_unscaled_rec_loss', avgs['avg_rec_loss']):.3f}, "
-                                     + f"vq loss: {avgs.get('avg_unscaled_vq_loss', avgs['avg_vq_loss']):.3f}]")
+                                     + f"[loss: {avgs['avg_unscaled_step_loss']:.3f}, "
+                                     + f"rec loss: {avgs['avg_unscaled_rec_loss']:.3f}, "
+                                     + f"vq loss: {avgs['avg_unscaled_vq_loss']:.3f}]")
 
     # Compute averages and metrics
     avgs = average_losses(acc)
