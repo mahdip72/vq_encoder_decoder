@@ -157,16 +157,80 @@ tqdm_progress_bar: true
 
 The table below reproduces Table 2 from the manuscript: reconstruction accuracy on community benchmarks. Metrics are backbone TM-score (↑) and RMSD in Å (↓).
 
-| Dataset    | Metric   | GCP-VQVAE (Ours) | FoldToken-4 | ESM-3 VQVAE | Structure Tokenizer |
-|-----------:|:---------|:-----------------|:------------|:------------|:--------------------|
-| CASP14     | TM-score | 0.9890           | 0.5410      | 0.5042      | 0.3624              |
-|            | RMSD     | 0.5431           | 8.9838      | 10.4611     | 10.5344             |
-| CASP15     | TM-score | 0.9884           | 0.3289      | 0.3206      | 0.2329              |
-|            | RMSD     | 0.5293           | 14.6702     | 13.1877     | 14.8956             |
-| CASP16     | TM-score | 0.9857           | 0.8055      | 0.7685      | 0.6058              |
-|            | RMSD     | 0.7567           | 5.5094      | 8.2640      | 8.7106              |
-| CAMEO-2024 | TM-score | 0.9918           | 0.4784      | 0.4633      | 0.3575              |
-|            | RMSD     | 0.4377           | 12.1089     | 12.1138     | 13.5360             |
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:right;">Dataset</th>
+      <th style="text-align:left;">Metric</th>
+      <th>GCP-VQVAE (Ours)</th>
+      <th>FoldToken-4</th>
+      <th>ESM-3 VQVAE</th>
+      <th>Structure Tokenizer</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align:right;" rowspan="2">CASP14</td>
+      <td>TM-score</td>
+      <td>0.9890</td>
+      <td>0.5410</td>
+      <td>0.5042</td>
+      <td>0.3624</td>
+    </tr>
+    <tr>
+      <td>RMSD</td>
+      <td>0.5431</td>
+      <td>8.9838</td>
+      <td>10.4611</td>
+      <td>10.5344</td>
+    </tr>
+    <tr>
+      <td style="text-align:right;" rowspan="2">CASP15</td>
+      <td>TM-score</td>
+      <td>0.9884</td>
+      <td>0.3289</td>
+      <td>0.3206</td>
+      <td>0.2329</td>
+    </tr>
+    <tr>
+      <td>RMSD</td>
+      <td>0.5293</td>
+      <td>14.6702</td>
+      <td>13.1877</td>
+      <td>14.8956</td>
+    </tr>
+    <tr>
+      <td style="text-align:right;" rowspan="2">CASP16</td>
+      <td>TM-score</td>
+      <td>0.9857</td>
+      <td>0.8055</td>
+      <td>0.7685</td>
+      <td>0.6058</td>
+    </tr>
+    <tr>
+      <td>RMSD</td>
+      <td>0.7567</td>
+      <td>5.5094</td>
+      <td>8.2640</td>
+      <td>8.7106</td>
+    </tr>
+    <tr>
+      <td style="text-align:right;" rowspan="2">CAMEO-2024</td>
+      <td>TM-score</td>
+      <td>0.9918</td>
+      <td>0.4784</td>
+      <td>0.4633</td>
+      <td>0.3575</td>
+    </tr>
+    <tr>
+      <td>RMSD</td>
+      <td>0.4377</td>
+      <td>12.1089</td>
+      <td>12.1138</td>
+      <td>13.5360</td>
+    </tr>
+  </tbody>
+</table>
 
 Notes:
 - FoldToken-4 uses a 256-size vocabulary; others use 4096.
