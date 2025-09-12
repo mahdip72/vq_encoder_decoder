@@ -142,11 +142,21 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_rec_loss': 0.0,
         'train_vq_loss': 0.0,
         'train_ntp_loss': 0.0,
+        # unscaled per-accumulation running values
+        'train_unscaled_step_loss': 0.0,
+        'train_unscaled_rec_loss': 0.0,
+        'train_unscaled_vq_loss': 0.0,
+        'train_unscaled_ntp_loss': 0.0,
         # totals across finalized steps
         'total_step_loss': 0.0,
         'total_rec_loss': 0.0,
         'total_vq_loss': 0.0,
         'total_ntp_loss': 0.0,
+        # unscaled totals across finalized steps
+        'total_unscaled_step_loss': 0.0,
+        'total_unscaled_rec_loss': 0.0,
+        'total_unscaled_vq_loss': 0.0,
+        'total_unscaled_ntp_loss': 0.0,
         'counter': 0,
         'accum_iter': accum_iter,
         'unique_indices': set(),
@@ -204,6 +214,18 @@ def accumulate_losses(acc: Dict[str, Any],
     if 'ntp_loss' in loss_dict and loss_dict['ntp_loss'] is not None:
         acc['train_ntp_loss'] += _gather_mean(accelerator, loss_dict['ntp_loss'], repeat=bs).item() / acc['accum_iter']
 
+    # Unscaled contributions
+    if 'unscaled_step_loss' in loss_dict:
+        acc['train_unscaled_step_loss'] += _gather_mean(accelerator, loss_dict['unscaled_step_loss'], repeat=bs).item() / acc['accum_iter']
+    if 'unscaled_rec_loss' in loss_dict:
+        acc['train_unscaled_rec_loss'] += _gather_mean(accelerator, loss_dict['unscaled_rec_loss'], repeat=bs).item() / acc['accum_iter']
+    if 'unscaled_vq_loss' in loss_dict:
+        # vq unscaled source mirrors scaled behavior when validating (taken from output)
+        unscaled_vq_src = output_dict['vq_loss'] if use_output_vq else loss_dict['unscaled_vq_loss']
+        acc['train_unscaled_vq_loss'] += _gather_mean(accelerator, unscaled_vq_src, repeat=bs).item() / acc['accum_iter']
+    if 'unscaled_ntp_loss' in loss_dict and loss_dict['unscaled_ntp_loss'] is not None:
+        acc['train_unscaled_ntp_loss'] += _gather_mean(accelerator, loss_dict['unscaled_ntp_loss'], repeat=bs).item() / acc['accum_iter']
+
 
 def finalize_step(acc: Dict[str, Any]) -> None:
     """Move per-accumulation running sums into epoch totals and reset micro-trackers.
@@ -216,10 +238,20 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_vq_loss'] += acc['train_vq_loss']
     acc['total_ntp_loss'] += acc['train_ntp_loss']
 
+    acc['total_unscaled_step_loss'] += acc['train_unscaled_step_loss']
+    acc['total_unscaled_rec_loss'] += acc['train_unscaled_rec_loss']
+    acc['total_unscaled_vq_loss'] += acc['train_unscaled_vq_loss']
+    acc['total_unscaled_ntp_loss'] += acc['train_unscaled_ntp_loss']
+
     acc['train_step_loss'] = 0.0
     acc['train_rec_loss'] = 0.0
     acc['train_vq_loss'] = 0.0
     acc['train_ntp_loss'] = 0.0
+
+    acc['train_unscaled_step_loss'] = 0.0
+    acc['train_unscaled_rec_loss'] = 0.0
+    acc['train_unscaled_vq_loss'] = 0.0
+    acc['train_unscaled_ntp_loss'] = 0.0
 
     acc['counter'] += 1
 
@@ -240,6 +272,10 @@ def average_losses(acc: Dict[str, Any]) -> Dict[str, float]:
         'avg_rec_loss': acc['total_rec_loss'] / denom,
         'avg_vq_loss': acc['total_vq_loss'] / denom,
         'avg_ntp_loss': acc['total_ntp_loss'] / denom,
+        'avg_unscaled_step_loss': acc['total_unscaled_step_loss'] / denom,
+        'avg_unscaled_rec_loss': acc['total_unscaled_rec_loss'] / denom,
+        'avg_unscaled_vq_loss': acc['total_unscaled_vq_loss'] / denom,
+        'avg_unscaled_ntp_loss': acc['total_unscaled_ntp_loss'] / denom,
     }
 
 
@@ -319,6 +355,16 @@ def log_tensorboard_epoch(writer,
     writer.add_scalar('loss/vq', avgs['avg_vq_loss'], epoch)
     if include_ntp:
         writer.add_scalar('loss/ntp', avgs['avg_ntp_loss'], epoch)
+
+    # Unscaled epoch logs (if present)
+    if 'avg_unscaled_step_loss' in avgs:
+        writer.add_scalar('unscaled_loss/total', avgs['avg_unscaled_step_loss'], epoch)
+    if 'avg_unscaled_rec_loss' in avgs:
+        writer.add_scalar('unscaled_loss/rec_loss', avgs['avg_unscaled_rec_loss'], epoch)
+    if 'avg_unscaled_vq_loss' in avgs:
+        writer.add_scalar('unscaled_loss/vq', avgs['avg_unscaled_vq_loss'], epoch)
+    if include_ntp and 'avg_unscaled_ntp_loss' in avgs:
+        writer.add_scalar('unscaled_loss/ntp', avgs['avg_unscaled_ntp_loss'], epoch)
 
     writer.add_scalar('metric/mae', metrics_values['mae'], epoch)
     writer.add_scalar('metric/rmsd', metrics_values['rmsd'], epoch)

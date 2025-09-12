@@ -186,7 +186,11 @@ def log_per_loss_components(writer, loss_dict, global_step):
     # Log each loss component with hierarchical naming
     for loss_name, loss_value in loss_dict.items():
         if torch.is_tensor(loss_value) and loss_value.numel() == 1:
-            writer.add_scalar(f'step_loss/{loss_name}', loss_value.item(), global_step)
+            if loss_name.startswith('unscaled_'):
+                base_name = loss_name[len('unscaled_'):]
+                writer.add_scalar(f'unscaled_step_loss/{base_name}', loss_value.item(), global_step)
+            else:
+                writer.add_scalar(f'step_loss/{loss_name}', loss_value.item(), global_step)
 
 
 def log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step):
@@ -646,69 +650,107 @@ def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_lo
         'vq': 1.0
     }
 
-    # Prepare loss dict with weighted components or 0.0 if disabled
+    # Prepare loss dict with weighted (scaled) and unscaled components
     loss_dict = {}
     # MSE reconstruction
     if configs.train_settings.losses.mse.enabled:
         w = configs.train_settings.losses.mse.weight
         mse_coeff = adaptive.get('mse', 1.0)
-        loss_dict['mse_loss'] = mse_raw.mean() * w * mse_coeff
+        mse_unscaled = mse_raw.mean()
+        loss_dict['unscaled_mse_loss'] = mse_unscaled
+        loss_dict['mse_loss'] = mse_unscaled * w * mse_coeff
     else:
-        loss_dict['mse_loss'] = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_mse_loss'] = zero
+        loss_dict['mse_loss'] = zero
     # Backbone distance
     if configs.train_settings.losses.backbone_distance.enabled:
         w = configs.train_settings.losses.backbone_distance.weight
         backbone_distance_coeff = adaptive.get('backbone_distance', 1.0)
-        loss_dict['backbone_distance_loss'] = calculate_backbone_distance_loss(
-            x_pred_aligned, x_true_aligned, masks).mean() * w * backbone_distance_coeff
+        bd_unscaled = calculate_backbone_distance_loss(
+            x_pred_aligned, x_true_aligned, masks).mean()
+        loss_dict['unscaled_backbone_distance_loss'] = bd_unscaled
+        loss_dict['backbone_distance_loss'] = bd_unscaled * w * backbone_distance_coeff
     else:
-        loss_dict['backbone_distance_loss'] = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_backbone_distance_loss'] = zero
+        loss_dict['backbone_distance_loss'] = zero
     # Backbone direction
     if configs.train_settings.losses.backbone_direction.enabled:
         w = configs.train_settings.losses.backbone_direction.weight
         backbone_direction_coeff = adaptive.get('backbone_direction', 1.0)
-        loss_dict['backbone_direction_loss'] = calculate_backbone_direction_loss(
-            x_pred_aligned, x_true_aligned, masks).mean() * w * backbone_direction_coeff
+        bdir_unscaled = calculate_backbone_direction_loss(
+            x_pred_aligned, x_true_aligned, masks).mean()
+        loss_dict['unscaled_backbone_direction_loss'] = bdir_unscaled
+        loss_dict['backbone_direction_loss'] = bdir_unscaled * w * backbone_direction_coeff
     else:
-        loss_dict['backbone_direction_loss'] = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_backbone_direction_loss'] = zero
+        loss_dict['backbone_direction_loss'] = zero
     # Binned direction classification
     if configs.train_settings.losses.binned_direction_classification.enabled:
         w = configs.train_settings.losses.binned_direction_classification.weight
         binned_direction_coeff = adaptive.get('binned_direction_classification', 1.0)
-        val = calculate_binned_direction_classification_loss(
+        val_unscaled = calculate_binned_direction_classification_loss(
             dir_loss_logits, x_true_aligned, masks).mean() if dir_loss_logits is not None else torch.tensor(0.0,
                                                                                                             device=device)
-        loss_dict['binned_direction_classification_loss'] = val * w * binned_direction_coeff
+        loss_dict['unscaled_binned_direction_classification_loss'] = val_unscaled
+        loss_dict['binned_direction_classification_loss'] = val_unscaled * w * binned_direction_coeff
     else:
-        loss_dict['binned_direction_classification_loss'] = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_binned_direction_classification_loss'] = zero
+        loss_dict['binned_direction_classification_loss'] = zero
     # Binned distance classification
     if configs.train_settings.losses.binned_distance_classification.enabled:
         w = configs.train_settings.losses.binned_distance_classification.weight
         binned_distance_coeff = adaptive.get('binned_distance_classification', 1.0)
-        val = calculate_binned_distance_classification_loss(
+        val_unscaled = calculate_binned_distance_classification_loss(
             dist_loss_logits, x_true_aligned, masks).mean() if dist_loss_logits is not None else torch.tensor(0.0,
                                                                                                               device=device)
-        loss_dict['binned_distance_classification_loss'] = val * w * binned_distance_coeff
+        loss_dict['unscaled_binned_distance_classification_loss'] = val_unscaled
+        loss_dict['binned_distance_classification_loss'] = val_unscaled * w * binned_distance_coeff
     else:
-        loss_dict['binned_distance_classification_loss'] = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_binned_distance_classification_loss'] = zero
+        loss_dict['binned_distance_classification_loss'] = zero
 
     if configs.train_settings.losses.next_token_prediction.enabled:
         w = configs.train_settings.losses.next_token_prediction.weight
         ntp_coeff = adaptive.get('ntp', 1.0)
         ntp_per_sample = calculate_ntp_loss(ntp_logits, indices, valid_mask)
-        loss_dict['ntp_loss'] = ntp_per_sample.mean() * w * ntp_coeff
+        ntp_unscaled = ntp_per_sample.mean()
+        loss_dict['unscaled_ntp_loss'] = ntp_unscaled
+        loss_dict['ntp_loss'] = ntp_unscaled * w * ntp_coeff
     else:
-        loss_dict['ntp_loss'] = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_ntp_loss'] = zero
+        loss_dict['ntp_loss'] = zero
 
     # Sum reconstruction components
-    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v) and k != 'ntp_loss']
+    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v) and k not in ('ntp_loss', 'vq_loss', 'step_loss') and not k.startswith('unscaled_')]
     if not valid_losses:
         loss_dict['rec_loss'] = torch.tensor(0.0, device=device)
     else:
         loss_dict['rec_loss'] = sum(valid_losses)
 
+    # Unscaled reconstruction sum (exclude ntp and vq)
+    unscaled_keys = [
+        'unscaled_mse_loss',
+        'unscaled_backbone_distance_loss',
+        'unscaled_backbone_direction_loss',
+        'unscaled_binned_direction_classification_loss',
+        'unscaled_binned_distance_classification_loss',
+    ]
+    unscaled_vals = [loss_dict[k] for k in unscaled_keys if k in loss_dict and not torch.isnan(loss_dict[k])]
+    if not unscaled_vals:
+        loss_dict['unscaled_rec_loss'] = torch.tensor(0.0, device=device)
+    else:
+        loss_dict['unscaled_rec_loss'] = sum(unscaled_vals)
+
     vq_coeff = adaptive.get('vq', 1.0)
+    loss_dict['unscaled_vq_loss'] = vq_loss
     loss_dict['vq_loss'] = vq_loss * alpha * vq_coeff
 
     loss_dict['step_loss'] = loss_dict['rec_loss'] + loss_dict['vq_loss'] + loss_dict['ntp_loss']
+    loss_dict['unscaled_step_loss'] = loss_dict['unscaled_rec_loss'] + loss_dict['unscaled_vq_loss'] + loss_dict['unscaled_ntp_loss']
     return loss_dict, x_pred_aligned, x_true_aligned
