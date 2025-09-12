@@ -153,13 +153,15 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
+        include_ntp = getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
+                      configs.train_settings.losses.next_token_prediction.enabled
         log_tensorboard_epoch(
             writer,
             avgs,
             metrics_values,
             epoch,
             activation_percent=np.round(avg_activation * 100, 1),
-            include_ntp=False,
+            include_ntp=include_ntp,
         )
 
     # Reset the metrics for the next epoch
@@ -250,13 +252,15 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
+        include_ntp = getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
+                      configs.train_settings.losses.next_token_prediction.enabled
         log_tensorboard_epoch(
             writer,
             avgs,
             metrics_values,
             epoch,
             activation_percent=np.round(avg_activation * 100, 1),
-            include_ntp=True,
+            include_ntp=include_ntp,
         )
 
     # Reset metrics for the next epoch
