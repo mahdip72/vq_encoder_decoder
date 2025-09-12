@@ -12,18 +12,6 @@ Building on these properties, we train GCP‑VQVAE on a corpus of 24 million mon
 
 
 
-
-## Model Architecture
-
-The system consists of three main components:
-
-1. **Structure Encoder (GCPNet)**: Processes protein backbone atoms (N, CA, C, O) and extracts 128-dimensional structural features
-2. **VQ-VAE Transformer**: 
-   - Encoder: Projects features through transformer layers to discrete codebook space (4096 codes, 256D)
-   - Vector Quantization: Learns discrete representations with commitment and orthogonal regularization
-   - Decoder: Reconstructs 3D coordinates from quantized representations
-3. **Geometric Decoder**: Outputs backbone coordinates and pairwise relationship predictions
-
 ## Requirements
 
 - Python 3.10+
