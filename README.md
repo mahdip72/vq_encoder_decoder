@@ -31,7 +31,7 @@ The system consists of three main components:
 For AMD64 systems:
 ```bash
 docker pull mahdip72/vqvae3d:amd_v3
-docker run --gpus all -it mahdip72/vqvae3d:amd_v3
+docker run --gpus all -it mahdip72/vqvae3d:amd_v6
 ```
 
 For ARM64 systems:
