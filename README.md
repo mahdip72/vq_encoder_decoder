@@ -153,4 +153,31 @@ tqdm_progress_bar: true
 ```
 
 
+## Results
+
+The table below reproduces Table 2 from the manuscript: reconstruction accuracy on community benchmarks. Metrics are backbone TM-score (↑) and RMSD in Å (↓).
+
+| Dataset    | Metric   | GCP-VQVAE (Ours) | FoldToken-4 | ESM-3 VQVAE | Structure Tokenizer |
+|-----------:|:---------|:-----------------|:------------|:------------|:--------------------|
+| CASP14     | TM-score | 0.9890           | 0.5410      | 0.5042      | 0.3624              |
+|            | RMSD     | 0.5431           | 8.9838      | 10.4611     | 10.5344             |
+| CASP15     | TM-score | 0.9884           | 0.3289      | 0.3206      | 0.2329              |
+|            | RMSD     | 0.5293           | 14.6702     | 13.1877     | 14.8956             |
+| CASP16     | TM-score | 0.9857           | 0.8055      | 0.7685      | 0.6058              |
+|            | RMSD     | 0.7567           | 5.5094      | 8.2640      | 8.7106              |
+| CAMEO-2024 | TM-score | 0.9918           | 0.4784      | 0.4633      | 0.3575              |
+|            | RMSD     | 0.4377           | 12.1089     | 12.1138     | 13.5360             |
+
+Notes:
+- FoldToken-4 uses a 256-size vocabulary; others use 4096.
+- The Structure Tokenizer baseline supports only sequence lengths 50–512; out-of-range samples are excluded for that column only.
+- Evaluation scripts for baselines were reproduced where public tooling was incomplete; see repository docs for details.
+
+## 📜 Citation
+
+If you use this code or the pretrained models, please cite the following paper:
+
+```bibtex
+will be added soon
+```
 
