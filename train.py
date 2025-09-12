@@ -14,14 +14,25 @@ from utils.utils import (
     prepare_tensorboard,
     save_checkpoint,
     load_encoder_decoder_configs)
-from utils.metrics import GDTTS, TMScore, update_perplexity_from_ntp
-from torchmetrics.text import Perplexity
 from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
 from tqdm import tqdm
 import time
-import torchmetrics
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
 from models.super_model import prepare_model, compile_non_gcp_and_exclude_vq
+from utils.training_helpers import (
+    init_metrics,
+    reset_metrics,
+    update_metrics,
+    compute_metrics,
+    init_accumulator,
+    accumulate_losses,
+    finalize_step,
+    average_losses,
+    update_unique_indices,
+    compute_activation,
+    progress_postfix,
+    log_tensorboard_epoch,
+)
 
 
 def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
@@ -39,38 +50,12 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     accum_iter = configs.train_settings.grad_accumulation
     alignment_strategy = configs.train_settings.losses.alignment_strategy
 
-    # Prepare metrics for evaluation
-    rmsd = torchmetrics.MeanSquaredError(squared=False)
-    mae = torchmetrics.MeanAbsoluteError()
-    gdtts = GDTTS()
-    tm_score_metric = TMScore()
-    # Optional NTP perplexity metric
-    perplexity_metric = None
-    if getattr(configs.train_settings, 'losses', None) and \
-            getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
-            configs.train_settings.losses.next_token_prediction.enabled:
-        perplexity_metric = Perplexity(ignore_index=-100)
-
-    rmsd.to(accelerator.device)
-    mae.to(accelerator.device)
-    gdtts.to(accelerator.device)
-    tm_score_metric.to(accelerator.device)
-    if perplexity_metric is not None:
-        perplexity_metric.to(accelerator.device)
+    # Initialize metrics and accumulators
+    metrics = init_metrics(configs, accelerator)
+    acc = init_accumulator(accum_iter)
 
     optimizer.zero_grad()
 
-    train_step_loss = 0.0
-    train_rec_loss = 0.0
-    train_vq_loss = 0.0
-    train_ntp_loss = 0.0
-
-    total_step_loss = 0.0
-    total_rec_loss = 0.0
-    total_vq_loss = 0.0
-    total_ntp_loss = 0.0
-    epoch_unique_indices_collector = set()  # Added for collecting unique indices
-    counter = 0
     global_step = kwargs.get('global_step', 0)
 
     # Initialize the progress bar using tqdm
@@ -134,51 +119,10 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
                                   os.path.join(kwargs['result_path'], 'pdb_files', f'train_labels_step_{i + 1}'))
                 logging.info("PDB files are built")
 
-            # Compute the loss
-            masked_outputs = trans_pred_coords[masks]
-            masked_labels = trans_true_coords[masks]
-
-            # Denormalize the outputs and labels
-            masked_outputs = (masked_outputs).reshape(-1, 3)
-            masked_labels = (masked_labels).reshape(-1, 3)
-
-            if masked_outputs.numel() > 0:
-                # --->>> UPDATE WITH LOCAL TENSORS <<<---
-                # Pass the tensors directly from the current GPU.
-                # torchmetrics + accelerate handle the sync later.
-                mae.update(masked_outputs.detach(), masked_labels.detach())
-                rmsd.update(masked_outputs.detach(), masked_labels.detach())
-                gdtts.update(masked_outputs.detach(), masked_labels.detach())
-                # Extract C-alpha coordinates for TMScore
-                pred_ca_coords = trans_pred_coords[:, :, 1, :].detach()
-                true_ca_coords = trans_true_coords[:, :, 1, :].detach()
-                tm_score_metric.update(pred_ca_coords, true_ca_coords, masks.detach().bool())
-
-            # Update NTP perplexity if enabled
-            if perplexity_metric is not None:
-                update_perplexity_from_ntp(
-                    perplexity_metric,
-                    output_dict.get("ntp_logits", None),
-                    output_dict.get("indices", None),
-                    output_dict.get("valid_mask", None),
-                    ignore_index=-100
-                )
-
-            # Gather the losses across all processes for logging (if we use distributed training).
-            avg_step_loss = accelerator.gather(loss_dict['step_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
-            train_step_loss += avg_step_loss.item() / accum_iter
-
-            avg_rec_loss = accelerator.gather(loss_dict['rec_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
-            train_rec_loss += avg_rec_loss.item() / accum_iter
-
-            avg_vq_loss = accelerator.gather(loss_dict['vq_loss'].detach().repeat(configs.train_settings.batch_size)).mean()
-            train_vq_loss += avg_vq_loss.item() / accum_iter
-
-            avg_ntp_loss = accelerator.gather(loss_dict['ntp_loss']).detach().repeat(configs.train_settings.batch_size).mean()
-            train_ntp_loss += avg_ntp_loss.item() / accum_iter
-
-            gathered_indices = accelerator.gather(output_dict["indices"])
-            epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
+            # Update metrics and accumulators
+            update_metrics(metrics, trans_pred_coords, trans_true_coords, masks, output_dict, ignore_index=-100)
+            accumulate_losses(acc, loss_dict, output_dict, configs, accelerator, use_output_vq=False)
+            update_unique_indices(acc, output_dict["indices"], accelerator)
 
             accelerator.backward(loss_dict['step_loss'])
             if accelerator.sync_gradients:
@@ -198,90 +142,53 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
                 progress_bar.update(1)
                 global_step += 1
-                counter += 1
 
-                # Keep track of total combined loss, total reconstruction loss, and total vq loss
-                total_step_loss += train_step_loss
-                total_rec_loss += train_rec_loss
-                total_vq_loss += train_vq_loss
-                total_ntp_loss += total_ntp_loss
-
-                train_step_loss = 0.0
-                train_rec_loss = 0.0
-                train_vq_loss = 0.0
-                train_ntp_loss = 0.0
+                finalize_step(acc)
 
                 if accelerator.is_main_process and configs.tensorboard_log:
                     writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
 
+                avgs = average_losses(acc)
                 progress_bar.set_description(f"epoch {epoch} "
-                                             + f"[loss: {total_step_loss / counter:.3f}, "
-                                             + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                             + f"vq loss: {total_vq_loss / counter:.3f}]")
+                                             + f"[loss: {avgs['avg_step_loss']:.3f}, "
+                                             + f"rec loss: {avgs['avg_rec_loss']:.3f}, "
+                                             + f"vq loss: {avgs['avg_vq_loss']:.3f}]")
 
             progress_bar.set_postfix(
-                {
-                    "lr": optimizer.param_groups[0]['lr'],
-                    "step_loss": loss_dict['step_loss'].detach().item(),
-                    "rec_loss": loss_dict['rec_loss'].detach().item(),
-                    "vq_loss": loss_dict['vq_loss'].detach().item(),
-                    "global_step": global_step
-                }
+                progress_postfix(optimizer, loss_dict, global_step)
             )
 
     # Compute average losses and metrics
-    avg_step_loss = total_step_loss / counter
-    avg_rec_loss = total_rec_loss / counter
-    rec_mae = mae.compute().cpu().item()
-    rec_rmsd = rmsd.compute().cpu().item()
-    gdtts_score = gdtts.compute().cpu().item()
-    tm_score = tm_score_metric.compute().cpu().item()
-    avg_vq_loss = total_vq_loss / counter
+    avgs = average_losses(acc)
+    metrics_values = compute_metrics(metrics)
+    avg_activation = compute_activation(acc, codebook_size)
 
-    # Calculate global unique codebook activation
-    num_truly_unique_codes = len(epoch_unique_indices_collector)
-    if codebook_size > 0:
-        avg_activation = num_truly_unique_codes / codebook_size
-    else:
-        avg_activation = 0.0  # Avoid division by zero
-
-    # Compute perplexity (if applicable) and log the metrics to TensorBoard
-    perplexity_value = float('nan')
-    if perplexity_metric is not None:
-        perplexity_value = perplexity_metric.compute().cpu().item()
-
+    # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
-        writer.add_scalar('loss/total', avg_step_loss, epoch)
-        writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('metric/mae', rec_mae, epoch)
-        writer.add_scalar('metric/rmsd', rec_rmsd, epoch)
-        writer.add_scalar('metric/gdtts', gdtts_score, epoch)
-        writer.add_scalar('metric/tm_score', tm_score, epoch)
-        writer.add_scalar('loss/vq', avg_vq_loss, epoch)
-        writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
-        if not np.isnan(perplexity_value):
-            writer.add_scalar('metric/perplexity', perplexity_value, epoch)
+        log_tensorboard_epoch(
+            writer,
+            avgs,
+            metrics_values,
+            epoch,
+            activation_percent=np.round(avg_activation * 100, 1),
+            include_ntp=False,
+        )
 
     # Reset the metrics for the next epoch
-    mae.reset()
-    rmsd.reset()
-    gdtts.reset()
-    tm_score_metric.reset()
-    if perplexity_metric is not None:
-        perplexity_metric.reset()
+    reset_metrics(metrics)
 
     return_dict = {
-        "loss": avg_step_loss,
-        "rec_loss": avg_rec_loss,
-        "ntp_loss": avg_ntp_loss,
-        "vq_loss": avg_vq_loss,
-        "mae": rec_mae,
-        "rmsd": rec_rmsd,
-        "gdtts": gdtts_score,
-        "tm_score": tm_score,
-        "perplexity": perplexity_value,
+        "loss": avgs['avg_step_loss'],
+        "rec_loss": avgs['avg_rec_loss'],
+        "ntp_loss": avgs['avg_ntp_loss'],
+        "vq_loss": avgs['avg_vq_loss'],
+        "mae": metrics_values['mae'],
+        "rmsd": metrics_values['rmsd'],
+        "gdtts": metrics_values['gdtts'],
+        "tm_score": metrics_values['tm_score'],
+        "perplexity": metrics_values['perplexity'],
         "activation": np.round(avg_activation * 100, 1),
-        "counter": counter,
+        "counter": acc['counter'],
         "global_step": global_step,
         "adaptive_loss_coeffs": adaptive_loss_coeffs
     }
@@ -299,24 +206,9 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     codebook_size = configs.model.vqvae.vector_quantization.codebook_size
     alignment_strategy = configs.train_settings.losses.alignment_strategy
 
-    # Prepare metrics for evaluation, initialized once for the validation epoch
-    mae_metric_val = torchmetrics.MeanAbsoluteError().to(accelerator.device)
-    rmsd_metric_val = torchmetrics.MeanSquaredError(squared=False).to(accelerator.device)
-    gdtts_metric_val = GDTTS().to(accelerator.device)
-    tm_score_metric_val = TMScore().to(accelerator.device)  # Ensure TMScore is initialized
-    # Optional NTP perplexity for validation
-    perplexity_metric_val = None
-    if getattr(configs.train_settings, 'losses', None) and \
-            getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
-            configs.train_settings.losses.next_token_prediction.enabled:
-        perplexity_metric_val = Perplexity(ignore_index=-100).to(accelerator.device)
-
-    total_step_loss = 0.0
-    total_rec_loss = 0.0
-    total_vq_loss = 0.0
-    total_ntp_loss = 0.0
-    epoch_unique_indices_collector = set()
-    counter = 0
+    # Initialize metrics and accumulators for validation
+    metrics = init_metrics(configs, accelerator)
+    acc = init_accumulator(accum_iter=1)
 
     optimizer.zero_grad()
 
@@ -333,8 +225,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             output_dict = net(data)
 
-            gathered_indices = accelerator.gather(output_dict["indices"])
-            epoch_unique_indices_collector.update(gathered_indices.unique().cpu().tolist())
+            update_unique_indices(acc, output_dict["indices"], accelerator)
 
             # Compute the loss components using dict-style outputs like train loop
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
@@ -362,113 +253,48 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
                                   os.path.join(kwargs['result_path'], 'pdb_files', f'valid_labels_step_{i + 1}'))
                 logging.info("PDB files are built")
 
-            # Update validation perplexity if enabled
-            if perplexity_metric_val is not None:
-                update_perplexity_from_ntp(
-                    perplexity_metric_val,
-                    output_dict.get("ntp_logits", None),
-                    output_dict.get("indices", None),
-                    output_dict.get("valid_mask", None),
-                    ignore_index=-100
-                )
-
-            # Extract masked coordinates
-            masked_outputs = trans_pred_coords[masks].reshape(-1, 3)
-            masked_labels = trans_true_coords[masks].reshape(-1, 3)
-
-            # Compute local metrics
-            # Using torchmetrics for MAE and RMSD
-            if masked_outputs.numel() > 0:
-                mae_metric_val.update(masked_outputs.detach(), masked_labels.detach())
-                rmsd_metric_val.update(masked_outputs.detach(), masked_labels.detach())
-
-            # For GDTTS (and TM-score if used), use C-alpha coordinates
-            pred_ca_coords_val = trans_pred_coords[:, :, 1, :].detach()  # Shape: (B, L, 3)
-            true_ca_coords_val = trans_true_coords[:, :, 1, :].detach()  # Shape: (B, L, 3)
-            current_masks_val = masks.detach()  # Shape: (B, L)
-
-            if pred_ca_coords_val.numel() > 0 and true_ca_coords_val.numel() > 0:
-                # Apply masks to C-alpha coordinates before GDTTS update
-                masked_pred_ca_val = pred_ca_coords_val[current_masks_val]  # Shape: (M, 3)
-                masked_true_ca_val = true_ca_coords_val[current_masks_val]  # Shape: (M, 3)
-
-                if masked_pred_ca_val.numel() > 0:  # Ensure there are residues after masking
-                    gdtts_metric_val.update(masked_pred_ca_val, masked_true_ca_val)
-
-                # Update TMScore with C-alpha coordinates and original masks
-                # The TMScore class handles masking internally
-                tm_score_metric_val.update(pred_ca_coords_val, true_ca_coords_val, current_masks_val)
+            # Update metrics and losses
+            update_metrics(metrics, trans_pred_coords, trans_true_coords, masks, output_dict, ignore_index=-100)
+            accumulate_losses(acc, loss_dict, output_dict, configs, accelerator, use_output_vq=True)
 
         progress_bar.update(1)
-        counter += 1
-
-        batch_size = data['target_coords'].shape[0]
-        total_step_loss += accelerator.gather(loss_dict["step_loss"].repeat(batch_size)).mean().item()
-        total_rec_loss += accelerator.gather(loss_dict['rec_loss'].repeat(batch_size)).mean().item()
-        total_vq_loss += accelerator.gather(output_dict["vq_loss"].repeat(batch_size)).mean().item()
-        total_ntp_loss += accelerator.gather(loss_dict['ntp_loss'].repeat(batch_size)).mean().item()
-
+        avgs = average_losses(acc)
         progress_bar.set_description(f"validation epoch {epoch} "
-                                     + f"[loss: {total_step_loss / counter:.3f}, "
-                                     + f"rec loss: {total_rec_loss / counter:.3f}, "
-                                     + f"vq loss: {total_vq_loss / counter:.3f}]")
+                                     + f"[loss: {avgs['avg_step_loss']:.3f}, "
+                                     + f"rec loss: {avgs['avg_rec_loss']:.3f}, "
+                                     + f"vq loss: {avgs['avg_vq_loss']:.3f}]")
 
-    # Compute average losses
-    avg_step_loss = total_step_loss / counter
-    avg_rec_loss = total_rec_loss / counter
-    avg_vq_loss = total_vq_loss / counter
-    avg_ntp_loss = total_ntp_loss / counter
-
-    # Calculate global unique codebook activation
-    num_truly_unique_codes = len(epoch_unique_indices_collector)
-    if codebook_size > 0:
-        avg_activation = num_truly_unique_codes / codebook_size
-    else:
-        avg_activation = 0.0  # Avoid division by zero
-
-    # Compute final metrics using torchmetrics objects
-    rec_mae = mae_metric_val.compute().cpu().item()
-    rec_rmsd = rmsd_metric_val.compute().cpu().item()
-    gdtts_score = gdtts_metric_val.compute().cpu().item()
-    tm_score_val = tm_score_metric_val.compute().cpu().item()  # Compute TM-score
-    perplexity_val = float('nan')
-    if perplexity_metric_val is not None:
-        perplexity_val = perplexity_metric_val.compute().cpu().item()
-
-    # Reset metrics for the next epoch
-    mae_metric_val.reset()
-    rmsd_metric_val.reset()
-    gdtts_metric_val.reset()
-    tm_score_metric_val.reset()  # Reset TM-score metric
-    if perplexity_metric_val is not None:
-        perplexity_metric_val.reset()
+    # Compute averages and metrics
+    avgs = average_losses(acc)
+    avg_activation = compute_activation(acc, codebook_size)
+    metrics_values = compute_metrics(metrics)
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
-        writer.add_scalar('loss/total', avg_step_loss, epoch)
-        writer.add_scalar('loss/rec_loss', avg_rec_loss, epoch)
-        writer.add_scalar('loss/vq', avg_vq_loss, epoch)
-        writer.add_scalar('loss/ntp', avg_ntp_loss, epoch)
-        writer.add_scalar('metric/mae', rec_mae, epoch)
-        writer.add_scalar('metric/rmsd', rec_rmsd, epoch)
-        writer.add_scalar('metric/gdtts', gdtts_score, epoch)
-        writer.add_scalar('metric/tm_score', tm_score_val, epoch)  # Log TM-score
-        writer.add_scalar('codebook_activation', np.round(avg_activation * 100, 1), epoch)
-        if not np.isnan(perplexity_val):
-            writer.add_scalar('metric/perplexity', perplexity_val, epoch)
+        log_tensorboard_epoch(
+            writer,
+            avgs,
+            metrics_values,
+            epoch,
+            activation_percent=np.round(avg_activation * 100, 1),
+            include_ntp=True,
+        )
+
+    # Reset metrics for the next epoch
+    reset_metrics(metrics)
 
     return_dict = {
-        "loss": avg_step_loss,
-        "rec_loss": avg_rec_loss,
-        "vq_loss": avg_vq_loss,
-        "ntp_loss": avg_ntp_loss,
-        "mae": rec_mae,
-        "rmsd": rec_rmsd,
-        "gdtts": gdtts_score,
-        "tm_score": tm_score_val,  # Add TM-score to return dict
-        "perplexity": perplexity_val,
+        "loss": avgs['avg_step_loss'],
+        "rec_loss": avgs['avg_rec_loss'],
+        "vq_loss": avgs['avg_vq_loss'],
+        "ntp_loss": avgs['avg_ntp_loss'],
+        "mae": metrics_values['mae'],
+        "rmsd": metrics_values['rmsd'],
+        "gdtts": metrics_values['gdtts'],
+        "tm_score": metrics_values['tm_score'],
+        "perplexity": metrics_values['perplexity'],
         "activation": np.round(avg_activation * 100, 1),
-        "counter": counter,
+        "counter": acc['counter'],
     }
     return return_dict
 
