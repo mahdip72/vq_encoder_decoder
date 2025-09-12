@@ -99,14 +99,57 @@ accelerate launch train.py --config_path configs/config_vqvae.yaml
 
 ### Inference
 
-For encoding proteins to discrete tokens:
+To extract the VQ codebook embeddings:
 ```bash
-python inference_encode.py --config_path configs/inference_encode_config.yaml
+python codebook_extraction.py
+```
+Edit `configs/inference_codebook_extraction_config.yaml` to change paths and output filename.
+
+To encode proteins into discrete VQ indices:
+```bash
+python inference_encode.py
+```
+Edit `configs/inference_encode_config.yaml` to change dataset paths, model, and output.
+
+To extract per‑residue embeddings from the VQ layer:
+```bash
+python inference_embed.py
+```
+Edit `configs/inference_embed_config.yaml` to change dataset paths, model, and output HDF5.
+
+To decode VQ indices back to 3D backbone structures:
+```bash
+python inference_decode.py
+```
+Edit `configs/inference_decode_config.yaml` to point to the indices CSV and adjust runtime.
+
+### Evaluation
+
+To evaluate predictions and write TM‑score/RMSD along with aligned PDBs:
+```bash
+python evaluation.py
 ```
 
-For decoding tokens back to 3D structures:
-```bash
-python inference_decode.py --config_path configs/inference_decode_config.yaml
+Example config template (`configs/evaluation_config.yaml`):
+```yaml
+trained_model_dir: "/abs/path/to/trained_model"   # Folder containing checkpoint and saved YAMLs
+checkpoint_path: "checkpoints/best_valid.pth"     # Relative to trained_model_dir
+config_vqvae: "config_vqvae.yaml"                 # Names of saved training YAMLs
+config_encoder: "config_gcpnet_encoder.yaml"
+config_decoder: "config_geometric_decoder.yaml"
+
+data_path: "/abs/path/to/evaluation/data.h5"      # HDF5 used for evaluation
+output_base_dir: "evaluation_results"              # A timestamped subdir is created inside
+
+batch_size: 8
+shuffle: true
+num_workers: 0
+max_task_samples: 5000000                           # Optional cap
+vq_indices_csv_filename: "vq_indices.csv"          # Also writes observed VQ indices
+alignment_strategy: "kabsch"                       # "kabsch" or "no"
+mixed_precision: "bf16"                            # "no", "fp16", "bf16", "fp8"
+
+tqdm_progress_bar: true
 ```
 
 
