@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from utils.alignment import kabsch
 import torch.distributed as dist
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 def compute_grad_norm(loss, parameters, norm_type=2):
@@ -631,9 +631,78 @@ def calculate_ntp_loss(ntp_logits: Optional[torch.Tensor], indices: Optional[tor
     return per_sample_loss
 
 
-def calculate_decoder_loss(x_predicted, x_true, masks, configs, seq=None, dir_loss_logits=None, dist_loss_logits=None,
-                           alignment_strategy='kabsch', adaptive_loss_coeffs=None, ntp_logits=None, vq_loss=0,
-                           alpha=1, indices=None, valid_mask=None):
+def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
+                           data: Dict[str, torch.Tensor],
+                           configs,
+                           alignment_strategy: Optional[str] = None,
+                           adaptive_loss_coeffs: Optional[Dict[str, float]] = None):
+    """
+    Compute decoder training/validation losses given model outputs and batch data.
+
+    This function computes both scaled (weighted) and unscaled (raw) loss components for
+    reconstruction-related terms, vector quantization (VQ), and optional next-token
+    prediction (NTP). It also returns aligned coordinate tensors used by metric routines.
+
+    Inputs:
+    - output_dict: Dict[str, Tensor] produced by the model forward pass. Expected keys:
+        'outputs': Tensor of shape (B, L, 9) or (B, L, 3, 3) decoder coordinate predictions.
+        'vq_loss': Scalar tensor (per-batch) VQ commitment/codebook loss.
+        Optional keys for auxiliary losses and metrics:
+          'dir_loss_logits': (B, L, L, 6, 16) for direction classification.
+          'dist_loss_logits': (B, L, L, 64) for distance classification.
+          'ntp_logits': (B, L, K) logits for next-token prediction over K codes.
+          'indices': (B, L) VQ code indices.
+          'valid_mask': (B, L) mask for valid token positions in NTP.
+
+    - data: Dict[str, Tensor] for the current batch. Expected keys:
+        'target_coords': (B, L, 9) or (B, L, 3, 3) target coordinates.
+        'masks': (B, L) residue-validity mask.
+        'nan_masks': (B, L) mask removing positions with NaNs.
+        Optional: 'inverse_folding_labels' (not used here, reserved for extensions).
+
+    - configs: Global configuration object (Hydra/OmegaConf-like) providing:
+        configs.train_settings.losses.* enable flags, weights, and adaptive toggles.
+        configs.train_settings.losses.alignment_strategy: 'kabsch' or 'no'.
+        configs.model.vqvae.vector_quantization.alpha: VQ scaling factor.
+
+    - alignment_strategy: Optional[str]. If None, uses configs.train_settings.losses.alignment_strategy.
+
+    - adaptive_loss_coeffs: Optional[Dict[str, float]] per-loss adaptive multipliers.
+        If None, defaults to 1.0 for all supported losses.
+
+    Returns:
+    - loss_dict: Dict[str, Tensor] containing per-component scaled and unscaled losses and sums:
+        Scaled keys: 'mse_loss', 'backbone_distance_loss', 'backbone_direction_loss',
+                     'binned_direction_classification_loss', 'binned_distance_classification_loss',
+                     'ntp_loss', 'vq_loss', 'rec_loss', 'step_loss'
+        Unscaled keys: 'unscaled_mse_loss', 'unscaled_backbone_distance_loss',
+                       'unscaled_backbone_direction_loss',
+                       'unscaled_binned_direction_classification_loss',
+                       'unscaled_binned_distance_classification_loss',
+                       'unscaled_ntp_loss', 'unscaled_vq_loss', 'unscaled_rec_loss', 'unscaled_step_loss'
+
+    - x_pred_aligned: Tensor of predicted coordinates (B, L, 3, 3)
+    - x_true_aligned: Tensor of aligned true coordinates (B, L, 3, 3)
+    """
+    # Resolve alignment strategy and common tensors
+    if alignment_strategy is None:
+        alignment_strategy = configs.train_settings.losses.alignment_strategy
+
+    labels = data['target_coords']
+    masks = torch.logical_and(data['masks'], data['nan_masks']).float()
+
+    # Reshape coordinates to (B, L, 3, 3)
+    outputs = output_dict['outputs']
+    x_predicted = outputs.reshape(outputs.shape[0], outputs.shape[1], 3, 3)
+    x_true = labels.reshape(labels.shape[0], labels.shape[1], 3, 3)
+
+    dir_loss_logits = output_dict.get('dir_loss_logits', None)
+    dist_loss_logits = output_dict.get('dist_loss_logits', None)
+    ntp_logits = output_dict.get('ntp_logits', None)
+    vq_loss = output_dict.get('vq_loss', torch.tensor(0.0, device=outputs.device))
+    indices = output_dict.get('indices', None)
+    valid_mask = output_dict.get('valid_mask', None)
+    alpha = configs.model.vqvae.vector_quantization.alpha
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
         x_predicted, x_true, masks, alignment_strategy=alignment_strategy)

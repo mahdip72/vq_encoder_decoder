@@ -78,22 +78,13 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
             optimizer.zero_grad()
             output_dict = net(data)
 
-            # Compute the loss components
+            # Compute the loss components (function unwraps tensors internally)
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
-                x_predicted=output_dict["outputs"].reshape(output_dict["outputs"].shape[0], output_dict["outputs"].shape[1], 3, 3),
-                x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                masks=masks.float(),
+                output_dict=output_dict,
+                data=data,
                 configs=configs,
-                seq=data["inverse_folding_labels"],
-                dir_loss_logits=output_dict["dir_loss_logits"],
-                dist_loss_logits=output_dict["dist_loss_logits"],
                 alignment_strategy=alignment_strategy,
                 adaptive_loss_coeffs=adaptive_loss_coeffs,
-                ntp_logits=output_dict["ntp_logits"],
-                vq_loss=output_dict["vq_loss"],
-                alpha=alpha,
-                indices=output_dict["indices"],
-                valid_mask=output_dict["valid_mask"]
             )
 
             # Apply sample weights to loss if enabled
@@ -229,19 +220,11 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
 
             # Compute the loss components using dict-style outputs like train loop
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
-                x_predicted=output_dict["outputs"].reshape(output_dict["outputs"].shape[0], output_dict["outputs"].shape[1], 3, 3),
-                x_true=labels.reshape(labels.shape[0], labels.shape[1], 3, 3),
-                masks=masks.float(),
+                output_dict=output_dict,
+                data=data,
                 configs=configs,
-                seq=data["inverse_folding_labels"],
-                dir_loss_logits=output_dict["dir_loss_logits"],
-                dist_loss_logits=output_dict["dist_loss_logits"],
                 alignment_strategy=alignment_strategy,
-                ntp_logits=output_dict["ntp_logits"],
-                vq_loss=output_dict["vq_loss"],
-                alpha=alpha,
-                indices=output_dict["indices"],
-                valid_mask=output_dict["valid_mask"],
+                adaptive_loss_coeffs=None,
             )
 
             if accelerator.is_main_process and epoch % configs.valid_settings.save_pdb_every == 0 and epoch != 0 and i == 0:
