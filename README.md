@@ -94,21 +94,39 @@ bash install_conda_gcpnet.sh
 - **N_CA_C_O_coord**: float array of shape (L, 4, 3). Backbone atom coordinates in Å for [N, CA, C, O] per residue. Missing atoms/residues are NaN‑filled.
 - **plddt_scores**: float array of shape (L,). Per‑residue pLDDT pulled from B‑factors when present; NaN if unavailable.
 
-### Convert PDB → HDF5 (`data/pdb_to_h5.py`)
-This script scans a directory recursively for `.pdb` files and writes one `.h5` per processed chain.
+### Convert PDB/CIF → HDF5 (`data/pdb_to_h5.py`)
+This script scans a directory recursively and writes one `.h5` per processed chain.
+- **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
 - **Chain filtering**: drops chains with length < `--min_len` or > `--max_len`.
 - **Duplicate sequences**: among highly similar chains (identity > 0.95), keeps the one with the most resolved CA atoms.
 - **Numbering gaps & insertions**: handles insertion codes natively; inserts `X` residues with NaN coords for numeric gaps.
-- **Outputs**: filenames are `<index>_<basename>.h5` or `<index>_<basename>_chain_id_<ID>.h5` for multi‑chain structures.
+- **Outputs**: by default filenames are `<index>_<basename>.h5` or `<index>_<basename>_chain_id_<ID>.h5` for multi‑chain structures. Add `--no_file_index` to omit the `<index>_` prefix.
 
-Example:
+Examples:
 ```bash
+# Default: PDB input
 python data/pdb_to_h5.py \
   --data /abs/path/to/pdb_root \
   --save_path /abs/path/to/output_h5 \
   --max_len 2048 \
   --min_len 25 \
   --max_workers 16
+```
+
+```bash
+# CIF input (no .gz)
+python data/pdb_to_h5.py \
+  --use_cif \
+  --data /abs/path/to/cif_root \
+  --save_path /abs/path/to/output_h5
+```
+
+```bash
+# Omit index from output filenames
+python data/pdb_to_h5.py \
+  --no_file_index \
+  --data /abs/path/to/pdb_or_cif_root \
+  --save_path /abs/path/to/output_h5
 ```
 
 ### Convert HDF5 → PDB (`data/h5_to_pdb.py`)
