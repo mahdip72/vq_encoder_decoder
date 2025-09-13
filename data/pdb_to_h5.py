@@ -2,6 +2,7 @@ import argparse
 import os
 from tqdm import tqdm
 from Bio.PDB import PDBParser
+from Bio.PDB.MMCIFParser import MMCIFParser
 from Bio.PDB.Polypeptide import PPBuilder
 from Bio import pairwise2
 import math
@@ -19,6 +20,22 @@ def find_pdb_files(directory_path):
     pdb_files = glob.glob(pdb_files_pattern, recursive=True)
 
     return pdb_files
+
+
+def find_structure_files(directory_path, use_cif):
+    """
+    Find structure files recursively.
+
+    If use_cif is True, searches for .cif files.
+    Otherwise, searches for .pdb files.
+    """
+    patterns = [directory_path + '/**/*.pdb']
+    if use_cif:
+        patterns = [directory_path + '/**/*.cif']
+    files = []
+    for pattern in patterns:
+        files.extend(glob.glob(pattern, recursive=True))
+    return files
 
 
 def write_h5_file(file_path, pad_seq, n_ca_c_o_coord, plddt_scores):
@@ -131,9 +148,9 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     return processed_chains
 
 
-def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict):
+def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict, use_cif, no_file_index):
     """
-    Processes a PDB file into HDF5 format, handling insertion codes and numeric gaps.
+    Processes a structure file (PDB/mmCIF) into HDF5 format, handling insertion codes and numeric gaps.
 
     This function parses the PDB structure, filters chains below min_len or above max_len, and
     selects representative chains. It extracts residue sequences, backbone coordinates, and pLDDT scores
@@ -142,14 +159,14 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
 
     Args:
         file_index (int): Index of the file for naming outputs.
-        file_path (str): Path to the input PDB file.
+        file_path (str): Path to the input structure file.
         max_len (int): Maximum sequence length allowed for processing.
         min_len (int): Minimum sequence length required for processing.
         save_path (str): Directory to save output HDF5 files.
         dictn (dict): Mapping from three-letter to one-letter amino acid codes.
         report_dict (multiprocessing.Manager.dict): Dictionary for logging processing statistics.
     """
-    parser = PDBParser(QUIET=True)
+    parser = MMCIFParser(QUIET=True) if use_cif else PDBParser(QUIET=True)
     structure = parser.get_structure('protein', file_path)
 
     chain_sequences = check_chains(structure, report_dict, min_len)
@@ -213,9 +230,15 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
         # --- END OF NEW LOGIC ---
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
-            outputfile = os.path.join(save_path, f"{file_index}_{basename}_chain_id_{chain_id}.h5")
+            if no_file_index:
+                outputfile = os.path.join(save_path, f"{basename}_chain_id_{chain_id}.h5")
+            else:
+                outputfile = os.path.join(save_path, f"{file_index}_{basename}_chain_id_{chain_id}.h5")
         else:
-            outputfile = os.path.join(save_path, f"{file_index}_{basename}.h5")
+            if no_file_index:
+                outputfile = os.path.join(save_path, f"{basename}.h5")
+            else:
+                outputfile = os.path.join(save_path, f"{file_index}_{basename}.h5")
         report_dict['h5_processed'] += 1
         write_h5_file(outputfile, protein_seq, pos, plddt_scores)
 
@@ -229,9 +252,13 @@ def main():
                         help='Set the number of workers for parallel processing.')
     parser.add_argument('--min_len', default=25, type=int,
                         help='Minimum sequence length for chains to process.')
+    parser.add_argument('--use_cif', action='store_true',
+                        help='Use CIF/mmCIF input instead of PDB (default: PDB).')
+    parser.add_argument('--no_file_index', action='store_true',
+                        help='Omit file index prefix in output filenames.')
     args = parser.parse_args()
 
-    data_path = find_pdb_files(args.data)
+    data_path = find_structure_files(args.data, args.use_cif)
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
 
@@ -247,7 +274,7 @@ def main():
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
                                     'chains_too_short': 0, 'error': 0, 'missing_residues': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict): file_path for i, file_path in enumerate(data_path)}
+            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict, args.use_cif, args.no_file_index): file_path for i, file_path in enumerate(data_path)}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
                 file_path = futures[future]
                 try:
