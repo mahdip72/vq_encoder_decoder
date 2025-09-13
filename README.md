@@ -87,11 +87,55 @@ For GCPNet model dependencies:
 bash install_conda_gcpnet.sh
 ```
 
+## Data
+
+### HDF5 format used by this repo
+- **seq**: length‑L amino‑acid string. Standard 20‑letter alphabet; **X** marks unknowns and numbering gaps.
+- **N_CA_C_O_coord**: float array of shape (L, 4, 3). Backbone atom coordinates in Å for [N, CA, C, O] per residue. Missing atoms/residues are NaN‑filled.
+- **plddt_scores**: float array of shape (L,). Per‑residue pLDDT pulled from B‑factors when present; NaN if unavailable.
+
+### Convert PDB → HDF5 (`data/pdb_to_h5.py`)
+This script scans a directory recursively for `.pdb` files and writes one `.h5` per processed chain.
+- **Chain filtering**: drops chains with length < `--min_len` or > `--max_len`.
+- **Duplicate sequences**: among highly similar chains (identity > 0.95), keeps the one with the most resolved CA atoms.
+- **Numbering gaps & insertions**: handles insertion codes natively; inserts `X` residues with NaN coords for numeric gaps.
+- **Outputs**: filenames are `<index>_<basename>.h5` or `<index>_<basename>_chain_id_<ID>.h5` for multi‑chain structures.
+
+Example:
+```bash
+python data/pdb_to_h5.py \
+  --data /abs/path/to/pdb_root \
+  --save_path /abs/path/to/output_h5 \
+  --max_len 2048 \
+  --min_len 25 \
+  --max_workers 16
+```
+
+### Convert HDF5 → PDB (`data/h5_to_pdb.py`)
+Converts `.h5` backbones to PDB, writing only N/CA/C atoms and skipping residues with any NaN coordinates.
+
+Example:
+```bash
+python data/h5_to_pdb.py \
+  --h5_dir /abs/path/to/input_h5 \
+  --pdb_dir /abs/path/to/output_pdb
+```
+
+### How inference/evaluation use `.h5`
+- **Inference**: `inference_encode.py` and `inference_embed.py` read datasets from `.h5` in the format above. `inference_decode.py` decodes VQ indices (from CSV) to backbone coordinates; you can convert decoded `.h5`/coords to PDB with `data/h5_to_pdb.py`.
+- **Evaluation**: `evaluation.py` consumes an `.h5` file via `data_path` in `configs/evaluation_config.yaml` and reports TM‑score/RMSD; it can also write aligned PDBs.
+
 ## Usage
+
+Before you begin:
+- Prepare your dataset in `.h5` format as described in [Data](#data). Use the PDB → HDF5 converter in `data/pdb_to_h5.py`.
 
 ### Training
 
 Configure your training parameters in `configs/config_vqvae.yaml` and run:
+
+Note:
+- Training expects datasets in the HDF5 layout defined in [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
 
 ```bash
 # Set up accelerator configuration for multi-GPU training
@@ -101,7 +145,27 @@ accelerate config
 accelerate launch train.py --config_path configs/config_vqvae.yaml
 ```
 
+See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index) for more options and configurations.
+
 ### Inference
+
+Multi‑GPU with Hugging Face Accelerate:
+- The following scripts support multi‑GPU via Accelerate: `inference_encode.py`, `inference_embed.py`, `inference_decode.py`, and `evaluation.py`.
+
+Example (2 GPUs, bfloat16):
+```bash
+accelerate launch --multi_gpu --mixed_precision=bf16 --num_processes=2 evaluation.py
+```
+Or like in Training, configure Accelerate first:
+```bash
+accelerate config
+accelerate launch evaluation.py
+```
+
+
+See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index) for more options and configurations.
+
+All inference scripts consume `.h5` inputs in the format defined in [Data](#data).
 
 To extract the VQ codebook embeddings:
 ```bash
@@ -113,19 +177,19 @@ To encode proteins into discrete VQ indices:
 ```bash
 python inference_encode.py
 ```
-Edit `configs/inference_encode_config.yaml` to change dataset paths, model, and output.
+Edit `configs/inference_encode_config.yaml` to change dataset paths, model, and output. Input datasets should be `.h5` as in [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
 
 To extract per‑residue embeddings from the VQ layer:
 ```bash
 python inference_embed.py
 ```
-Edit `configs/inference_embed_config.yaml` to change dataset paths, model, and output HDF5.
+Edit `configs/inference_embed_config.yaml` to change dataset paths, model, and output HDF5. Input `.h5` files must follow [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
 
 To decode VQ indices back to 3D backbone structures:
 ```bash
 python inference_decode.py
 ```
-Edit `configs/inference_decode_config.yaml` to point to the indices CSV and adjust runtime.
+Edit `configs/inference_decode_config.yaml` to point to the indices CSV and adjust runtime. To write PDBs from decoded outputs, see [Convert HDF5 → PDB](#convert-hdf5--pdb-datah5_to_pdbpy).
 
 ### Evaluation
 
@@ -133,6 +197,10 @@ To evaluate predictions and write TM‑score/RMSD along with aligned PDBs:
 ```bash
 python evaluation.py
 ```
+
+Notes:
+- Set `data_path` to an `.h5` dataset that follows [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
+- To visualize results as PDB, convert `.h5` outputs with [`data/h5_to_pdb.py`](#convert-hdf5--pdb-datah5_to_pdbpy).
 
 Example config template (`configs/evaluation_config.yaml`):
 ```yaml
