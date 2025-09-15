@@ -97,9 +97,9 @@ bash install_conda_gcpnet.sh
 ### Convert PDB/CIF → HDF5 (`data/pdb_to_h5.py`)
 This script scans a directory recursively and writes one `.h5` per processed chain.
 - **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
-- **Chain filtering**: drops chains with length < `--min_len` or > `--max_len`.
+- **Chain filtering**: drops chains whose final length (after gap handling) is < `--min_len` or > `--max_len`.
 - **Duplicate sequences**: among highly similar chains (identity > 0.95), keeps the one with the most resolved CA atoms.
-- **Numbering gaps & insertions**: handles insertion codes natively; inserts `X` residues with NaN coords for numeric gaps.
+- **Numbering gaps & insertions**: handles insertion codes natively. For numeric residue‑number gaps (both PDB and CIF), inserts `X` residues with NaN coords. If a gap exceeds `--gap_threshold` (default 5), reduces the number of inserted residues using the straight‑line CA–CA distance (assumes ~3.8 Å per residue); if CA coords are missing, caps at the threshold. This prevents runaway padding for CIF files with non‑contiguous author numbering.
 - **Outputs**: by default filenames are `<index>_<basename>.h5` or `<index>_<basename>_chain_id_<ID>.h5` for multi‑chain structures. Add `--no_file_index` to omit the `<index>_` prefix.
 
 Examples:
@@ -119,6 +119,14 @@ python data/pdb_to_h5.py \
   --use_cif \
   --data /abs/path/to/cif_root \
   --save_path /abs/path/to/output_h5
+```
+
+```bash
+# Control large numeric gaps with CA–CA estimate (applies to PDB and CIF)
+python data/pdb_to_h5.py \
+  --data /abs/path/to/structures \
+  --save_path /abs/path/to/output_h5 \
+  --gap_threshold 5
 ```
 
 ```bash
@@ -334,4 +342,3 @@ If you use this code or the pretrained models, please cite the following paper:
 ```bibtex
 will be added soon
 ```
-
