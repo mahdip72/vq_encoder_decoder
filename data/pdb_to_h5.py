@@ -45,6 +45,36 @@ def write_h5_file(file_path, pad_seq, n_ca_c_o_coord, plddt_scores):
         f.create_dataset('plddt_scores', data=plddt_scores)
 
 
+def estimate_missing_from_distance(prev_ca_coord, next_ca_coord, ideal_ca_ca=3.8):
+    """
+    Estimate the number of missing residues between two residues using the
+    straight-line distance between their CA atoms.
+
+    The estimate assumes an average CA-CA distance of `ideal_ca_ca` angstroms.
+    If the two residues were adjacent (no missing), distance ~ ideal_ca_ca,
+    which yields ~0 missing residues. For a gap of N residues, distance is
+    roughly (N+1) * ideal_ca_ca, so N ~= floor(distance / ideal_ca_ca) - 1.
+
+    Returns an integer >= 0.
+    """
+    # Validate coords (any NaN -> cannot estimate)
+    try:
+        x1, y1, z1 = prev_ca_coord
+        x2, y2, z2 = next_ca_coord
+        if any(math.isnan(v) for v in (x1, y1, z1, x2, y2, z2)):
+            return None
+    except Exception:
+        return None
+
+    dx = x2 - x1
+    dy = y2 - y1
+    dz = z2 - z1
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    # Convert to missing count using floor; ensure non-negative
+    est_missing = max(0, int(math.floor(dist / ideal_ca_ca) - 1))
+    return est_missing
+
+
 def check_chains(structure, report_dict, min_len):
     """
     Extracts sequences from each chain and filters them by minimum length.
@@ -148,7 +178,7 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     return processed_chains
 
 
-def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict, use_cif, no_file_index):
+def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict, use_cif, no_file_index, gap_threshold):
     """
     Processes a structure file (PDB/mmCIF) into HDF5 format, handling insertion codes and numeric gaps.
 
@@ -185,8 +215,8 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
         # New, robust direct residue iteration logic
         # Get a list of all residues directly from the chain (includes insertion codes)
         residues = [res for res in chain if res.id[0] == ' ']
-        # Skip if empty or exceeds max length
-        if not residues or len(residues) > max_len:
+        # Skip if empty; max_len will be enforced after gap handling
+        if not residues:
             continue
 
         protein_seq = ''
@@ -213,21 +243,49 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
                     coords.append([math.nan, math.nan, math.nan])
             pos.append(coords)
 
-        # --- NEW: Post-processing step to add padding for numbering gaps ---
+        # --- Gap handling ---
+        # Apply numeric gap handling for both PDB and CIF inputs. For CIF, residue numbering
+        # (auth_seq_id) can be non-contiguous; large gaps are reduced using CA-CA distance
+        # to avoid runaway padding.
         for i in range(len(residues) - 1, 0, -1):
             current_res_id = residues[i].id
             prev_res_id = residues[i-1].id
             if current_res_id[1] > prev_res_id[1] + 1:
-                gap_size = current_res_id[1] - prev_res_id[1] - 1
-                x_padding = 'X' * gap_size
+                numeric_gap_size = current_res_id[1] - prev_res_id[1] - 1
+
+                insert_count = numeric_gap_size
+                if numeric_gap_size > gap_threshold:
+                    # Estimate from CA-CA distance
+                    prev_ca = pos[i-1][1]
+                    next_ca = pos[i][1]
+                    est_missing = estimate_missing_from_distance(prev_ca, next_ca)
+                    if est_missing is not None:
+                        insert_count = min(numeric_gap_size, est_missing)
+                    else:
+                        # Fallback: clamp to threshold to avoid runaway padding
+                        insert_count = gap_threshold
+
+                if insert_count <= 0:
+                    continue
+
+                x_padding = 'X' * insert_count
                 nan_coord_padding = [[math.nan, math.nan, math.nan] for _ in range(4)]
-                nan_plddt_padding = [math.nan] * gap_size
-                nan_pos_padding = [nan_coord_padding] * gap_size
+                nan_plddt_padding = [math.nan] * insert_count
+                nan_pos_padding = [nan_coord_padding] * insert_count
                 protein_seq = protein_seq[:i] + x_padding + protein_seq[i:]
                 pos[i:i] = nan_pos_padding
                 plddt_scores[i:i] = nan_plddt_padding
-                report_dict['missing_residues'] += gap_size
-        # --- END OF NEW LOGIC ---
+                report_dict['missing_residues'] += insert_count
+        # --- END Gap handling ---
+        # Enforce final length constraints before writing
+        final_len = len(protein_seq)
+        if final_len < min_len:
+            report_dict['chains_too_short'] += 1
+            continue
+        if final_len > max_len:
+            report_dict['chains_too_long'] += 1
+            continue
+
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
             if no_file_index:
@@ -256,6 +314,9 @@ def main():
                         help='Use CIF/mmCIF input instead of PDB (default: PDB).')
     parser.add_argument('--no_file_index', action='store_true',
                         help='Omit file index prefix in output filenames.')
+    parser.add_argument('--gap_threshold', default=5, type=int,
+                        help='For both PDB and CIF: if a numeric residue-numbering gap exceeds this value, '
+                             'reduce the inserted missing residues to an estimate based on CA-CA distance.')
     args = parser.parse_args()
 
     data_path = find_structure_files(args.data, args.use_cif)
@@ -272,9 +333,9 @@ def main():
 
     with Manager() as manager:
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                    'chains_too_short': 0, 'error': 0, 'missing_residues': 0})
+                                    'chains_too_short': 0, 'chains_too_long': 0, 'error': 0, 'missing_residues': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict, args.use_cif, args.no_file_index): file_path for i, file_path in enumerate(data_path)}
+            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict, args.use_cif, args.no_file_index, args.gap_threshold): file_path for i, file_path in enumerate(data_path)}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
                 file_path = futures[future]
                 try:
