@@ -109,7 +109,7 @@ def sequence_similarity(seq1, seq2):
     return similarity
 
 
-def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
+def filter_best_chains(chain_sequences, structure, similarity_threshold=0.90):
     """
     Filters chains to retain only the unique sequences and selects the chain with the most resolved Cα atoms
     for each unique sequence.
@@ -178,7 +178,7 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     return processed_chains
 
 
-def evaluate_missing_content(pos, max_missing_ratio=0.3, max_consecutive_missing=50):
+def evaluate_missing_content(pos, max_missing_ratio=0.2, max_consecutive_missing=15):
     """Return (is_valid, reason_key) based on missing residue statistics."""
     total = len(pos)
     if total == 0:
