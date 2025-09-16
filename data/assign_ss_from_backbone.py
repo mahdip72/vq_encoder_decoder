@@ -296,9 +296,9 @@ def summarise_structure(pdb_path: str) -> Dict[str, float]:
         coil = counts.get("C", 0)
 
     if total > 0:
-        percent_alpha = (alpha / total) * 100.0
-        percent_beta = (beta / total) * 100.0
-        percent_coil = (coil / total) * 100.0
+        percent_alpha = round((alpha / total) * 100.0, 2)
+        percent_beta = round((beta / total) * 100.0, 2)
+        percent_coil = round((coil / total) * 100.0, 2)
     else:
         percent_alpha = percent_beta = percent_coil = 0.0
 
