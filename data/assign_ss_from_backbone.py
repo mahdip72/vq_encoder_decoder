@@ -1,46 +1,103 @@
 #!/usr/bin/env python3
+"""Secondary-structure assignment from backbone-only PDBs.
+
+The script walks directories of PDB files, determines per-file fractions of
+alpha-helix (H), beta-sheet (E), and coil (C) using backbone dihedrals, and
+writes a single CSV summary. Each CSV row contains seven values:
+
+    pdb_name, percent_alpha, percent_beta, percent_coil,
+    count_alpha, count_beta, count_coil
+
+Multiprocessing and a progress bar keep large batches responsive.
 """
-Backbone-only secondary structure calling from PDB files with N, CA, C.
 
-- Computes phi/psi using a consistent dihedral convention
-- Skips phi/psi across chain/gap breaks via peptide-bond distance checks
-- Assigns secondary structure with standard-ish Ramachandran windows
-- Smooths runs (>=4 for helices, >=3 for strands) to reduce spurious singles
-- Works on single files or directories (recursively for *.pdb)
-
-Output: CSV with columns:
-chain, resseq, icode, resname, phi, psi, ss  (ss in {H,E,C})
-"""
-
-import os, sys, glob, math
-from collections import defaultdict, Counter
+import argparse
+import csv
+import glob
+import math
+import os
+from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Tuple
+
+from tqdm import tqdm
 
 
 # ---------- geometry helpers ----------
-def vec(a, b): return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+def vec(a, b):
+    """Return the 3D vector pointing from coordinate ``a`` to coordinate ``b``.
+
+    Args:
+        a: Tuple ``(x, y, z)`` for the starting point.
+        b: Tuple ``(x, y, z)`` for the destination point.
+
+    Returns:
+        Tuple of floats representing ``b - a`` for each Cartesian axis.
+    """
+    return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
 
 
-def norm(v): return (v[0] ** 2 + v[1] ** 2 + v[2] ** 2) ** 0.5
+def norm(v):
+    """Compute the Euclidean length of a 3D vector.
+
+    Args:
+        v: Tuple ``(x, y, z)`` representing the vector.
+
+    Returns:
+        Float length ``sqrt(x^2 + y^2 + z^2)``.
+    """
+    return (v[0] ** 2 + v[1] ** 2 + v[2] ** 2) ** 0.5
 
 
-def cross(a, b): return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+def cross(a, b):
+    """Return the cross product between two 3D vectors.
+
+    Args:
+        a: First vector as ``(x, y, z)``.
+        b: Second vector as ``(x, y, z)``.
+
+    Returns:
+        Tuple representing ``a × b`` component-wise.
+    """
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
 
 
-def dot(a, b): return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+def dot(a, b):
+    """Return the dot product between two 3D vectors.
+
+    Args:
+        a: First vector as ``(x, y, z)``.
+        b: Second vector as ``(x, y, z)``.
+
+    Returns:
+        Float representing ``a · b``.
+    """
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
 def dihedral(p1, p2, p3, p4):
+    """Return the signed dihedral angle for four backbone atoms.
+
+    Args:
+        p1: Coordinate tuple for the first atom (typically C of residue i-1).
+        p2: Coordinate tuple for the second atom (typically N of residue i).
+        p3: Coordinate tuple for the third atom (typically CA of residue i).
+        p4: Coordinate tuple for the fourth atom (typically C of residue i).
+
+    Returns:
+        Dihedral angle in degrees following a consistent right-handed
+        convention suitable for Ramachandran analysis.
     """
-    Consistent convention:
-      b0 = p2->p1 ; b1 = p2->p3 ; b2 = p3->p4
-      v = cross(b0, b1n) ; w = cross(b2, b1n)
-      angle = atan2( dot(cross(v,w), b1n), dot(v,w) )
-    """
+
     b0 = vec(p2, p1)
     b1 = vec(p2, p3)
     b2 = vec(p3, p4)
-    b1n = (b1[0] / (norm(b1) + 1e-9), b1[1] / (norm(b1) + 1e-9), b1[2] / (norm(b1) + 1e-9))
+    b1_len = norm(b1) + 1e-9
+    b1n = (b1[0] / b1_len, b1[1] / b1_len, b1[2] / b1_len)
     v = cross(b0, b1n)
     w = cross(b2, b1n)
     x = dot(v, w)
@@ -49,17 +106,39 @@ def dihedral(p1, p2, p3, p4):
 
 
 def bond_ok(a, b, maxdist=1.8, mindist=1.1):
-    """Check peptide C–N geometry to avoid computing phi/psi across gaps."""
-    dx = b[0] - a[0];
-    dy = b[1] - a[1];
+    """Check peptide C–N separation to avoid spanning gaps when computing dihedrals.
+
+    Args:
+        a: Coordinate tuple for the first atom (carbonyl C).
+        b: Coordinate tuple for the second atom (amide N).
+        maxdist: Upper bound on bond length in Ångström allowed for a peptide bond.
+        mindist: Lower bound on bond length in Ångström allowed for a peptide bond.
+
+    Returns:
+        ``True`` if the squared distance between the atoms lies within the
+        expected peptide bond limits, otherwise ``False``.
+    """
+
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
     dz = b[2] - a[2]
     d2 = dx * dx + dy * dy + dz * dz
     return (mindist ** 2) <= d2 <= (maxdist ** 2)
 
 
 # ---------- PDB parsing ----------
-def parse_backbone(pdb_path: str):
-    """Return ordered chains: {chain_id: [(key, atoms{N,CA,C}, resname), ...]}"""
+def parse_backbone(pdb_path: str) -> Dict[str, List[Tuple[Tuple[str, int, str], Dict[str, Tuple[float, float, float]], str]]]:
+    """Parse backbone atoms from a PDB file grouped by chain.
+
+    Args:
+        pdb_path: Path to the PDB file to be read.
+
+    Returns:
+        Dictionary mapping chain identifiers to ordered residue entries.
+        Each entry is a tuple ``((chain, resseq, icode), atom_dict, resname)``
+        where ``atom_dict`` holds the N/CA/C coordinates if present.
+    """
+
     atoms_by_res: Dict[Tuple[str, int, str], Dict[str, Tuple[float, float, float]]] = {}
     resname_by_res: Dict[Tuple[str, int, str], str] = {}
     with open(pdb_path) as f:
@@ -76,8 +155,8 @@ def parse_backbone(pdb_path: str):
             except ValueError:
                 continue
             icode = ln[26].strip()
-            x = float(ln[30:38]);
-            y = float(ln[38:46]);
+            x = float(ln[30:38])
+            y = float(ln[38:46])
             z = float(ln[46:54])
             key = (chain, resseq, icode)
             atoms_by_res.setdefault(key, {})[name] = (x, y, z)
@@ -91,6 +170,16 @@ def parse_backbone(pdb_path: str):
 
 # ---------- phi/psi & assignment ----------
 def compute_phi_psi(chains):
+    """Compute per-residue phi/psi angles for each chain.
+
+    Args:
+        chains: Mapping produced by :func:`parse_backbone` describing residue
+            order and backbone coordinates for each chain.
+
+    Returns:
+        List of rows ``[chain_id, resseq, icode, resname, phi, psi]`` with
+        dihedral angles in degrees or ``None`` when unavailable.
+    """
     rows = []
     for chain, items in chains.items():
         n = len(items)
@@ -107,87 +196,227 @@ def compute_phi_psi(chains):
 
 
 def assign(phi, psi):
+    """Assign secondary-structure class from phi/psi dihedral angles.
+
+    Args:
+        phi: Phi dihedral angle in degrees or ``None`` if not computable.
+        psi: Psi dihedral angle in degrees or ``None`` if not computable.
+
+    Returns:
+        One of ``"H"`` (alpha helix), ``"E"`` (beta sheet), or ``"C"`` (coil).
+    """
     if phi is None or psi is None:
         return "C"
-    # α-helix (canonical-ish)
     if -90 <= phi <= -30 and -70 <= psi <= -15:
         return "H"
-    # β-strand (positive psi band)
     if -160 <= phi <= -80 and 90 <= psi <= 180:
         return "E"
     return "C"
 
 
 def smooth(labels, minH=4, minE=3):
+    """Post-process raw secondary-structure labels to suppress short runs.
+
+    Args:
+        labels: List of raw assignments containing ``H``/``E``/``C``.
+        minH: Minimum contiguous length required to keep a helix designation.
+        minE: Minimum contiguous length required to keep a beta-strand designation.
+
+    Returns:
+        New list of labels where short helix/strand runs are converted to coil.
+    """
     lab = labels[:]
-    n = len(lab);
+    n = len(lab)
     i = 0
     while i < n:
         j = i
         while j < n and lab[j] == lab[i]:
             j += 1
-        L = lab[i];
+        current_label = lab[i]
         run = j - i
-        need = minH if L == "H" else (minE if L == "E" else 1)
-        if run < need:
+        required = minH if current_label == "H" else (minE if current_label == "E" else 1)
+        if run < required:
             for k in range(i, j):
                 lab[k] = "C"
         i = j
     return lab
 
 
-# ---------- main ----------
-def process_one(pdb_path: str):
+# ---------- helpers for file discovery & summarising ----------
+def find_pdb_files(directory_path: str) -> List[str]:
+    """Return all PDB files under ``directory_path`` recursively."""
+    pattern = os.path.join(directory_path, "**", "*.pdb")
+    return glob.glob(pattern, recursive=True)
+
+
+def gather_pdb_paths(inputs: List[str]) -> List[str]:
+    """Collect a sorted list of unique PDB file paths from inputs.
+
+    Args:
+        inputs: Iterable of file or directory paths.
+
+    Returns:
+        Sorted list of absolute or relative paths pointing to PDB files.
+    """
+    files: List[str] = []
+    for path in inputs:
+        if os.path.isdir(path):
+            files.extend(find_pdb_files(path))
+        elif path.lower().endswith(".pdb") and os.path.isfile(path):
+            files.append(path)
+    # Remove duplicates while keeping deterministic order
+    return sorted(set(files))
+
+
+def summarise_structure(pdb_path: str) -> Dict[str, float]:
+    """Summarise secondary structure fractions for a single PDB file.
+
+    Args:
+        pdb_path: Path to the PDB file being analysed.
+
+    Returns:
+        Dictionary with the file name, raw counts of ``H``/``E``/``C`` residues,
+        and their percentages relative to the total residues examined.
+    """
     chains = parse_backbone(pdb_path)
-    out_rows = []
+    counts = Counter()
     for ch, items in chains.items():
         rows = compute_phi_psi({ch: items})
-        # per-chain raw labels
+        if not rows:
+            continue
         raw = [assign(r[4], r[5]) for r in rows]
-        lab = smooth(raw, minH=4, minE=3)
-        for (chain, resseq, icode, resn, phi, psi), ss in zip(rows, lab):
-            out_rows.append((chain, resseq, icode, resn, phi, psi, ss))
-    cnt = Counter([r[6] for r in out_rows])
-    return out_rows, cnt
+        labels = smooth(raw, minH=4, minE=3)
+        counts.update(labels)
+
+    total = sum(counts.values())
+    alpha = counts.get("H", 0)
+    beta = counts.get("E", 0)
+    coil = total - alpha - beta
+    if coil < 0:
+        coil = counts.get("C", 0)
+
+    if total > 0:
+        percent_alpha = (alpha / total) * 100.0
+        percent_beta = (beta / total) * 100.0
+        percent_coil = (coil / total) * 100.0
+    else:
+        percent_alpha = percent_beta = percent_coil = 0.0
+
+    return {
+        "pdb_name": os.path.basename(pdb_path),
+        "percent_alpha": percent_alpha,
+        "percent_beta": percent_beta,
+        "percent_coil": percent_coil,
+        "count_alpha": alpha,
+        "count_beta": beta,
+        "count_coil": coil,
+    }
 
 
-def write_csv(rows, out_path):
-    with open(out_path, "w") as w:
-        w.write("chain,resseq,icode,resname,phi,psi,ss\n")
-        for chain, resseq, icode, resn, phi, psi, ss in rows:
-            phi_s = "" if phi is None else f"{phi:.3f}"
-            psi_s = "" if psi is None else f"{psi:.3f}"
-            w.write(f"{chain},{resseq},{icode},{resn},{phi_s},{psi_s},{ss}\n")
+def process_file_task(pdb_path: str):
+    """Wrapper for multiprocessing that records success or failure.
+
+    Args:
+        pdb_path: Path to the PDB file being processed.
+
+    Returns:
+        Tuple ``(True, summary_dict)`` on success or ``(False, (path, message))``
+        on failure.
+    """
+    try:
+        summary = summarise_structure(pdb_path)
+        return True, summary
+    except Exception as exc:
+        return False, (pdb_path, str(exc))
 
 
-def collect_files(paths: List[str]) -> List[str]:
-    files = []
-    for p in paths:
-        if os.path.isdir(p):
-            for root, _, fnames in os.walk(p):
-                for fn in fnames:
-                    if fn.lower().endswith(".pdb"):
-                        files.append(os.path.join(root, fn))
-        else:
-            files.append(p)
-    return files
+def write_summary_csv(records: List[Dict[str, float]], output_path: str):
+    """Write aggregated secondary-structure statistics to CSV.
+
+    Args:
+        records: Sequence of dictionaries returned by :func:`summarise_structure`.
+        output_path: Destination path where the CSV file will be written.
+    """
+    fieldnames = [
+        "pdb_name",
+        "percent_alpha",
+        "percent_beta",
+        "percent_coil",
+        "count_alpha",
+        "count_beta",
+        "count_coil",
+    ]
+    with open(output_path, "w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for record in records:
+            writer.writerow(record)
+
+
+def main():
+    """Parse CLI arguments, run batch processing, and emit a summary CSV."""
+    parser = argparse.ArgumentParser(
+        description="Assign secondary structure from backbone-only PDB files and summarise results.")
+    parser.add_argument(
+        "--data",
+        type=str,
+        nargs='+',
+        required=True,
+        help="Paths to PDB files or directories containing PDBs.",
+    )
+    parser.add_argument(
+        "--output_csv",
+        type=str,
+        default="secondary_structure_summary.csv",
+        help="Destination CSV file for aggregated results.",
+    )
+    parser.add_argument(
+        "--max_workers",
+        type=int,
+        default=os.cpu_count() or 1,
+        help="Number of worker processes to use (default: CPU count).",
+    )
+    args = parser.parse_args()
+
+    pdb_files = gather_pdb_paths(args.data)
+    if not pdb_files:
+        print("No PDB files found for the provided inputs.")
+        return
+
+    results = []
+    errors = []
+    max_workers = args.max_workers if args.max_workers and args.max_workers > 0 else 1
+
+    if max_workers > 1:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_file_task, path): path for path in pdb_files}
+            for future in tqdm(
+                    as_completed(futures), total=len(futures), desc="Assigning secondary structure"):
+                success, payload = future.result()
+                if success:
+                    results.append(payload)
+                else:
+                    errors.append(payload)
+    else:
+        for path in tqdm(pdb_files, desc="Assigning secondary structure"):
+            success, payload = process_file_task(path)
+            if success:
+                results.append(payload)
+            else:
+                errors.append(payload)
+
+    if results:
+        results.sort(key=lambda r: r["pdb_name"])
+        write_summary_csv(results, args.output_csv)
+        print(f"Wrote summary for {len(results)} structures to {args.output_csv}")
+    else:
+        print("No structures processed successfully; summary file not generated.")
+
+    if errors:
+        print(f"Encountered {len(errors)} errors during processing:")
+        for path, message in errors:
+            print(f"  {path}: {message}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python assign_ss_from_backbone.py <file_or_dir> [more paths...]")
-        sys.exit(1)
-    files = collect_files(sys.argv[1:])
-    for f in files:
-        try:
-            rows, cnt = process_one(f)
-        except Exception as e:
-            print(os.path.basename(f), "ERROR:", e)
-            continue
-        total = sum(cnt.values()) or 1
-        print(os.path.basename(f),
-              f"H={cnt.get('H', 0)} ({100 * cnt.get('H', 0) / total:.1f}%)",
-              f"E={cnt.get('E', 0)} ({100 * cnt.get('E', 0) / total:.1f}%)",
-              f"C={cnt.get('C', 0)} ({100 * cnt.get('C', 0) / total:.1f}%)")
-        out_csv = os.path.splitext(f)[0] + "_ss.csv"
-        write_csv(rows, out_csv)
+    main()
