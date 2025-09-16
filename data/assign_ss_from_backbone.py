@@ -303,7 +303,7 @@ def summarise_structure(pdb_path: str) -> Dict[str, float]:
         percent_alpha = percent_beta = percent_coil = 0.0
 
     return {
-        "pdb_name": os.path.basename(pdb_path),
+        "pdb_name": os.path.splitext(os.path.basename(pdb_path))[0],
         "percent_alpha": percent_alpha,
         "percent_beta": percent_beta,
         "percent_coil": percent_coil,
