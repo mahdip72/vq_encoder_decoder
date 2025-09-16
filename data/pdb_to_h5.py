@@ -71,7 +71,7 @@ def estimate_missing_from_distance(prev_ca_coord, next_ca_coord, ideal_ca_ca=3.8
     dz = z2 - z1
     dist = math.sqrt(dx * dx + dy * dy + dz * dz)
     # Convert to missing count using floor; ensure non-negative
-    est_missing = max(0, int(math.floor(dist / ideal_ca_ca) - 1))
+    est_missing = max(0, int(math.floor((dist / ideal_ca_ca)*1.2) - 1))
     return est_missing
 
 
@@ -176,6 +176,39 @@ def filter_best_chains(chain_sequences, structure, similarity_threshold=0.95):
     # swap keys and values
     processed_chains = {v[0]: (k, v[0]) for k, v in processed_chains.items()}
     return processed_chains
+
+
+def evaluate_missing_content(pos, max_missing_ratio=0.3, max_consecutive_missing=50):
+    """Return (is_valid, reason_key) based on missing residue statistics."""
+    total = len(pos)
+    if total == 0:
+        return False, 'missing_ratio_exceeded'
+
+    missing_flags = []
+    for residue in pos:
+        ca_coords = residue[1] if len(residue) > 1 else []
+        if len(ca_coords) != 3:
+            missing_flags.append(True)
+            continue
+        missing_flags.append(any(math.isnan(v) for v in ca_coords))
+
+    missing_count = sum(missing_flags)
+    if missing_count / total > max_missing_ratio:
+        return False, 'missing_ratio_exceeded'
+
+    longest_run = 0
+    current_run = 0
+    for is_missing in missing_flags:
+        if is_missing:
+            current_run += 1
+            if current_run > longest_run:
+                longest_run = current_run
+        else:
+            current_run = 0
+    if longest_run > max_consecutive_missing:
+        return False, 'missing_block_exceeded'
+
+    return True, ''
 
 
 def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict, use_cif, no_file_index, gap_threshold):
@@ -286,6 +319,11 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
             report_dict['chains_too_long'] += 1
             continue
 
+        is_valid, reason = evaluate_missing_content(pos)
+        if not is_valid:
+            report_dict[reason] += 1
+            continue
+
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if len(best_chains) > 1:
             if no_file_index:
@@ -333,7 +371,8 @@ def main():
 
     with Manager() as manager:
         report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                    'chains_too_short': 0, 'chains_too_long': 0, 'error': 0, 'missing_residues': 0})
+                                    'chains_too_short': 0, 'chains_too_long': 0, 'error': 0, 'missing_residues': 0,
+                                    'missing_ratio_exceeded': 0, 'missing_block_exceeded': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
             futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict, args.use_cif, args.no_file_index, args.gap_threshold): file_path for i, file_path in enumerate(data_path)}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
