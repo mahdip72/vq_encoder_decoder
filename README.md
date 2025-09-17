@@ -147,6 +147,34 @@ python data/h5_to_pdb.py \
   --pdb_dir /abs/path/to/output_pdb
 ```
 
+### Split complexes into monomer PDBs (`data/break_complex_to_monumers.py`)
+Scans a directory recursively and writes one PDB per selected chain, deduplicating highly similar chains.
+
+- **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
+- **Chain filtering**: drops chains whose final length (after gap checks) is < `--min_len` or > `--max_len`.
+- **Duplicate sequences**: among highly similar chains (identity > 0.90), keeps the one with the most resolved CA atoms.
+- **Numbering gaps**: for large numeric residue‑numbering gaps, uses the straight‑line CA–CA distance to cap the number of inserted missing residues (quality control; outputs remain original coordinates).
+- **Outputs**: default filenames are `<basename>_chain_id_<ID>.pdb`. Add `--with_file_index` to prefix with `<index>_`. Output chain ID is set to "A".
+
+Examples:
+```bash
+# Default: PDB input
+python data/break_complex_to_monumers.py \
+  --data /abs/path/to/structures \
+  --save_path /abs/path/to/output_pdb \
+  --max_len 2048 \
+  --min_len 25 \
+  --max_workers 16
+```
+
+```bash
+# CIF input (no .gz)
+python data/break_complex_to_monumers.py \
+  --use_cif \
+  --data /abs/path/to/cif_root \
+  --save_path /abs/path/to/output_pdb
+```
+
 ### How inference/evaluation use `.h5`
 - **Inference**: `inference_encode.py` and `inference_embed.py` read datasets from `.h5` in the format above. `inference_decode.py` decodes VQ indices (from CSV) to backbone coordinates; you can convert decoded `.h5`/coords to PDB with `data/h5_to_pdb.py`.
 - **Evaluation**: `evaluation.py` consumes an `.h5` file via `data_path` in `configs/evaluation_config.yaml` and reports TM‑score/RMSD; it can also write aligned PDBs.
