@@ -1,5 +1,6 @@
 import argparse
 import os
+from collections import Counter
 from tqdm import tqdm
 from Bio.PDB import PDBParser
 from Bio.PDB.MMCIFParser import MMCIFParser
@@ -9,7 +10,6 @@ import math
 import h5py
 import glob
 from concurrent.futures import as_completed, ProcessPoolExecutor
-from multiprocessing import Manager
 
 
 def find_pdb_files(directory_path):
@@ -75,7 +75,7 @@ def estimate_missing_from_distance(prev_ca_coord, next_ca_coord, ideal_ca_ca=3.8
     return est_missing
 
 
-def check_chains(structure, report_dict, min_len):
+def check_chains(structure, stats, min_len):
     """
     Extracts sequences from each chain and filters them by minimum length.
 
@@ -84,7 +84,7 @@ def check_chains(structure, report_dict, min_len):
 
     Args:
         structure (Bio.PDB.Structure.Structure): The PDB structure object to process.
-        report_dict (multiprocessing.Manager.dict): Dictionary to log processing metrics.
+        stats (collections.Counter): Mutable counter to log processing metrics.
         min_len (int): Minimum sequence length for a chain to be processed.
 
     Returns:
@@ -96,7 +96,7 @@ def check_chains(structure, report_dict, min_len):
     for chain in chains:
         sequence = ''.join([str(pp.get_sequence()) for pp in ppb.build_peptides(chain)])
         if len(sequence) < min_len:
-            report_dict['chains_too_short'] += 1
+            stats['chains_too_short'] += 1
             continue
         sequences[chain.id] = sequence
     return sequences
@@ -211,7 +211,7 @@ def evaluate_missing_content(pos, max_missing_ratio=0.2, max_consecutive_missing
     return True, ''
 
 
-def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, report_dict, use_cif, no_file_index, gap_threshold):
+def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, use_cif, no_file_index, gap_threshold):
     """
     Processes a structure file (PDB/mmCIF) into HDF5 format, handling insertion codes and numeric gaps.
 
@@ -227,23 +227,23 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
         min_len (int): Minimum sequence length required for processing.
         save_path (str): Directory to save output HDF5 files.
         dictn (dict): Mapping from three-letter to one-letter amino acid codes.
-        report_dict (multiprocessing.Manager.dict): Dictionary for logging processing statistics.
     """
+    stats = Counter()
     parser = MMCIFParser(QUIET=True, auth_chains=False) if use_cif else PDBParser(QUIET=True)
     structure = parser.get_structure('protein', file_path)
 
-    chain_sequences = check_chains(structure, report_dict, min_len)
+    chain_sequences = check_chains(structure, stats, min_len)
 
     had_multichain_pre_dedup = len(chain_sequences) > 1
     if had_multichain_pre_dedup:
-        report_dict['protein_complex_prededup'] += 1
+        stats['protein_complex_prededup'] += 1
 
     best_chains = filter_best_chains(chain_sequences, structure)
 
     if len(best_chains) > 1:
-        report_dict['protein_complex'] += 1
+        stats['protein_complex'] += 1
     if 'A' not in list(best_chains.keys()):
-        report_dict['no_chain_id_a'] += 1
+        stats['no_chain_id_a'] += 1
 
     for chain_id, sequence in best_chains.items():
         model = structure[0]
@@ -312,20 +312,20 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
                 protein_seq = protein_seq[:i] + x_padding + protein_seq[i:]
                 pos[i:i] = nan_pos_padding
                 plddt_scores[i:i] = nan_plddt_padding
-                report_dict['missing_residues'] += insert_count
+                stats['missing_residues'] += insert_count
         # --- END Gap handling ---
         # Enforce final length constraints before writing
         final_len = len(protein_seq)
         if final_len < min_len:
-            report_dict['chains_too_short'] += 1
+            stats['chains_too_short'] += 1
             continue
         if final_len > max_len:
-            report_dict['chains_too_long'] += 1
+            stats['chains_too_long'] += 1
             continue
 
         is_valid, reason = evaluate_missing_content(pos)
         if not is_valid:
-            report_dict[reason] += 1
+            stats[reason] += 1
             continue
 
         basename = os.path.splitext(os.path.basename(file_path))[0]
@@ -339,8 +339,10 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
                 outputfile = os.path.join(save_path, f"{basename}.h5")
             else:
                 outputfile = os.path.join(save_path, f"{file_index}_{basename}.h5")
-        report_dict['h5_processed'] += 1
+        stats['h5_processed'] += 1
         write_h5_file(outputfile, protein_seq, pos, plddt_scores)
+
+    return stats
 
 
 def main():
@@ -373,20 +375,31 @@ def main():
         'ASX': 'B', 'GLX': 'Z', 'PYL': 'O', 'SEC': 'U',  # 'UNK': 'X'
     }
 
-    with Manager() as manager:
-        report_dict = manager.dict({'protein_complex': 0, 'protein_complex_prededup': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
-                                    'chains_too_short': 0, 'chains_too_long': 0, 'error': 0, 'missing_residues': 0,
-                                    'missing_ratio_exceeded': 0, 'missing_block_exceeded': 0})
-        with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-            futures = {executor.submit(preprocess_file, i, file_path, args.max_len, args.min_len, args.save_path, dictn, report_dict, args.use_cif, args.no_file_index, args.gap_threshold): file_path for i, file_path in enumerate(data_path)}
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
-                file_path = futures[future]
-                try:
-                    future.result()
-                except Exception as exc:
-                    print(f"An error occurred while processing {file_path}: {exc} {type(exc)}")
-                    report_dict['error'] += 1
-        print(dict(report_dict))
+    aggregate_stats = Counter()
+    with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+        futures = {
+            executor.submit(
+                preprocess_file,
+                i,
+                file_path,
+                args.max_len,
+                args.min_len,
+                args.save_path,
+                dictn,
+                args.use_cif,
+                args.no_file_index,
+                args.gap_threshold,
+            ): file_path for i, file_path in enumerate(data_path)
+        }
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
+            file_path = futures[future]
+            try:
+                stats = future.result()
+                aggregate_stats.update(stats)
+            except Exception as exc:
+                print(f"An error occurred while processing {file_path}: {exc} {type(exc)}")
+                aggregate_stats['error'] += 1
+    print(dict(aggregate_stats))
 
 
 if __name__ == '__main__':
