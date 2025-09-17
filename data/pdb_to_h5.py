@@ -229,7 +229,7 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
         dictn (dict): Mapping from three-letter to one-letter amino acid codes.
         report_dict (multiprocessing.Manager.dict): Dictionary for logging processing statistics.
     """
-    parser = MMCIFParser(QUIET=True) if use_cif else PDBParser(QUIET=True)
+    parser = MMCIFParser(QUIET=True, auth_chains=False) if use_cif else PDBParser(QUIET=True)
     structure = parser.get_structure('protein', file_path)
 
     chain_sequences = check_chains(structure, report_dict, min_len)
