@@ -18,6 +18,7 @@ import yaml
 import h5py
 from io import StringIO
 from hydra import compose, initialize
+from Bio.PDB import PDBIO
 
 
 def load_all_configs():
@@ -606,6 +607,35 @@ def save_backbone_pdb_inference(
                     serial += 1
 
             fh.write("TER\nEND\n")
+
+
+def write_chain_to_pdb(structure, chain_id, output_path, model_id=0, include_hetero=False, output_chain_id="A"):
+    """Write a single chain from a structure object to a PDB file with a fixed chain identifier."""
+
+    try:
+        target_model = structure[model_id] if model_id is not None else next(structure.get_models())
+    except Exception as exc:
+        raise ValueError(f"Model id '{model_id}' not found in structure '{structure.id}'.") from exc
+
+    if chain_id not in target_model.child_dict:
+        raise ValueError(f"Chain id '{chain_id}' not found in structure '{structure.id}'.")
+
+    chain = target_model[chain_id]
+    chain_copy = chain.copy()
+    chain_copy.id = output_chain_id
+
+    if not include_hetero:
+        for residue in list(chain_copy.get_residues()):
+            if residue.id[0] != ' ':
+                chain_copy.detach_child(residue.id)
+
+    directory = os.path.dirname(output_path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+
+    io = PDBIO()
+    io.set_structure(chain_copy)
+    io.save(output_path)
 
 
 if __name__ == "__main__":
