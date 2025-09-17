@@ -234,6 +234,10 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, r
 
     chain_sequences = check_chains(structure, report_dict, min_len)
 
+    had_multichain_pre_dedup = len(chain_sequences) > 1
+    if had_multichain_pre_dedup:
+        report_dict['protein_complex_prededup'] += 1
+
     best_chains = filter_best_chains(chain_sequences, structure)
 
     if len(best_chains) > 1:
@@ -370,7 +374,7 @@ def main():
     }
 
     with Manager() as manager:
-        report_dict = manager.dict({'protein_complex': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
+        report_dict = manager.dict({'protein_complex': 0, 'protein_complex_prededup': 0, 'no_chain_id_a': 0, 'h5_processed': 0,
                                     'chains_too_short': 0, 'chains_too_long': 0, 'error': 0, 'missing_residues': 0,
                                     'missing_ratio_exceeded': 0, 'missing_block_exceeded': 0})
         with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
