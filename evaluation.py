@@ -90,7 +90,7 @@ def evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger):
             tm_score = max(0.0, min(tm_score, 1.0))
 
             results.append({
-                'pdb_file': pred_file,
+                'pdb_file': os.path.splitext(pred_file)[0],
                 'tm_score': tm_score,
                 'rmsd': rmsd,
                 'num_amino_acids': tm_scorer.N
