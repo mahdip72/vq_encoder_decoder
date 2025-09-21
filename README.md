@@ -68,25 +68,6 @@ chmod +x install.sh
 bash install.sh
 ```
 
-### Option 4: Conda Environment Setup
-
-Create and activate a conda environment:
-```bash
-conda create --name vqvae python=3.10
-conda activate vqvae
-```
-
-Make the installation script executable and run it:
-```bash
-chmod +x install_conda.sh
-bash install_conda.sh
-```
-
-For GCPNet model dependencies:
-```bash
-bash install_conda_gcpnet.sh
-```
-
 ## Data
 
 ### HDF5 format used by this repo
