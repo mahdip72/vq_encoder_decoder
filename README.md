@@ -278,6 +278,15 @@ mixed_precision: "bf16"                            # "no", "fp16", "bf16", "fp8"
 tqdm_progress_bar: true
 ```
 
+## External Tokenizer Evaluations
+
+We evaluated additional VQ-VAE backbones alongside GCP-VQVAE:
+
+- ESM3 VQVAE (forked repo: [mahdip72/esm](https://github.com/mahdip72/esm)) – community can reuse `pdb_to_tokens.py` and `tokens_to_pdb.py` that we authored because the upstream project lacks ready-to-use scripts.
+- FoldToken-4 (forked repo: [mahdip72/FoldToken_open](https://github.com/mahdip72/FoldToken_open)) – we rewrote `foldtoken/pdb_to_token.py` and `foldtoken/token_to_pdb.py` for better performance and efficiency with negligible increase in error.
+- Structure Tokenizer ([instadeepai/protein-structure-tokenizer](https://github.com/instadeepai/protein-structure-tokenizer)) – results reproduced with the official implementation.
+
+We welcome independent validation of our ESM3 and FoldToken-4 conversion scripts to further confirm their correctness.
 
 ## Results
 
