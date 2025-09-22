@@ -1,9 +1,14 @@
-import torch.nn as nn
+import os
+
 import torch
+import torch.nn as nn
 from models.vqvae import VQVAETransformer
 from models.decoders import GeometricDecoder
 from models.gcpnet.models.graph_encoders.gcpnet import GCPNetModel
-from models.gcpnet.models.base import load_pretrained_encoder
+from models.gcpnet.models.base import (
+    instantiate_encoder,
+    load_pretrained_encoder,
+)
 from utils.utils import print_trainable_parameters
 from models.utils import merge_features, separate_features
 
@@ -90,17 +95,16 @@ def prepare_model(configs, logger, *, log_details=None, **kwargs):
 
     if not kwargs.get("decoder_only", False):
         if configs.model.encoder.name == "gcpnet":
-            if not configs.model.encoder.pretrained.enabled:
-                encoder = GCPNetModel(module_cfg=kwargs["encoder_configs"].module_cfg,
-                                      model_cfg=kwargs["encoder_configs"].model_cfg,
-                                      layer_cfg=kwargs["encoder_configs"].layer_cfg,
-                                      configs=kwargs["encoder_configs"])
+            encoder_config_path = os.path.join("configs", "config_gcpnet_encoder.yaml")
 
-            else:
+            if configs.model.encoder.pretrained.enabled:
                 encoder = load_pretrained_encoder(
-                    config_path=configs.model.encoder.pretrained.config_path,
+                    encoder_config_path,
                     checkpoint_path=configs.model.encoder.pretrained.checkpoint_path,
                 )
+            else:
+                components, _ = instantiate_encoder(encoder_config_path)
+                encoder = components.encoder
         else:
             raise ValueError("Invalid encoder model specified!")
 

@@ -8,6 +8,7 @@ import functools
 import random
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
+from models.gcpnet.models.base import instantiate_module, load_encoder_config
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
 from typing import Mapping, Tuple
@@ -374,14 +375,11 @@ class GCPNetDataset(Dataset):
 
         # Instantiate featuriser/transform only if using the pretrained GCPNet encoder
         if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-            from models.gcpnet.models.base import instantiate_module, load_pretrained_config
+            encoder_cfg = load_encoder_config(os.path.join("configs", "config_gcpnet_encoder.yaml"))
 
-            pretrained_config_path = self.configs.model.encoder.pretrained.config_path
-            pretrained_cfg = load_pretrained_config(pretrained_config_path)
+            self.pretrained_featuriser = instantiate_module(encoder_cfg.get("features"))
 
-            self.pretrained_featuriser = instantiate_module(pretrained_cfg.get("features"))
-
-            task_cfg = pretrained_cfg.get("task")
+            task_cfg = encoder_cfg.get("task")
             if isinstance(task_cfg, Mapping):
                 self.pretrained_task_transform = instantiate_module(task_cfg.get("transform"))
 
