@@ -16,6 +16,7 @@ resume:
   discard_decoder_weights: False
 
 model:
+  log_details: True
   compile_model: False
   max_length: 512
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
@@ -34,7 +35,7 @@ model:
       dim: 128
       decay: 0.99
       codebook_size: 4096
-      commitment_weight: 0.5
+      commitment_weight: 0.25
       orthogonal_reg_weight: 10
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
@@ -75,7 +76,7 @@ train_settings:
   batch_size: 16
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 10000
+  max_task_samples: 200000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
@@ -87,7 +88,7 @@ train_settings:
     max_length: 50
   gaussian_jitter:           # Added augmentation block
     enabled: True           # Set True to enable Gaussian coordinate jitter
-    std: 0.10                # Standard deviation in Angstroms for N(0, std^2) noise
+    std: 0.05                # Standard deviation in Angstroms for N(0, std^2) noise
     probability: 0.5         # Probability to apply jitter to a sample
   random_rotation:           # New rotation-only augmentation (global rigid rotation)
     enabled: True            # Applies a single random 3D rotation to all non-NaN backbone coords
@@ -117,17 +118,17 @@ train_settings:
       weight: 0.01
       adaptive_coefficient: True
     next_token_prediction:
-      enabled: False
+      enabled: True
       weight: 0.001
       adaptive_coefficient: True
-      blocks: 1  # Number of transformer blocks, 0 means a linear layer only
+      blocks: 2  # Number of transformer blocks, 0 means a linear layer only
     vq:
       adaptive_coefficient: True
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
   do_every: 1
-  save_pdb_every: 8
+  save_pdb_every: 1
   batch_size: 8
   num_workers: 0
 
@@ -142,7 +143,7 @@ optimizer:
   use_8bit_adam: True
   grad_clip_norm: 1.0
   decay:
-    warmup: 4000
+    warmup: 4096
     min_lr: 1e-6
     gamma: 0.2
     num_restarts: 1

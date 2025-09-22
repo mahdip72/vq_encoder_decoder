@@ -26,6 +26,15 @@ class BaseModel(L.LightningModule, abc.ABC):
     losses: Dict[str, Callable]
     task_transform: Optional[Callable]
     metric_names: List[str]
+    log_details: bool = True
+
+    def _info(self, message: str) -> None:
+        if self.log_details:
+            logger.info(message)
+
+    def _warning(self, message: str) -> None:
+        if self.log_details:
+            logger.warning(message)
 
     @abc.abstractmethod
     def forward(self, batch: Batch) -> torch.Tensor:
@@ -210,13 +219,13 @@ class BaseModel(L.LightningModule, abc.ABC):
         return loss
 
     def configure_optimizers(self):  # sourcery skip: extract-method
-        logger.info("Instantiating optimiser...")
+        self._info("Instantiating optimiser...")
         optimiser = hydra.utils.instantiate(self.config.optimiser)["optimizer"]
-        logger.info(optimiser)
+        self._info(str(optimiser))
         optimiser = optimiser(self.parameters())
 
         if self.config.get("scheduler"):
-            logger.info("Instantiating scheduler...")
+            self._info("Instantiating scheduler...")
             scheduler = hydra.utils.instantiate(
                 self.config.scheduler, optimiser
             )
@@ -228,7 +237,7 @@ class BaseModel(L.LightningModule, abc.ABC):
                 "optimizer": optimiser,
                 "lr_scheduler": scheduler,
             }
-            logger.info(f"Optimiser configuration: {optimiser_config}")
+            self._info(f"Optimiser configuration: {optimiser_config}")
             return optimiser_config
         return optimiser
 
@@ -247,10 +256,10 @@ class BaseModel(L.LightningModule, abc.ABC):
         decoders = nn.ModuleDict()
         for output_head in self.config.decoder.keys():
             cfg = self.config.decoder.get(output_head)
-            logger.info(
+            self._info(
                 f"Building {output_head} decoder. Output dim {cfg.get('out_dim')}"
             )
-            logger.info(cfg)
+            self._info(str(cfg))
             decoders[output_head] = hydra.utils.instantiate(cfg)
         return decoders
 
@@ -337,7 +346,7 @@ class BaseModel(L.LightningModule, abc.ABC):
                         output in CONTINUOUS_OUTPUTS
                         and metric_name in CLASSIFICATION_METRICS
                     ):
-                        logger.info(
+                        self._info(
                             f"Skipping classification metric {metric_name} for output {output} as output is continuous"
                         )
                         continue
@@ -345,7 +354,7 @@ class BaseModel(L.LightningModule, abc.ABC):
                         output in CATEGORICAL_OUTPUTS
                         and metric_name in REGRESSION_METRICS
                     ):
-                        logger.info(
+                        self._info(
                             f"Skipping regression metric {metric_name} for output {output} as output is categorical"
                         )
                         continue
@@ -408,42 +417,44 @@ class BenchMarkModel(BaseModel):
         self.config = cfg
 
         # self.encoder = get_protein_encoder(cfg)
-        logger.info("Instantiating encoder...")
+        self.log_details = cfg.get("log_details", True)
+
         self.encoder: nn.Module = hydra.utils.instantiate(cfg.encoder)
-        logger.info(self.encoder)
+        self._info("Instantiating encoder...")
+        self._info(str(self.encoder))
 
         if hasattr(cfg.decoder, "disable") and cfg.decoder.disable:
-            logger.info("Disabling decoder as requested")
+            self._info("Disabling decoder as requested")
             self.decoder = None
         else:
-            logger.info("Instantiating decoders...")
+            self._info("Instantiating decoders...")
             self.decoder: nn.ModuleDict = self._build_output_decoders()
-            logger.info(self.decoder)
+            self._info(str(self.decoder))
 
-        logger.info("Instantiating losses...")
+        self._info("Instantiating losses...")
         self.losses = self.configure_losses(cfg.task.losses)
-        logger.info(f"Using losses: {self.losses}")
+        self._info(f"Using losses: {self.losses}")
 
         if self.config.get("task.aux_loss_coefficient"):
-            logger.info(
+            self._info(
                 f"Using aux loss coefficient: {self.config.task.aux_loss_coefficient}"
             )
         else:
-            logger.info("Not using aux loss scaling")
+            self._info("Not using aux loss scaling")
 
-        logger.info("Configuring metrics...")
+        self._info("Configuring metrics...")
         self.metrics = self.configure_metrics()
-        logger.info(self.metric_names)
+        self._info(str(self.metric_names))
 
-        logger.info("Instantiating featuriser...")
+        self._info("Instantiating featuriser...")
         self.featuriser: nn.Module = hydra.utils.instantiate(cfg.features)
-        logger.info(self.featuriser)
+        self._info(str(self.featuriser))
 
-        logger.info("Instantiating task transform...")
+        self._info("Instantiating task transform...")
         self.task_transform = hydra.utils.instantiate(
             cfg.get("task.transform")
         )
-        logger.info(self.task_transform)
+        self._info(str(self.task_transform))
 
         self.save_hyperparameters()
 

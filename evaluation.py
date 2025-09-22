@@ -235,9 +235,11 @@ def main():
 
     # Prepare model
     model = prepare_model(
-        configs, logger,
+        configs,
+        logger,
+        log_details=configs.model.get('log_details', True),
         encoder_configs=encoder_configs,
-        decoder_configs=decoder_configs
+        decoder_configs=decoder_configs,
     )
     # Freeze all model parameters
     for param in model.parameters():

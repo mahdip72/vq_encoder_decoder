@@ -83,7 +83,10 @@ class SuperModel(nn.Module):
         return output_dict
 
 
-def prepare_model(configs, logger, **kwargs):
+def prepare_model(configs, logger, *, log_details=None, **kwargs):
+    if log_details is None:
+        log_details = configs.model.get('log_details', True)
+
     if not kwargs.get("decoder_only", False):
         if configs.model.encoder.name == "gcpnet":
             if not configs.model.encoder.pretrained.enabled:
@@ -100,6 +103,7 @@ def prepare_model(configs, logger, **kwargs):
                 register_custom_omegaconf_resolvers()
 
                 pretrained_config = OmegaConf.load(configs.model.encoder.pretrained.config_path)
+                pretrained_config.log_details = log_details
                 pretrained_config.decoder.disable = True
                 encoder = BenchMarkModel.load_from_checkpoint(configs.model.encoder.pretrained.checkpoint_path,
                                                               strict=False,
@@ -110,9 +114,11 @@ def prepare_model(configs, logger, **kwargs):
         if configs.model.encoder.get('freeze_parameters', False):
             for param in encoder.parameters():
                 param.requires_grad = False
-            logger.info("Encoder parameters frozen.")
+            if log_details:
+                logger.info("Encoder parameters frozen.")
 
-        print_trainable_parameters(encoder, logger, 'Encoder')
+        if log_details:
+            print_trainable_parameters(encoder, logger, 'Encoder')
 
     else:
         encoder = None
@@ -125,7 +131,8 @@ def prepare_model(configs, logger, **kwargs):
     if configs.model.vqvae.decoder.get('freeze_parameters', False):
         for param in decoder.parameters():
             param.requires_grad = False
-        logger.info("Decoder parameters frozen.")
+        if log_details:
+            logger.info("Decoder parameters frozen.")
 
     vqvae = VQVAETransformer(
         decoder=decoder,
@@ -134,18 +141,20 @@ def prepare_model(configs, logger, **kwargs):
         decoder_only=kwargs.get("decoder_only", False),
     )
 
-    if not kwargs.get("decoder_only", False):
-        print_trainable_parameters(nn.ModuleList([vqvae.encoder_tail, vqvae.encoder_blocks, vqvae.encoder_head]), logger, 'VQVAE Encoder')
-    if vqvae.vqvae_enabled:
-        print_trainable_parameters(vqvae.vector_quantizer, logger, 'VQ Layer')
+    if log_details:
+        if not kwargs.get("decoder_only", False):
+            print_trainable_parameters(nn.ModuleList([vqvae.encoder_tail, vqvae.encoder_blocks, vqvae.encoder_head]), logger, 'VQVAE Encoder')
+        if vqvae.vqvae_enabled:
+            print_trainable_parameters(vqvae.vector_quantizer, logger, 'VQ Layer')
 
-    print_trainable_parameters(vqvae.decoder, logger, 'VQVAE Decoder')
+        print_trainable_parameters(vqvae.decoder, logger, 'VQVAE Decoder')
 
-    print_trainable_parameters(vqvae, logger, 'VQVAE')
+        print_trainable_parameters(vqvae, logger, 'VQVAE')
 
     vqvae = SuperModel(encoder, vqvae, configs, decoder_only=kwargs.get("decoder_only", False))
 
-    print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
+    if log_details:
+        print_trainable_parameters(vqvae, logger, 'SuperVQVAE')
 
     return vqvae
 
