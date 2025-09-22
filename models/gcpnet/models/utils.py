@@ -6,9 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_scatter
-from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
-from jaxtyping import Bool, Float, Int64, jaxtyped
+from jaxtyping import Bool, Float, Int64
 from torch_geometric.data import Batch
 from torch_geometric.nn import (
     global_add_pool,
@@ -17,6 +16,7 @@ from torch_geometric.nn import (
 )
 
 from ..types import ActivationType
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 def get_aggregation(aggregation: str) -> Callable:

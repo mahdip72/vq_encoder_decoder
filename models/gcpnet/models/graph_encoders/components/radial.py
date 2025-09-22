@@ -6,8 +6,9 @@
 
 import numpy as np
 import torch
-from beartype import beartype as typechecker
-from jaxtyping import Float, jaxtyped
+from jaxtyping import Float
+
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 class BesselBasis(torch.nn.Module):

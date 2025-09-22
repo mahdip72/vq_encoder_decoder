@@ -3,17 +3,16 @@ from typing import List, Union
 
 import torch
 import torch.nn.functional as F
-from beartype import beartype as typechecker
 from graphein.protein.tensor.angles import alpha, dihedrals, kappa
 from graphein.protein.tensor.data import Protein, ProteinBatch
 from graphein.protein.tensor.types import AtomTensor, CoordTensor
-from jaxtyping import jaxtyped
 try:  # Optional dependency for Hydra-style configs
     from omegaconf import ListConfig  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
     ListConfig = list  # type: ignore
 from torch_geometric.data import Batch, Data
 
+from ..typecheck import jaxtyped, typechecker
 from ..types import OrientationTensor, ScalarNodeFeature
 
 from .sequence_features import amino_acid_one_hot

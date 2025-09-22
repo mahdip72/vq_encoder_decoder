@@ -3,8 +3,9 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from beartype import beartype as typechecker
 from torch_geometric.data import Batch, Data
+
+from models.gcpnet.typecheck import typechecker
 
 
 @typechecker

@@ -18,9 +18,8 @@ from typing import Any, Optional, Tuple, Union
 
 import torch
 import torch_scatter
-from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
-from jaxtyping import Bool, Float, Int64, jaxtyped
+from jaxtyping import Bool, Float, Int64
 from torch import nn
 from torch_geometric.data import Batch
 
@@ -33,6 +32,7 @@ from ...utils import (
     is_identity,
     safe_norm,
 )
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 try:  # Optional dependency for backwards compatibility
     from omegaconf import DictConfig, OmegaConf  # type: ignore

@@ -2,9 +2,7 @@ from typing import List, Literal, Tuple, Union
 
 import torch
 import torch.nn as nn
-from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch, get_random_batch
-from jaxtyping import jaxtyped
 from torch_geometric.data import Batch
 from torch_geometric.nn import knn_graph
 from torch_geometric.nn.encoding import PositionalEncoding
@@ -18,6 +16,7 @@ from .node_features import (
     compute_vector_node_features,
 )
 from .representation import transform_representation
+from ..typecheck import jaxtyped, typechecker
 from ..types import (
     ScalarEdgeFeature,
     ScalarNodeFeature,

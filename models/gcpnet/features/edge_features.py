@@ -3,9 +3,7 @@
 from typing import List, Union
 
 import torch
-from beartype import beartype as typechecker
 from graphein.protein.tensor.types import CoordTensor, EdgeTensor
-from jaxtyping import jaxtyped
 try:  # Optional dependency for Hydra-style configs
     from omegaconf import ListConfig  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
@@ -13,6 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is una
 from torch_geometric.data import Batch, Data
 
 from .utils import _normalize
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 @jaxtyped(typechecker=typechecker)

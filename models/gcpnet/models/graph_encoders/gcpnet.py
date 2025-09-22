@@ -3,9 +3,7 @@ from typing import List, Union
 
 import torch
 import torch.nn as nn
-from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
-from jaxtyping import jaxtyped
 from torch_geometric.data import Batch
 
 from .layers import gcp
@@ -19,6 +17,7 @@ from ..utils import (
     localize,
 )
 from ...types import EncoderOutput
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 class GCPNetModel(torch.nn.Module):

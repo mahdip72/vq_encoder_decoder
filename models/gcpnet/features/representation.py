@@ -1,8 +1,8 @@
 from typing import Literal
 
-from beartype import beartype as typechecker
-from jaxtyping import jaxtyped
 from torch_geometric.data import Batch
+
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 @jaxtyped(typechecker=typechecker)

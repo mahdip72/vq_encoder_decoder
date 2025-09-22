@@ -1,6 +1,6 @@
 import torch
-from beartype import beartype as typechecker
-from jaxtyping import jaxtyped
+
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 @jaxtyped(typechecker=typechecker)

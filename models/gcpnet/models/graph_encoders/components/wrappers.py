@@ -1,6 +1,7 @@
 import torch
-from beartype import beartype as typechecker
-from jaxtyping import Bool, jaxtyped
+from jaxtyping import Bool
+
+from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
 class ScalarVector(tuple):
