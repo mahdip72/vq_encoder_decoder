@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from gcpnet.layers.structure_proj import Dim6RotStructureHead
-from gcpnet.models.vqvae import PairwisePredictionHead, RegressionHead
+from gcpnet_old.layers.structure_proj import Dim6RotStructureHead
+from gcpnet_old.models.vqvae import PairwisePredictionHead, RegressionHead
 from ndlinear import NdLinear
 from x_transformers import ContinuousTransformerWrapper, Encoder
 

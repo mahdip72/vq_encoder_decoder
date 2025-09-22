@@ -20,8 +20,8 @@ from torch_geometric.nn import (
 from typing import Any, Callable, ContextManager, Optional, Sequence, Tuple, TypeVar, Union
 from warnings import warn
 
-from gcpnet.utils.constants.esm3 import CHAIN_BREAK_STR
-from gcpnet.utils.types import FunctionAnnotation
+from gcpnet_old.utils.constants.esm3 import CHAIN_BREAK_STR
+from gcpnet_old.utils.types import FunctionAnnotation
 
 MAX_SUPPORTED_DISTANCE = 1e6
 

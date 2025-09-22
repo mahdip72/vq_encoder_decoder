@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from gcpnet.utils.structure.affine3d import Affine3D
+from gcpnet_old.utils.structure.affine3d import Affine3D
 
 
 def masked_mean(

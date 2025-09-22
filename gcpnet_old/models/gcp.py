@@ -28,9 +28,9 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is una
 from torch import nn
 from torch_geometric.data import Batch
 
-from gcpnet.models import radial
-from gcpnet.wrappers import ScalarVector
-from gcpnet.utils.misc import (
+from gcpnet_old.models import radial
+from gcpnet_old.wrappers import ScalarVector
+from gcpnet_old.utils.misc import (
     get_activations,
     is_identity,
     safe_norm,

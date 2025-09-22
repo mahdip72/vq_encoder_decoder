@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 
-from gcpnet.utils.constants.physics import (
+from gcpnet_old.utils.constants.physics import (
     BB_COORDINATES,
 )
-from gcpnet.utils.structure.affine3d import (
+from gcpnet_old.utils.structure.affine3d import (
     Affine3D,
     RotationMatrix,
 )

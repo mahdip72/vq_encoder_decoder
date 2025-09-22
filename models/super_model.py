@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 from models.vqvae import VQVAETransformer
 from models.decoders import GeometricDecoder
-from gcpnet.models.gcpnet import GCPNetModel
+from proteinworkshop.models.graph_encoders.gcpnet import GCPNetModel
 from proteinworkshop.models.base import load_pretrained_encoder
 from utils.utils import print_trainable_parameters
 from models.utils import merge_features, separate_features

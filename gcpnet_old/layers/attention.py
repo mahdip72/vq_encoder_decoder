@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from gcpnet.layers.rotary import RotaryEmbedding
+from gcpnet_old.layers.rotary import RotaryEmbedding
 
 
 class MultiHeadAttention(nn.Module):

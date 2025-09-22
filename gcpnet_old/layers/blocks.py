@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from gcpnet.layers.attention import MultiHeadAttention
+from gcpnet_old.layers.attention import MultiHeadAttention
 # from esm.layers.geom_attention import (
 #     GeometricReasoningOriginalImpl,
 # )
-from gcpnet.utils.structure.affine3d import Affine3D
+from gcpnet_old.utils.structure.affine3d import Affine3D
 
 
 def swiglu_correction_fn(expansion_ratio: float, d_model: int) -> int:

@@ -1,6 +1,6 @@
 """Utility helpers required by the slimmed GCPNet encoder."""
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -9,10 +9,6 @@ import torch_scatter
 from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import Bool, Float, Int64, jaxtyped
-try:  # Optional dependency for compatibility with Hydra-era configs
-    from omegaconf import DictConfig  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
-    DictConfig = Any  # type: ignore
 from torch_geometric.data import Batch
 from torch_geometric.nn import (
     global_add_pool,
@@ -20,58 +16,7 @@ from torch_geometric.nn import (
     global_mean_pool,
 )
 
-from proteinworkshop.types import (
-    ActivationType,
-    Label,
-    LossType,
-    ModelOutput,
-)
-
-
-def _config_get(config: Union[DictConfig, Dict[str, Any], Any], key: str, default=None):
-    if isinstance(config, dict):
-        return config.get(key, default)
-    return getattr(config, key, default)
-
-
-def get_input_dim(
-    features_config: Union[DictConfig, Dict[str, Any], Any],
-    feature_config_name: str,
-    task_config: Union[DictConfig, Dict[str, Any], Any],
-    recurse_for_node_features: bool = False,
-) -> int:
-    """Resolve feature dimensionality for supported feature names."""
-
-    sizes: Dict[str, int] = {
-        "amino_acid_one_hot": 23,
-        "sequence_positional_encoding": 16,
-        "alpha": 2,
-        "kappa": 2,
-        "dihedrals": 6,
-        "sidechain_torsions": 8,
-        "orientation": 2,
-        "edge_distance": 1,
-        "sequence_distance": 1,
-        "edge_vectors": 1,
-    }
-
-    dim = 0
-    feature_list = _config_get(features_config, feature_config_name, [])
-    for feature in feature_list:
-        if feature == "node_features":
-            # Used by some historic configs; recurse to collect scalar node dims.
-            dim += 2 * get_input_dim(
-                features_config,
-                "scalar_node_features",
-                task_config,
-                recurse_for_node_features=(not recurse_for_node_features),
-            )
-            continue
-
-        if feature not in sizes:
-            raise ValueError(f"Unsupported feature: {feature}")
-        dim += sizes[feature]
-    return dim
+from proteinworkshop.types import ActivationType
 
 
 def get_aggregation(aggregation: str) -> Callable:
@@ -102,28 +47,6 @@ def get_activations(
     if act_name in {"silu", "swish"}:
         return F.silu if return_functional else nn.SiLU()
     raise ValueError(f"Unknown activation function: {act_name}")
-
-
-def get_loss(
-    name: LossType,
-    smoothing: float = 0.0,
-    class_weights: Optional[torch.Tensor] = None,
-) -> Callable:
-    if name == "cross_entropy":
-        return nn.CrossEntropyLoss(
-            label_smoothing=smoothing, weight=class_weights
-        )
-    if name == "bce":
-        return nn.BCEWithLogitsLoss(weight=class_weights)
-    if name == "nll_loss":
-        return F.nll_loss
-    if name == "mse_loss":
-        return F.mse_loss
-    if name == "l1_loss":
-        return F.l1_loss
-    if name == "dihedral_loss":
-        raise NotImplementedError("Dihedral loss is not implemented in this fork.")
-    raise ValueError(f"Unsupported loss: {name}")
 
 
 def flatten_list(lists: List[List]) -> List:
@@ -232,21 +155,6 @@ def safe_norm(
         norm = torch.sqrt(norm.clamp_min(eps))
     return norm
 
-
-@jaxtyped(typechecker=typechecker)
-def log_losses(losses: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-    """Identity helper retained for checkpoint compatibility."""
-
-    return losses
-
-
-@jaxtyped(typechecker=typechecker)
-def compute_loss(
-    losses: Dict[str, Callable[[torch.Tensor, torch.Tensor], torch.Tensor]],
-    outputs: ModelOutput,
-    labels: Label,
-) -> Dict[str, torch.Tensor]:
-    return {name: criterion(outputs[name], labels[name]) for name, criterion in losses.items()}
 
 
 def is_identity(obj: Union[nn.Module, Callable]) -> bool:

@@ -3,8 +3,8 @@ import math
 import torch
 import torch.nn as nn
 
-from gcpnet.layers.blocks import UnifiedTransformerBlock
-from gcpnet.utils.structure.affine3d import Affine3D
+from gcpnet_old.layers.blocks import UnifiedTransformerBlock
+from gcpnet_old.utils.structure.affine3d import Affine3D
 
 
 class TransformerStack(nn.Module):

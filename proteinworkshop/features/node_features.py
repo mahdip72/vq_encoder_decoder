@@ -4,12 +4,7 @@ from typing import List, Union
 import torch
 import torch.nn.functional as F
 from beartype import beartype as typechecker
-from graphein.protein.tensor.angles import (
-    alpha,
-    dihedrals,
-    kappa,
-    sidechain_torsion,
-)
+from graphein.protein.tensor.angles import alpha, dihedrals, kappa
 from graphein.protein.tensor.data import Protein, ProteinBatch
 from graphein.protein.tensor.types import AtomTensor, CoordTensor
 from jaxtyping import jaxtyped
@@ -18,10 +13,7 @@ try:  # Optional dependency for Hydra-style configs
 except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
     ListConfig = list  # type: ignore
 from torch_geometric.data import Batch, Data
-from torch_geometric.nn.pool import knn_graph
-from torch_geometric.utils import softmax
 
-from proteinworkshop.models.utils import flatten_list
 from proteinworkshop.types import OrientationTensor, ScalarNodeFeature
 
 from .sequence_features import amino_acid_one_hot
@@ -63,22 +55,6 @@ def compute_scalar_node_features(
             feats.append(kappa(x.coords, x.batch, rad=True, embed=True))
         elif feature == "dihedrals":
             feats.append(dihedrals(x.coords, x.batch, rad=True, embed=True))
-        elif feature == "sidechain_torsions":
-            feats.append(
-                sidechain_torsion(
-                    x.coords,
-                    res_types=flatten_list(x.residues),
-                    rad=True,
-                    embed=True,
-                )
-            )
-        elif feature.startswith("surface"):
-            # k = int(feature.split("_")[1])
-            # sigmas = [float(s) for s in feature.split("_")[2:]]
-            # feats.append(compute_surface_feat(x.coords, k=k, sigma=sigmas))
-            raise NotImplementedError(
-                "Surface features not implemented yet. Does not handle batched data."
-            )
         elif feature == "sequence_positional_encoding":
             continue
         else:
@@ -113,41 +89,6 @@ def compute_vector_node_features(
             raise ValueError(f"Vector feature {feature} not recognised.")
     x.x_vector_attr = torch.cat(vector_node_features, dim=0)
     return x
-
-
-@jaxtyped(typechecker=typechecker)
-def compute_surface_feat(
-    coords: Union[CoordTensor, AtomTensor], k: int, sigma: List[float]
-):
-    """Coords: (N, 3)
-    k: number of neighbors to consider in KNN graph
-    """
-    if coords.ndim == 3:
-        coords = coords[:, 1, :]
-    feat = []
-    for s in sigma:
-        SIGMA = torch.tensor([s], device=coords.device).unsqueeze(1)
-        N_DIM = coords.shape[-1]
-        N_SIGMA = SIGMA.shape[0]
-
-        edge_index = knn_graph(coords, k=k)
-        node_in = coords[edge_index[0]]
-        node_out = coords[edge_index[1]]
-
-        dists = torch.pairwise_distance(node_in, node_out).unsqueeze(0)
-        dists = -(dists**2) / SIGMA
-        weights = softmax(dists, index=edge_index[1], dim=-1)
-        weights = weights.reshape(-1, N_SIGMA, k)
-
-        diff_vecs = node_in - node_out
-        diff_vecs = diff_vecs.reshape(-1, k, N_DIM)
-
-        mean_vec = torch.bmm(weights, diff_vecs)
-        denom = torch.bmm(
-            weights, torch.norm(diff_vecs, dim=-1).unsqueeze(-1)
-        ).squeeze(-1)
-        feat.append(torch.norm(mean_vec, dim=-1) / denom)
-    return torch.cat(feat, dim=1)
 
 
 @jaxtyped(typechecker=typechecker)

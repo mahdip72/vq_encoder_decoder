@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import torch
 from typing_extensions import Self
 
-from gcpnet.utils.misc import fp32_autocast_context
+from gcpnet_old.utils.misc import fp32_autocast_context
 
 
 @T.runtime_checkable

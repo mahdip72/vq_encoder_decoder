@@ -25,8 +25,6 @@ def compute_scalar_edge_features(
     for feature in features:
         if feature == "edge_distance":
             scalars.append(_edge_distance(x.pos, x.edge_index))
-        elif feature == "sequence_distance":
-            scalars.append((x.edge_index[1] - x.edge_index[0]).unsqueeze(-1))
         else:  # pragma: no cover - defensive branch
             raise ValueError(f"Unsupported scalar edge feature: {feature}")
 

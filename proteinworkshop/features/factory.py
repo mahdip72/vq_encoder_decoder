@@ -5,7 +5,6 @@ import torch.nn as nn
 from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch, get_random_batch
 from jaxtyping import jaxtyped
-from loguru import logger
 from torch_geometric.data import Batch
 from torch_geometric.nn import knn_graph
 from torch_geometric.nn.encoding import PositionalEncoding
@@ -134,24 +133,6 @@ class ProteinFeaturiser(nn.Module):
 
     def __repr__(self) -> str:
         return f"ProteinFeaturiser(representation={self.representation}, scalar_node_features={self.scalar_node_features}, vector_node_features={self.vector_node_features}, edge_types={self.edge_types}, scalar_edge_features={self.scalar_edge_features}, vector_edge_features={self.vector_edge_features})"
-
-
-if __name__ == "__main__":
-    import hydra
-    import omegaconf
-
-    from proteinworkshop import constants
-
-    cfg = omegaconf.OmegaConf.load(
-        constants.PROJECT_PATH
-        / "configs"
-        / "features"
-        / "all_invariant_ca.yaml"
-    )
-    featuriser = hydra.utils.instantiate(cfg)
-    logger.info(featuriser)
-    logger.info(featuriser._example())
-
 
 def _compute_edges(
     batch: Batch, edge_types: List[str]

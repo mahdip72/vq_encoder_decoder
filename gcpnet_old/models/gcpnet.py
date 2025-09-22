@@ -8,9 +8,9 @@ from jaxtyping import jaxtyped
 from torch_geometric.data import Batch
 from typing import List, Optional, Tuple
 
-from gcpnet.models import gcp
-from gcpnet.utils.misc import centralize, decentralize, get_aggregation, localize
-from gcpnet.wrappers import ScalarVector
+from gcpnet_old.models import gcp
+from gcpnet_old.utils.misc import centralize, decentralize, get_aggregation, localize
+from gcpnet_old.wrappers import ScalarVector
     
 
 class GCPNetModel(torch.nn.Module):
