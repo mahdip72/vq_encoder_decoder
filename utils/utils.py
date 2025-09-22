@@ -145,9 +145,15 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
     """
 
     # Save the models checkpoint.
+    try:
+        unwrapped = accelerator.unwrap_model(kwargs['net'], keep_torch_compile=True)
+    except KeyError:
+        unwrapped = getattr(kwargs['net'], "module", kwargs['net'])
+    base_model = getattr(unwrapped, "_orig_mod", unwrapped)
+
     torch.save({
         'epoch': epoch,
-        'model_state_dict': accelerator.unwrap_model(kwargs['net']).state_dict(),
+        'model_state_dict': base_model.state_dict(),
         'optimizer_state_dict': kwargs['optimizer'].state_dict(),
         'scheduler_state_dict': kwargs['scheduler'].state_dict() if kwargs.get('scheduler') is not None else None,
     }, model_path)

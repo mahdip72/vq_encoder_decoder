@@ -18,7 +18,11 @@ from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataPara
 from tqdm import tqdm
 import time
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
-from models.super_model import prepare_model, compile_non_gcp_and_exclude_vq
+from models.super_model import (
+    prepare_model,
+    compile_non_gcp_and_exclude_vq,
+    compile_gcp_encoder,
+)
 from utils.training_helpers import (
     init_metrics,
     reset_metrics,
@@ -347,9 +351,9 @@ def main(dict_config, config_file_path):
 
     # compile models to train faster and efficiently
     if configs.model.compile_model:
-        if hasattr(net, 'vqvae'):
-            net = compile_non_gcp_and_exclude_vq(net, mode=None, backend="inductor")
-            logging.info('VQVAE component compiled.')
+        if hasattr(net, 'encoder'):
+            net = compile_gcp_encoder(net, mode=None, backend="inductor")
+            logging.info('GCP encoder compiled.')
 
     net, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, valid_dataloader, scheduler

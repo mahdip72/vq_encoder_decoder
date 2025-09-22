@@ -189,6 +189,27 @@ def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead", bac
     return net
 
 
+def compile_gcp_encoder(net: nn.Module, mode: str | None = "reduce-overhead", backend: str | None = "inductor") -> nn.Module:
+    """Compile the GCP encoder component of ``SuperModel`` while leaving VQVAE untouched."""
+
+    if not hasattr(net, "encoder") or net.encoder is None:
+        return net
+
+    def _compile(module: nn.Module) -> nn.Module:
+        return torch.compile(module, mode=mode, backend=backend)
+
+    encoder_module = net.encoder
+
+    # Handle pretrained wrapper that contains both featuriser and encoder
+    inner_encoder = getattr(encoder_module, "encoder", None)
+    if isinstance(inner_encoder, nn.Module):
+        encoder_module.encoder = _compile(inner_encoder)
+        return net
+
+    net.encoder = _compile(encoder_module)
+    return net
+
+
 if __name__ == '__main__':
     import yaml
     import tqdm
