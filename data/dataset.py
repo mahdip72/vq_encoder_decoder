@@ -2,6 +2,7 @@ import glob
 import math
 import numpy as np
 import torch
+import torch_cluster
 import torch.nn.functional as F
 import os
 import functools
@@ -175,6 +176,39 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
 
     # Create a Batch object
     torch_geometric_batch = Batch.from_data_list(torch_geometric_feature)
+    if hasattr(torch_geometric_batch, 'edge_index') and torch_geometric_batch.edge_index is not None:
+        if getattr(torch_geometric_batch.edge_index, 'numel', lambda: 0)() > 0:
+            if not hasattr(torch_geometric_batch, 'edge_type') or torch_geometric_batch.edge_type is None or torch_geometric_batch.edge_type.numel() == 0:
+                torch_geometric_batch.edge_type = torch.zeros(
+                    torch_geometric_batch.edge_index.size(1), dtype=torch.long,
+                    device=torch_geometric_batch.edge_index.device
+                )
+            torch_geometric_batch.edge_index_precomputed = True
+        else:
+            torch_geometric_batch.edge_index_precomputed = False
+    else:
+        torch_geometric_batch.edge_index_precomputed = False
+
+    if featuriser and getattr(featuriser, 'edge_types', None):
+        edge_types = featuriser.edge_types
+        if len(edge_types) == 1 and edge_types[0].startswith("knn_"):
+            try:
+                k = int(edge_types[0].split("_", 1)[1])
+            except (IndexError, ValueError):
+                k = None
+            if k is not None:
+                ca_coords = torch_geometric_batch.x_bb[:, 1].contiguous()
+                edge_index = torch_cluster.knn_graph(
+                    ca_coords,
+                    k=k,
+                    batch=torch_geometric_batch.batch,
+                    loop=False,
+                )
+                torch_geometric_batch.edge_index = edge_index
+                torch_geometric_batch.edge_type = torch.zeros(
+                    edge_index.size(1), dtype=torch.long, device=edge_index.device
+                )
+                torch_geometric_batch.edge_index_precomputed = True
     raw_seqs = [item[1] for item in one_batch]
     plddt_scores = [item[2] for item in one_batch]
     pids = [item[3] for item in one_batch]
@@ -437,7 +471,7 @@ class GCPNetDataset(Dataset):
                             temp = torch.tensor([1, 0, 0], device=v.device, dtype=v.dtype)
                             if abs((u * temp).sum()) > 0.9:
                                 temp = torch.tensor([0, 1, 0], device=v.device, dtype=v.dtype)
-                            n = torch.cross(u, temp)
+                            n = torch.linalg.cross(u, temp)
                             n = n / n.norm()
 
                             # prevent nan from sqrt of negative number
@@ -789,7 +823,6 @@ class GCPNetDataset(Dataset):
         return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels, nan_mask, sample_weight]
 
     def _featurize_as_graph(self, protein):
-        import torch_cluster
         from torch_geometric.data import Data
 
         name = protein['name']
@@ -807,9 +840,6 @@ class GCPNetDataset(Dataset):
             coords[~mask] = np.inf
 
             X_ca = coords[:, 1]
-            edge_index = torch_cluster.knn_graph(X_ca, k=self.top_k)
-            E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]
-            pos_embeddings = self._positional_embeddings(edge_index)
 
             dihedrals = self._dihedrals(coords)  # only this one used O
             orientations = self._orientations(X_ca)
@@ -818,16 +848,11 @@ class GCPNetDataset(Dataset):
 
             node_v = torch.cat([orientations, sidechains.unsqueeze(-2)], dim=-2)
 
-            edge_s = pos_embeddings  # NOTE: radial basis functions will be computed during the forward pass
-            edge_v = _normalize(E_vectors).unsqueeze(-2)
-
-            node_s, node_v, edge_s, edge_v = map(torch.nan_to_num,
-                                                 (node_s, node_v, edge_s, edge_v))
+            node_s, node_v = map(torch.nan_to_num, (node_s, node_v))
 
         data = Data(x=X_ca, x_bb=coords[:, :3], seq=seq, name=name,
                     h=node_s, chi=node_v,
-                    e=edge_s, xi=edge_v,
-                    edge_index=edge_index, mask=mask)
+                    mask=mask)
         return data
 
     @staticmethod

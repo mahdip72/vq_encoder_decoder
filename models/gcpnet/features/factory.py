@@ -5,6 +5,7 @@ import torch.nn as nn
 from graphein.protein.tensor.data import ProteinBatch, get_random_batch
 from torch_geometric.data import Batch
 from torch_geometric.nn import knn_graph
+import torch._dynamo as dynamo
 from torch_geometric.nn.encoding import PositionalEncoding
 
 from .edge_features import (
@@ -150,7 +151,16 @@ def _compute_edges(
             f"Invalid edge type specification: {edge_types[0]}"
         ) from exc
 
-    edge_index = knn_graph(
+    if getattr(batch, 'edge_index_precomputed', False):
+        edge_index = batch.edge_index
+        edge_type = getattr(batch, 'edge_type', None)
+        if edge_type is None or edge_type.numel() == 0:
+            edge_type = torch.zeros(
+                edge_index.size(1), dtype=torch.long, device=edge_index.device
+            )
+        return edge_index, edge_type
+
+    edge_index = _knn_graph_eager(
         x=batch.pos,
         k=k,
         batch=batch.batch,
@@ -160,3 +170,8 @@ def _compute_edges(
         edge_index.size(1), dtype=torch.long, device=edge_index.device
     )
     return edge_index, edge_type
+
+@dynamo.disable
+def _knn_graph_eager(*args, **kwargs):
+    """Wrapper to keep torch_cluster-based knn_graph out of torch.compile traces."""
+    return knn_graph(*args, **kwargs)

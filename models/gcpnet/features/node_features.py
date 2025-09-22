@@ -103,19 +103,24 @@ def orientations(
     slice_index = coords_slice_index[1:] - 1
     last_node_index = slice_index[:-1]
     first_node_index = slice_index[:-1] + 1
-    slice_mask = torch.zeros(batch_num_nodes - 1, dtype=torch.bool)
-    last_node_forward_slice_mask = slice_mask.clone()
-    first_node_backward_slice_mask = slice_mask.clone()
 
     # NOTE: all of the last (first) nodes in a subgraph have their
     # forward (backward) vectors set to a padding value (i.e., 0.0)
     # to mimic feature construction behavior with single input graphs
     forward_slice = X[1:] - X[:-1]
     backward_slice = X[:-1] - X[1:]
-    last_node_forward_slice_mask[last_node_index] = True
-    first_node_backward_slice_mask[first_node_index - 1] = True  # NOTE: for the backward slices, our indexing defaults to node index `1`
-    forward_slice[last_node_forward_slice_mask] = 0.0 # NOTE: this handles all but the last node in the last subgraph
-    backward_slice[first_node_backward_slice_mask] = 0.0 # NOTE: this handles all but the first node in the first subgraph
+
+    if forward_slice.numel() > 0 and last_node_index.numel() > 0:
+        max_forward_idx = forward_slice.size(0) - 1
+        # zero the forward vectors for last nodes in each subgraph without boolean masks (torch.compile friendly)
+        valid_forward_idx = last_node_index.clamp_min(0).clamp_max(max_forward_idx).to(X.device)
+        forward_slice.index_fill_(0, valid_forward_idx, 0.0)
+
+    if backward_slice.numel() > 0 and first_node_index.numel() > 0:
+        max_backward_idx = backward_slice.size(0) - 1
+        # zero the backward vectors for first nodes in each subgraph
+        valid_backward_idx = (first_node_index - 1).clamp_min(0).clamp_max(max_backward_idx).to(X.device)
+        backward_slice.index_fill_(0, valid_backward_idx, 0.0)
 
     # NOTE: padding first and last nodes with zero vectors does not impact feature normalization
     forward = _normalize(forward_slice)
