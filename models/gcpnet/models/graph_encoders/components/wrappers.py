@@ -1,96 +1,84 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable, Tuple
+
 import torch
 from jaxtyping import Bool
 
 from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
-class ScalarVector(tuple):
-    """
-    From https://github.com/BioinfoMachineLearning/GCPNet
-    """
+@dataclass(frozen=True, slots=True)
+class ScalarVector:
+    """Lightweight container for paired scalar/vector features."""
 
-    def __new__(cls, scalar, vector):
-        return tuple.__new__(cls, (scalar, vector))
+    scalar: torch.Tensor
+    vector: torch.Tensor
 
-    def __getnewargs__(self):
-        return self.scalar, self.vector
+    # tuple-like helpers -------------------------------------------------
+    def __iter__(self):
+        yield self.scalar
+        yield self.vector
 
-    @property
-    def scalar(self):
-        return self[0]
+    def __len__(self) -> int:
+        return 2
 
-    @property
-    def vector(self):
-        return self[1]
+    def __getitem__(self, index: int) -> torch.Tensor:
+        if index == 0:
+            return self.scalar
+        if index == 1:
+            return self.vector
+        raise IndexError("ScalarVector only contains two elements")
 
-    # Element-wise addition
-    def __add__(self, other):
-        if isinstance(other, tuple):
-            scalar_other = other[0]
-            vector_other = other[1]
-        else:
-            scalar_other = other.scalar
-            vector_other = other.vector
+    # elementwise arithmetic --------------------------------------------
+    def __add__(self, other: "ScalarVector") -> "ScalarVector":
+        if not isinstance(other, ScalarVector):  # pragma: no cover - defensive
+            return NotImplemented
+        return ScalarVector(self.scalar + other.scalar, self.vector + other.vector)
 
-        return ScalarVector(
-            self.scalar + scalar_other, self.vector + vector_other
-        )
-
-    # Element-wise multiplication or scalar multiplication
-    def __mul__(self, other):
-        if isinstance(other, tuple):
-            other = ScalarVector(other[0], other[1])
-
+    def __mul__(self, other) -> "ScalarVector":
         if isinstance(other, ScalarVector):
-            return ScalarVector(
-                self.scalar * other.scalar, self.vector * other.vector
-            )
-        else:
-            return ScalarVector(self.scalar * other, self.vector * other)
+            return ScalarVector(self.scalar * other.scalar, self.vector * other.vector)
+        return ScalarVector(self.scalar * other, self.vector * other)
 
-    def concat(self, others, dim: int = -1):
-        dim %= len(self.scalar.shape)
-        s_args, v_args = list(zip(*(self, *others)))
-        return torch.cat(s_args, dim=dim), torch.cat(v_args, dim=dim)
+    # utility helpers ----------------------------------------------------
+    def concat(self, others: Iterable["ScalarVector"], dim: int = -1) -> Tuple[torch.Tensor, torch.Tensor]:
+        dim %= self.scalar.dim()
+        scalars = [self.scalar]
+        vectors = [self.vector]
+        for other in others:
+            if not isinstance(other, ScalarVector):  # pragma: no cover - defensive
+                raise TypeError("Expected ScalarVector instances in concat")
+            scalars.append(other.scalar)
+            vectors.append(other.vector)
+        return torch.cat(scalars, dim=dim), torch.cat(vectors, dim=dim)
 
-    def flatten(self):
-        flat_vector = torch.reshape(
-            self.vector, self.vector.shape[:-2] + (3 * self.vector.shape[-2],)
-        )
+    def flatten(self) -> torch.Tensor:
+        flat_vector = self.vector.reshape(*self.vector.shape[:-2], -1)
         return torch.cat((self.scalar, flat_vector), dim=-1)
 
     @staticmethod
-    def recover(x, vector_dim: int):
-        v = torch.reshape(
-            x[..., -3 * vector_dim :], x.shape[:-1] + (vector_dim, 3)
-        )
+    def recover(x: torch.Tensor, vector_dim: int) -> "ScalarVector":
+        if vector_dim == 0:
+            zero_vector = x.new_zeros(*x.shape[:-1], 0, 3)
+            return ScalarVector(x, zero_vector)
+        v = x[..., -3 * vector_dim :].reshape(*x.shape[:-1], vector_dim, 3)
         s = x[..., : -3 * vector_dim]
         return ScalarVector(s, v)
 
-    def vs(self):
-        return self.scalar, self.vector
+    def idx(self, index) -> "ScalarVector":
+        return ScalarVector(self.scalar[index], self.vector[index])
 
-    def idx(self, idx):
-        return ScalarVector(self.scalar[idx], self.vector[idx])
-
-    def repeat(self, n, c: int = 1, y: int = 1):
-        return ScalarVector(
-            self.scalar.repeat(n, c), self.vector.repeat(n, y, c)
-        )
-
-    def clone(self):
+    def clone(self) -> "ScalarVector":
         return ScalarVector(self.scalar.clone(), self.vector.clone())
 
     @jaxtyped(typechecker=typechecker)
-    def mask(self, node_mask: Bool[torch.Tensor, " n_nodes"]):
+    def mask(self, node_mask: Bool[torch.Tensor, " n_nodes"]) -> "ScalarVector":
         return ScalarVector(
-            self.scalar * node_mask[:, None],
-            self.vector * node_mask[:, None, None],
+            self.scalar * node_mask[..., None],
+            self.vector * node_mask[..., None, None],
         )
 
-    def __setitem__(self, key, value):
-        self.scalar[key] = value.scalar
-        self.vector[key] = value.vector
 
-    def __repr__(self):
-        return f"ScalarVector({self.scalar}, {self.vector})"
+__all__ = ["ScalarVector"]
