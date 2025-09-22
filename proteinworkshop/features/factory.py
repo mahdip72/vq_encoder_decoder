@@ -1,4 +1,4 @@
-from typing import List, Literal, Union
+from typing import List, Literal, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -7,13 +7,13 @@ from graphein.protein.tensor.data import ProteinBatch, get_random_batch
 from jaxtyping import jaxtyped
 from loguru import logger
 from torch_geometric.data import Batch
+from torch_geometric.nn import knn_graph
 from torch_geometric.nn.encoding import PositionalEncoding
 
 from proteinworkshop.features.edge_features import (
     compute_scalar_edge_features,
     compute_vector_edge_features,
 )
-from proteinworkshop.features.edges import compute_edges
 from proteinworkshop.features.node_features import (
     compute_scalar_node_features,
     compute_vector_node_features,
@@ -109,7 +109,7 @@ class ProteinFeaturiser(nn.Module):
 
         # Edges
         if self.edge_types:
-            batch.edge_index, batch.edge_type = compute_edges(
+            batch.edge_index, batch.edge_type = _compute_edges(
                 batch, self.edge_types
             )
             batch.num_relation = len(self.edge_types)
@@ -151,3 +151,32 @@ if __name__ == "__main__":
     featuriser = hydra.utils.instantiate(cfg)
     logger.info(featuriser)
     logger.info(featuriser._example())
+
+
+def _compute_edges(
+    batch: Batch, edge_types: List[str]
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Minimal edge constructor supporting knn graphs for CA backbones."""
+
+    if len(edge_types) != 1 or not edge_types[0].startswith("knn_"):
+        raise ValueError(
+            "Trimmed ProteinWorkshop supports only a single 'knn_{k}' edge type"
+        )
+
+    try:
+        k = int(edge_types[0].split("_", 1)[1])
+    except (IndexError, ValueError) as exc:  # pragma: no cover - defensive parsing
+        raise ValueError(
+            f"Invalid edge type specification: {edge_types[0]}"
+        ) from exc
+
+    edge_index = knn_graph(
+        x=batch.pos,
+        k=k,
+        batch=batch.batch,
+        loop=False,
+    )
+    edge_type = torch.zeros(
+        edge_index.size(1), dtype=torch.long, device=edge_index.device
+    )
+    return edge_index, edge_type
