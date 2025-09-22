@@ -16,7 +16,6 @@ resume:
   discard_decoder_weights: False
 
 model:
-  log_details: True
   compile_model: False
   max_length: 512
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
