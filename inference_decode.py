@@ -183,6 +183,10 @@ def main():
 
     logger.info(f"Inference decoding completed. Results are saved in {result_dir}")
 
+    accelerator.wait_for_everyone()
+    accelerator.free_memory()
+    accelerator.end_training()
+
 
 if __name__ == '__main__':
     main()

@@ -144,6 +144,9 @@ def main(config_path: str):
         hf.create_dataset('codebook', data=codebook_np, compression='gzip')
 
     logger.info(f"Saved codebook embeddings ({codebook_np.shape[0]} x {codebook_np.shape[1]}) to {h5_path}")
+    accelerator.wait_for_everyone()
+    accelerator.free_memory()
+    accelerator.end_training()
 
 
 if __name__ == '__main__':

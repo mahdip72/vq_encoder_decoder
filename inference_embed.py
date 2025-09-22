@@ -174,6 +174,9 @@ def main():
                 hf.create_dataset(pid, data=emb, compression='gzip')
         logger.info(f"Saved embeddings HDF5: {h5_path}")
 
+    accelerator.wait_for_everyone()
+    accelerator.free_memory()
+    accelerator.end_training()
 
 if __name__ == '__main__':
     main()

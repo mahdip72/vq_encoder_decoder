@@ -325,6 +325,10 @@ def main():
         # Evaluate structures using TM-score and RMSD
         evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger)
 
+    accelerator.wait_for_everyone()
+    accelerator.free_memory()
+    accelerator.end_training()
+
 
 if __name__ == '__main__':
     main()

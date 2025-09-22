@@ -193,6 +193,8 @@ def main():
                 
     # Ensure all processes have completed before exiting
     accelerator.wait_for_everyone()
+    accelerator.free_memory()
+    accelerator.end_training()
 
 
 if __name__ == '__main__':
