@@ -1,17 +1,14 @@
 from functools import partial
 from typing import List, Union
 
-import hydra
 import torch
 import torch.nn as nn
 from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import jaxtyped
-from omegaconf import DictConfig
 from torch_geometric.data import Batch
 
 import proteinworkshop.models.graph_encoders.layers.gcp as gcp
-from proteinworkshop import constants
 from proteinworkshop.models.graph_encoders.components.wrappers import (
     ScalarVector,
 )
@@ -224,16 +221,3 @@ class GCPNetModel(torch.nn.Module):
         )  # (n, d) -> (batch_size, d)
         return EncoderOutput(encoder_outputs)
 
-
-@hydra.main(
-    version_base="1.3",
-    config_path=str(constants.SRC_PATH / "config" / "encoder"),
-    config_name="gcpnet.yaml",
-)
-def _main(cfg: DictConfig):
-    enc = hydra.utils.instantiate(cfg)
-    print(enc)
-
-
-if __name__ == "__main__":
-    _main()

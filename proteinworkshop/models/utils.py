@@ -1,6 +1,6 @@
 """Utility helpers required by the slimmed GCPNet encoder."""
 
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -9,7 +9,10 @@ import torch_scatter
 from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import Bool, Float, Int64, jaxtyped
-from omegaconf import DictConfig
+try:  # Optional dependency for compatibility with Hydra-era configs
+    from omegaconf import DictConfig  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
+    DictConfig = Any  # type: ignore
 from torch_geometric.data import Batch
 from torch_geometric.nn import (
     global_add_pool,
@@ -25,10 +28,16 @@ from proteinworkshop.types import (
 )
 
 
+def _config_get(config: Union[DictConfig, Dict[str, Any], Any], key: str, default=None):
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
 def get_input_dim(
-    features_config: DictConfig,
+    features_config: Union[DictConfig, Dict[str, Any], Any],
     feature_config_name: str,
-    task_config: DictConfig,
+    task_config: Union[DictConfig, Dict[str, Any], Any],
     recurse_for_node_features: bool = False,
 ) -> int:
     """Resolve feature dimensionality for supported feature names."""
@@ -47,7 +56,8 @@ def get_input_dim(
     }
 
     dim = 0
-    for feature in getattr(features_config, feature_config_name):
+    feature_list = _config_get(features_config, feature_config_name, [])
+    for feature in feature_list:
         if feature == "node_features":
             # Used by some historic configs; recurse to collect scalar node dims.
             dim += 2 * get_input_dim(

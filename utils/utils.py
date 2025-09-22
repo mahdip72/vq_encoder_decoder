@@ -17,11 +17,18 @@ from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 import yaml
 import h5py
 from io import StringIO
-from hydra import compose, initialize
+try:  # Optional dependency retained for legacy workflows
+    from hydra import compose, initialize  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback when Hydra is unavailable
+    compose = None  # type: ignore
+    initialize = None  # type: ignore
 from Bio.PDB import PDBIO
 
 
 def load_all_configs():
+    if compose is None or initialize is None:
+        raise RuntimeError("Hydra is not available; cannot compose legacy configs.")
+
     # Initialize Hydra
     config_path = "configs"  # Path to your config directory
 

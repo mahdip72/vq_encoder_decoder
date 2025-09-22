@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
-from typing import Tuple
+from typing import Mapping, Tuple
 
 # ideal bond lengths in Å
 BOND_LENGTHS = {
@@ -374,20 +374,16 @@ class GCPNetDataset(Dataset):
 
         # Instantiate featuriser/transform only if using the pretrained GCPNet encoder
         if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-            # Import hydra and OmegaConf only when needed
-            import hydra
-            from omegaconf import OmegaConf
+            from proteinworkshop.models.base import instantiate_module, load_pretrained_config
 
             pretrained_config_path = self.configs.model.encoder.pretrained.config_path
-            # Load the configuration file associated with the pretrained model
-            pretrained_cfg = OmegaConf.load(pretrained_config_path)
+            pretrained_cfg = load_pretrained_config(pretrained_config_path)
 
-            # Instantiate the featuriser defined in the pretrained config
-            self.pretrained_featuriser = hydra.utils.instantiate(pretrained_cfg.features)
+            self.pretrained_featuriser = instantiate_module(pretrained_cfg.get("features"))
 
-            # Instantiate the task transform defined in the pretrained config (if it exists)
-            if pretrained_cfg.get("task.transform"):
-                self.pretrained_task_transform = hydra.utils.instantiate(pretrained_cfg.task.transform)
+            task_cfg = pretrained_cfg.get("task")
+            if isinstance(task_cfg, Mapping):
+                self.pretrained_task_transform = instantiate_module(task_cfg.get("transform"))
 
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

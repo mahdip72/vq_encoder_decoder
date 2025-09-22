@@ -21,7 +21,6 @@ import torch_scatter
 from beartype import beartype as typechecker
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import Bool, Float, Int64, jaxtyped
-from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch_geometric.data import Batch
 
@@ -34,6 +33,24 @@ from proteinworkshop.models.utils import (
     is_identity,
     safe_norm,
 )
+
+try:  # Optional dependency for backwards compatibility
+    from omegaconf import DictConfig, OmegaConf  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
+    DictConfig = Any  # type: ignore
+    OmegaConf = None  # type: ignore
+
+
+def _cfg_to_dict(cfg: Any) -> Any:
+    if OmegaConf is not None and isinstance(cfg, DictConfig):
+        return copy(OmegaConf.to_container(cfg, throw_on_missing=True))
+    if isinstance(cfg, dict):
+        return {key: _cfg_to_dict(value) for key, value in cfg.items()}
+    if hasattr(cfg, "__dict__"):
+        return {key: _cfg_to_dict(value) for key, value in vars(cfg).items()}
+    if isinstance(cfg, list):
+        return [_cfg_to_dict(item) for item in cfg]
+    return cfg
 
 
 class VectorDropout(nn.Module):
@@ -393,7 +410,7 @@ class GCPEmbedding(nn.Module):
         node_hidden_dims: ScalarVector,
         num_atom_types: int = 0,
         nonlinearities: Tuple[Optional[str]] = ("silu", "silu"),
-        cfg: DictConfig = None,
+        cfg: Any = None,
         pre_norm: bool = True,
         use_gcp_norm: bool = True,
     ):
@@ -512,12 +529,15 @@ class GCPEmbedding(nn.Module):
 
 @typechecker
 def get_GCP_with_custom_cfg(
-    input_dims: Any, output_dims: Any, cfg: DictConfig, **kwargs
+    input_dims: Any, output_dims: Any, cfg: Any, **kwargs
 ):
-    cfg_dict = copy(OmegaConf.to_container(cfg, throw_on_missing=True))
-    cfg_dict["nonlinearities"] = cfg.nonlinearities
-    del cfg_dict["scalar_nonlinearity"]
-    del cfg_dict["vector_nonlinearity"]
+    cfg_dict = _cfg_to_dict(cfg)
+    if not isinstance(cfg_dict, dict):  # pragma: no cover - defensive guard
+        raise TypeError("GCP configuration must be a mapping.")
+
+    cfg_dict = copy(cfg_dict)
+    cfg_dict.pop("scalar_nonlinearity", None)
+    cfg_dict.pop("vector_nonlinearity", None)
 
     for key in kwargs:
         cfg_dict[key] = kwargs[key]
@@ -531,8 +551,8 @@ class GCPMessagePassing(nn.Module):
         input_dims: ScalarVector,
         output_dims: ScalarVector,
         edge_dims: ScalarVector,
-        cfg: DictConfig,
-        mp_cfg: DictConfig,
+        cfg: Any,
+        mp_cfg: Any,
         reduce_function: str = "sum",
         use_scalar_message_attention: bool = True,
     ):
@@ -682,8 +702,8 @@ class GCPInteractions(nn.Module):
         self,
         node_dims: ScalarVector,
         edge_dims: ScalarVector,
-        cfg: DictConfig,
-        layer_cfg: DictConfig,
+        cfg: Any,
+        layer_cfg: Any,
         dropout: float = 0.0,
         nonlinearities: Optional[Tuple[Any, Any]] = None,
     ):

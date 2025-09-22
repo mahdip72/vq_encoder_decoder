@@ -1,7 +1,11 @@
 import importlib.metadata
 
 from graphein import verbose
-from omegaconf import OmegaConf
+
+try:  # Optional dependency when Hydra/OmegaConf is installed
+    from omegaconf import OmegaConf  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback without OmegaConf
+    OmegaConf = None  # type: ignore
 
 # Disable graphein import warnings
 verbose(False)
@@ -17,6 +21,8 @@ def register_custom_omegaconf_resolvers():
     """
     Register custom OmegaConf resolvers for use in Hydra config files.
     """
+    if OmegaConf is None:  # pragma: no cover - defensive guard
+        raise RuntimeError("OmegaConf is not available; custom resolvers cannot be registered.")
     # lazy import
     from proteinworkshop.models.utils import get_input_dim  # noqa: F401
 

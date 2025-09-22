@@ -13,7 +13,10 @@ from graphein.protein.tensor.angles import (
 from graphein.protein.tensor.data import Protein, ProteinBatch
 from graphein.protein.tensor.types import AtomTensor, CoordTensor
 from jaxtyping import jaxtyped
-from omegaconf import ListConfig
+try:  # Optional dependency for Hydra-style configs
+    from omegaconf import ListConfig  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
+    ListConfig = list  # type: ignore
 from torch_geometric.data import Batch, Data
 from torch_geometric.nn.pool import knn_graph
 from torch_geometric.utils import softmax
