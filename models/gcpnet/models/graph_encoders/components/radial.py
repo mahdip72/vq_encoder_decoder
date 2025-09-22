@@ -11,6 +11,49 @@ from jaxtyping import Float
 from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
+class CachedGaussianRBF(torch.nn.Module):
+    """Gaussian RBF sampler that caches basis centers on each device."""
+
+    def __init__(
+        self,
+        min_distance: float = 0.0,
+        max_distance: float = 10.0,
+        num_rbf: int = 8,
+    ):
+        super().__init__()
+        base = torch.linspace(
+            min_distance,
+            max_distance,
+            num_rbf,
+            dtype=torch.get_default_dtype(),
+        ).view(1, -1)
+
+        sigma = torch.tensor(
+            (max_distance - min_distance) / num_rbf,
+            dtype=torch.get_default_dtype(),
+        )
+
+        self.register_buffer("_centers_cpu", base, persistent=False)
+        self.register_buffer("_sigma_cpu", sigma, persistent=False)
+
+        self._center_cache = {}
+        self._sigma_cache = {}
+
+    def _cached(self, cache: dict, tensor: torch.Tensor, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        key = (device.type, device.index if device.type != "cpu" else -1, dtype)
+        value = cache.get(key)
+        if value is None:
+            value = tensor.to(device=device, dtype=dtype)
+            cache[key] = value
+        return value
+
+    def forward(self, distances: torch.Tensor) -> torch.Tensor:
+        centers = self._cached(self._center_cache, self._centers_cpu, distances.device, distances.dtype)
+        sigma = self._cached(self._sigma_cache, self._sigma_cpu, distances.device, distances.dtype)
+        expanded = distances.unsqueeze(-1)
+        return torch.exp(-(((expanded - centers) / sigma) ** 2))
+
+
 class BesselBasis(torch.nn.Module):
     """
     Klicpera, J.; Groß, J.; Günnemann, S. Directional Message Passing for Molecular Graphs; ICLR 2020.

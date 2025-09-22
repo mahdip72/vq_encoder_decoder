@@ -421,8 +421,9 @@ class GCPEmbedding(nn.Module):
         else:
             self.atom_embedding = None
 
-        self.radial_embedding = partial(
-            radial.compute_rbf, max_distance=cfg.r_max, num_rbf=cfg.num_rbf
+        self.radial_embedding = radial.CachedGaussianRBF(
+            max_distance=cfg.r_max,
+            num_rbf=cfg.num_rbf,
         )
 
         self.pre_norm = pre_norm
