@@ -216,6 +216,6 @@ class GCPNetModel(torch.nn.Module):
 
         encoder_outputs["node_embedding"] = out
         encoder_outputs["graph_embedding"] = self.readout(
-            out, batch.batch
+            out, batch
         )  # (n, d) -> (batch_size, d)
         return EncoderOutput(encoder_outputs)

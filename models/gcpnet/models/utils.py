@@ -19,13 +19,51 @@ from ..types import ActivationType
 from models.gcpnet.typecheck import jaxtyped, typechecker
 
 
+def _extract_batch_info(batch_like: Union[Batch, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, int]:
+    if isinstance(batch_like, Batch):
+        index = batch_like.batch
+        num_graphs = batch_like.num_graphs
+        lengths = torch.bincount(index, minlength=num_graphs)
+    else:
+        index = batch_like
+        lengths = torch.bincount(index) if index.numel() else index.new_zeros(0, dtype=torch.long)
+        num_graphs = lengths.size(0)
+    if lengths.device != index.device:
+        lengths = lengths.to(index.device)
+    return index, lengths, num_graphs
+
+
 def get_aggregation(aggregation: str) -> Callable:
+    def pool_sum(x: torch.Tensor, batch_like: Union[Batch, torch.Tensor]) -> torch.Tensor:
+        if x.numel() == 0:
+            return x.new_zeros((0, x.size(-1)))
+        index, _, num_graphs = _extract_batch_info(batch_like)
+        if num_graphs == 0:
+            return x.new_zeros((0, x.size(-1)))
+        return torch_scatter.scatter(x, index, dim=0, dim_size=num_graphs, reduce="sum")
+
+    def pool_mean(x: torch.Tensor, batch_like: Union[Batch, torch.Tensor]) -> torch.Tensor:
+        sums = pool_sum(x, batch_like)
+        if sums.size(0) == 0:
+            return sums
+        _, lengths, _ = _extract_batch_info(batch_like)
+        counts = lengths.to(sums.dtype).clamp_min(1).unsqueeze(-1)
+        return sums / counts
+
+    def pool_max(x: torch.Tensor, batch_like: Union[Batch, torch.Tensor]) -> torch.Tensor:
+        if x.numel() == 0:
+            return x.new_zeros((0, x.size(-1)))
+        index, _, num_graphs = _extract_batch_info(batch_like)
+        if num_graphs == 0:
+            return x.new_zeros((0, x.size(-1)))
+        return torch_scatter.scatter(x, index, dim=0, dim_size=num_graphs, reduce="max")
+
     if aggregation == "max":
-        return global_max_pool
+        return pool_max
     if aggregation == "mean":
-        return global_mean_pool
+        return pool_mean
     if aggregation in {"sum", "add"}:
-        return global_add_pool
+        return pool_sum
     raise ValueError(f"Unknown aggregation function: {aggregation}")
 
 
@@ -60,11 +98,12 @@ def centralize(
     batch_index: torch.Tensor,
     node_mask: Optional[Bool[torch.Tensor, " n_nodes"]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    dim_size = batch_index.size(0)
+    lengths = torch.bincount(batch_index)
+    dim_size = lengths.size(0)
     if node_mask is not None:
         centroid = torch_scatter.scatter(
-            batch[key][node_mask], batch_index[node_mask], dim=0, reduce="mean"
-        , dim_size=dim_size)
+            batch[key][node_mask], batch_index[node_mask], dim=0, reduce="mean", dim_size=dim_size
+        )
         centered = torch.full_like(batch[key], torch.inf)
         centered[node_mask] = batch[key][node_mask] - centroid[batch_index][node_mask]
         return centroid, centered
@@ -84,7 +123,6 @@ def decentralize(
     entities_centroid: torch.Tensor,
     node_mask: Optional[Bool[torch.Tensor, " n_nodes"]] = None,
 ) -> torch.Tensor:
-    dim_size = batch_index.size(0)
     if node_mask is not None:
         restored = torch.full_like(batch[key], torch.inf)
         restored[node_mask] = (
