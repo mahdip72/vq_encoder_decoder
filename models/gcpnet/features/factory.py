@@ -9,16 +9,16 @@ from torch_geometric.data import Batch
 from torch_geometric.nn import knn_graph
 from torch_geometric.nn.encoding import PositionalEncoding
 
-from proteinworkshop.features.edge_features import (
+from .edge_features import (
     compute_scalar_edge_features,
     compute_vector_edge_features,
 )
-from proteinworkshop.features.node_features import (
+from .node_features import (
     compute_scalar_node_features,
     compute_vector_node_features,
 )
-from proteinworkshop.features.representation import transform_representation
-from proteinworkshop.types import (
+from .representation import transform_representation
+from ..types import (
     ScalarEdgeFeature,
     ScalarNodeFeature,
     VectorEdgeFeature,

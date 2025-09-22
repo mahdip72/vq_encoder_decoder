@@ -1,5 +1,5 @@
 features:
-  module: proteinworkshop.features.factory.ProteinFeaturiser
+  module: models.gcpnet.features.factory.ProteinFeaturiser
   kwargs:
     representation: CA
     scalar_node_features:
@@ -21,7 +21,7 @@ task:
   transform: null
 
 encoder:
-  module: proteinworkshop.models.graph_encoders.gcpnet.GCPNetModel
+  module: models.gcpnet.models.graph_encoders.gcpnet.GCPNetModel
   kwargs:
     num_layers: 6
     emb_dim: 128

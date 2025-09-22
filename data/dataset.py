@@ -374,7 +374,7 @@ class GCPNetDataset(Dataset):
 
         # Instantiate featuriser/transform only if using the pretrained GCPNet encoder
         if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-            from proteinworkshop.models.base import instantiate_module, load_pretrained_config
+            from models.gcpnet.models.base import instantiate_module, load_pretrained_config
 
             pretrained_config_path = self.configs.model.encoder.pretrained.config_path
             pretrained_cfg = load_pretrained_config(pretrained_config_path)

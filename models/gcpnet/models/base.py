@@ -11,7 +11,8 @@ import yaml
 from torch_geometric.data import Batch
 
 from graphein.protein.tensor.data import ProteinBatch
-from proteinworkshop.types import EncoderOutput
+
+from ..types import EncoderOutput
 
 
 ModuleSpec = Mapping[str, Any]

@@ -12,7 +12,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is una
     ListConfig = list  # type: ignore
 from torch_geometric.data import Batch, Data
 
-from proteinworkshop.features.utils import _normalize
+from .utils import _normalize
 
 
 @jaxtyped(typechecker=typechecker)

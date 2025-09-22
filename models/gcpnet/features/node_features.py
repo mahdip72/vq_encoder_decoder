@@ -14,7 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is una
     ListConfig = list  # type: ignore
 from torch_geometric.data import Batch, Data
 
-from proteinworkshop.types import OrientationTensor, ScalarNodeFeature
+from ..types import OrientationTensor, ScalarNodeFeature
 
 from .sequence_features import amino_acid_one_hot
 from .utils import _normalize
@@ -29,7 +29,7 @@ def compute_scalar_node_features(
     Factory function for node features.
 
     .. seealso::
-        :py:class:`proteinworkshop.types.ScalarNodeFeature` for a list of node
+        :py:class:`models.gcpnet.types.ScalarNodeFeature` for a list of node
         features that can be computed.
 
     This function operates on a :py:class:`torch_geometric.data.Data` or

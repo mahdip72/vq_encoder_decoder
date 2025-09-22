@@ -16,7 +16,7 @@ from torch_geometric.nn import (
     global_mean_pool,
 )
 
-from proteinworkshop.types import ActivationType
+from ..types import ActivationType
 
 
 def get_aggregation(aggregation: str) -> Callable:

@@ -24,11 +24,11 @@ from jaxtyping import Bool, Float, Int64, jaxtyped
 from torch import nn
 from torch_geometric.data import Batch
 
-from proteinworkshop.models.graph_encoders.components import radial
-from proteinworkshop.models.graph_encoders.components.wrappers import (
+from ..components import radial
+from ..components.wrappers import (
     ScalarVector,
 )
-from proteinworkshop.models.utils import (
+from ...utils import (
     get_activations,
     is_identity,
     safe_norm,

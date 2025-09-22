@@ -8,17 +8,17 @@ from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import jaxtyped
 from torch_geometric.data import Batch
 
-import proteinworkshop.models.graph_encoders.layers.gcp as gcp
-from proteinworkshop.models.graph_encoders.components.wrappers import (
+from .layers import gcp
+from .components.wrappers import (
     ScalarVector,
 )
-from proteinworkshop.models.utils import (
+from ..utils import (
     centralize,
     decentralize,
     get_aggregation,
     localize,
 )
-from proteinworkshop.types import EncoderOutput
+from ...types import EncoderOutput
 
 
 class GCPNetModel(torch.nn.Module):
@@ -43,7 +43,7 @@ class GCPNetModel(torch.nn.Module):
         Note: Each of the model's keyword arguments listed here
         are also referenced in the corresponding `DictConfigs` within `kwargs`.
         They are simply listed here to highlight some of the key arguments available.
-        See `proteinworkshop/config/encoder/gcpnet.yaml` for a full list of all available arguments.
+        See `models/gcpnet/config/encoder/gcpnet.yaml` for a full list of all available arguments.
 
         :param num_layers: Number of layers in the model (default: ``5``)
         :type num_layers: int
@@ -220,4 +220,3 @@ class GCPNetModel(torch.nn.Module):
             out, batch.batch
         )  # (n, d) -> (batch_size, d)
         return EncoderOutput(encoder_outputs)
-
