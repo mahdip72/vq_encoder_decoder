@@ -60,15 +60,18 @@ def centralize(
     batch_index: torch.Tensor,
     node_mask: Optional[Bool[torch.Tensor, " n_nodes"]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    dim_size = batch_index.size(0)
     if node_mask is not None:
         centroid = torch_scatter.scatter(
             batch[key][node_mask], batch_index[node_mask], dim=0, reduce="mean"
-        )
+        , dim_size=dim_size)
         centered = torch.full_like(batch[key], torch.inf)
         centered[node_mask] = batch[key][node_mask] - centroid[batch_index][node_mask]
         return centroid, centered
 
-    centroid = torch_scatter.scatter(batch[key], batch_index, dim=0, reduce="mean")
+    centroid = torch_scatter.scatter(
+        batch[key], batch_index, dim=0, reduce="mean", dim_size=dim_size
+    )
     centered = batch[key] - centroid[batch_index]
     return centroid, centered
 
@@ -81,10 +84,12 @@ def decentralize(
     entities_centroid: torch.Tensor,
     node_mask: Optional[Bool[torch.Tensor, " n_nodes"]] = None,
 ) -> torch.Tensor:
+    dim_size = batch_index.size(0)
     if node_mask is not None:
         restored = torch.full_like(batch[key], torch.inf)
         restored[node_mask] = (
-            batch[key][node_mask] + entities_centroid[batch_index][node_mask]
+            batch[key][node_mask]
+            + entities_centroid[batch_index][node_mask]
         )
         return restored
     return batch[key] + entities_centroid[batch_index]
