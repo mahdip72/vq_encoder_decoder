@@ -119,15 +119,6 @@ decoder:
     distance_activation: relu
     distance_dropout: 0.0
     distance_skip: false
-transforms:
-  remove_missing_ca:
-    _target_: proteinworkshop.tasks.remove_missing_ca.RemoveMissingCa
-    fill_value: 1.0e-05
-    ca_idx: 1
-  structure_denoising:
-    _target_: proteinworkshop.tasks.structural_denoising.StructuralNoiseTransform
-    corruption_rate: 0.1
-    corruption_strategy: gaussian
 callbacks:
   model_checkpoint:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
