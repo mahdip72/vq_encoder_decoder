@@ -624,21 +624,16 @@ class GCPMessagePassing(nn.Module):
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
     ) -> Float[torch.Tensor, "batch_num_edges message_dim"]:
         row, col = edge_index
-        vector = node_rep.vector.reshape(
-            node_rep.vector.shape[0],
-            node_rep.vector.shape[1] * node_rep.vector.shape[2],
-        )
-        vector_reshaped = ScalarVector(node_rep.scalar, vector)
+        s_row = node_rep.scalar[row]
+        s_col = node_rep.scalar[col]
 
-        s_row, v_row = vector_reshaped.idx(row)
-        s_col, v_col = vector_reshaped.idx(col)
+        v_row = node_rep.vector[row]
+        v_col = node_rep.vector[col]
 
-        v_row = v_row.reshape(v_row.shape[0], v_row.shape[1] // 3, 3)
-        v_col = v_col.reshape(v_col.shape[0], v_col.shape[1] // 3, 3)
+        scalar_inputs = torch.cat((s_row, edge_rep.scalar, s_col), dim=-1)
+        vector_inputs = torch.cat((v_row, edge_rep.vector, v_col), dim=1)
 
-        message = ScalarVector(s_row, v_row).concat(
-            (edge_rep, ScalarVector(s_col, v_col))
-        )
+        message = ScalarVector(scalar_inputs, vector_inputs)
 
         message_residual = self.message_fusion[0](
             message, edge_index, frames, node_inputs=False, node_mask=node_mask
@@ -860,7 +855,10 @@ class GCPInteractions(nn.Module):
         )
 
         # aggregate input and hidden features
-        hidden_residual = ScalarVector(*hidden_residual.concat((node_rep,)))
+        hidden_residual = ScalarVector(
+            torch.cat((hidden_residual.scalar, node_rep.scalar), dim=-1),
+            torch.cat((hidden_residual.vector, node_rep.vector), dim=1),
+        )
 
         # propagate with feedforward layers
         for module in self.feedforward_network:
