@@ -13,7 +13,7 @@ import csv
 
 from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
 from utils.custom_losses import calculate_aligned_mse_loss
-from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
+from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
 from models.super_model import prepare_model
 from utils.evaluation.tmscore import TMscoring  # Import TM-score evaluation
 
@@ -212,15 +212,11 @@ def main():
         configs=configs,
         mode='evaluation'
     )
-    # Select collate function
-    if configs.model.encoder.pretrained.enabled:
-        collate_fn = functools.partial(
-            custom_collate_pretrained_gcp,
-            featuriser=dataset.pretrained_featuriser,
-            task_transform=dataset.pretrained_task_transform
-        )
-    else:
-        collate_fn = custom_collate
+    collate_fn = functools.partial(
+        custom_collate_pretrained_gcp,
+        featuriser=dataset.pretrained_featuriser,
+        task_transform=dataset.pretrained_task_transform,
+    )
 
     loader = DataLoader(
         dataset,

@@ -12,7 +12,7 @@ from accelerate.utils import broadcast_object_list
 import h5py
 
 from utils.utils import load_configs, load_checkpoints_simple, get_logging
-from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp, custom_collate
+from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
 from models.super_model import prepare_model
 
 
@@ -99,14 +99,11 @@ def main():
         mode='evaluation'
     )
 
-    if configs.model.encoder.pretrained.enabled:
-        collate_fn = functools.partial(
-            custom_collate_pretrained_gcp,
-            featuriser=dataset.pretrained_featuriser,
-            task_transform=dataset.pretrained_task_transform
-        )
-    else:
-        collate_fn = custom_collate
+    collate_fn = functools.partial(
+        custom_collate_pretrained_gcp,
+        featuriser=dataset.pretrained_featuriser,
+        task_transform=dataset.pretrained_task_transform,
+    )
 
     loader = DataLoader(
         dataset,
@@ -180,5 +177,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 

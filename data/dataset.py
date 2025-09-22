@@ -169,33 +169,6 @@ def merge_features_and_create_mask(features_list, max_length=512):
     return result, mask
 
 
-def custom_collate(one_batch):
-    # Unpack the batch
-    torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
-
-    # Create a Batch object
-    torch_geometric_batch = Batch.from_data_list(torch_geometric_feature)
-    raw_seqs = [item[1] for item in one_batch]
-    plddt_scores = [item[2] for item in one_batch]
-    pids = [item[3] for item in one_batch]
-
-    coords = torch.stack([item[4] for item in one_batch])
-    masks = torch.stack([item[5] for item in one_batch])
-
-    input_coordinates = torch.stack([item[6] for item in one_batch])
-    inverse_folding_labels = torch.stack([item[7] for item in one_batch])
-
-    nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
-    sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
-
-    plddt_scores = torch.cat(plddt_scores, dim=0)
-    batched_data = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
-                    'target_coords': coords, 'masks': masks, 'nan_masks': nan_mask,
-                    "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels,
-                    "sample_weights": sample_weights}
-    return batched_data
-
-
 def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=None, fill_value: float = 1e-5):
     # Unpack the batch
     torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
@@ -369,19 +342,16 @@ class GCPNetDataset(Dataset):
 
         self.configs = kwargs['configs']  # Main training config
 
-        # Initialize attributes to None
-        self.pretrained_featuriser = None
-        self.pretrained_task_transform = None
+        encoder_cfg = load_encoder_config(os.path.join("configs", "config_gcpnet_encoder.yaml"))
 
-        # Instantiate featuriser/transform only if using the pretrained GCPNet encoder
-        if self.configs.model.encoder.name == "gcpnet" and self.configs.model.encoder.pretrained.enabled:
-            encoder_cfg = load_encoder_config(os.path.join("configs", "config_gcpnet_encoder.yaml"))
+        self.pretrained_featuriser = instantiate_module(encoder_cfg.get("features"))
 
-            self.pretrained_featuriser = instantiate_module(encoder_cfg.get("features"))
-
-            task_cfg = encoder_cfg.get("task")
-            if isinstance(task_cfg, Mapping):
-                self.pretrained_task_transform = instantiate_module(task_cfg.get("transform"))
+        task_cfg = encoder_cfg.get("task")
+        self.pretrained_task_transform = (
+            instantiate_module(task_cfg.get("transform"))
+            if isinstance(task_cfg, Mapping)
+            else None
+        )
 
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -951,31 +921,25 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         mode="evaluation",
     )
 
-    condition_met = configs.model.encoder.pretrained.enabled and configs.model.encoder.name == "gcpnet"
     custom_collate_pretrained_gcp_partial = functools.partial(
         custom_collate_pretrained_gcp,
         featuriser=train_dataset.pretrained_featuriser,
-        task_transform=train_dataset.pretrained_task_transform
+        task_transform=train_dataset.pretrained_task_transform,
     )
-    selected_collate = custom_collate_pretrained_gcp_partial if condition_met else custom_collate
-
-    if condition_met:
-        logging.info("Using custom collate function for GCPNet with pretrained encoder")
-    else:
-        logging.info("Using default collate function for GCPNet")
+    logging.info("Using GCPNet featuriser-aware collate function")
 
     train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
                               num_workers=configs.train_settings.num_workers,
                               shuffle=configs.train_settings.shuffle,
                               pin_memory=False,  # page-lock host buffers
                               persistent_workers=False,  # keep workers alive between epochs
-                              collate_fn=selected_collate)
+                              collate_fn=custom_collate_pretrained_gcp_partial)
     valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
                               num_workers=configs.valid_settings.num_workers,
                               pin_memory=False,
                               persistent_workers=False,  # keep workers alive between epochs
                               shuffle=False,
-                              collate_fn=selected_collate)
+                              collate_fn=custom_collate_pretrained_gcp_partial)
 
     return train_loader, valid_loader
 
@@ -1012,20 +976,18 @@ if __name__ == '__main__':
                             mode="train")
 
     # determine collate function based on pretrained GCPNet config
-    condition_met = test_configs.model.encoder.pretrained.enabled and test_configs.model.encoder.name == "gcpnet"
     custom_collate_pretrained_gcp_partial = functools.partial(
         custom_collate_pretrained_gcp,
         featuriser=dataset.pretrained_featuriser,
-        task_transform=dataset.pretrained_task_transform
+        task_transform=dataset.pretrained_task_transform,
     )
-    selected_collate = custom_collate_pretrained_gcp_partial if condition_met else custom_collate
 
     test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size,
                              num_workers=test_configs.train_settings.num_workers,
                              pin_memory=False,  # page-lock host buffers
                              persistent_workers=True,  # keep workers alive between epochs
                              prefetch_factor=2,
-                             collate_fn=selected_collate)
+                             collate_fn=custom_collate_pretrained_gcp_partial)
 
     print('Building dataset with', len(dataset), 'samples')
 
