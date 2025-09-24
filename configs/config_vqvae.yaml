@@ -3,7 +3,7 @@ checkpoints_every: 256
 tensorboard_log: True
 tqdm_progress_bar: False
 result_path: ./results/test
-find_unused_parameters: True
+find_unused_parameters: False
 dispatch_batches: False
 even_batches: True
 non_blocking: False
