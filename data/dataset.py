@@ -176,39 +176,31 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
 
     # Create a Batch object
     torch_geometric_batch = Batch.from_data_list(torch_geometric_feature)
-    if hasattr(torch_geometric_batch, 'edge_index') and torch_geometric_batch.edge_index is not None:
-        if getattr(torch_geometric_batch.edge_index, 'numel', lambda: 0)() > 0:
-            if not hasattr(torch_geometric_batch, 'edge_type') or torch_geometric_batch.edge_type is None or torch_geometric_batch.edge_type.numel() == 0:
-                torch_geometric_batch.edge_type = torch.zeros(
-                    torch_geometric_batch.edge_index.size(1), dtype=torch.long,
-                    device=torch_geometric_batch.edge_index.device
-                )
-            torch_geometric_batch.edge_index_precomputed = True
-        else:
-            torch_geometric_batch.edge_index_precomputed = False
-    else:
-        torch_geometric_batch.edge_index_precomputed = False
 
-    if featuriser and getattr(featuriser, 'edge_types', None):
-        edge_types = featuriser.edge_types
-        if len(edge_types) == 1 and edge_types[0].startswith("knn_"):
-            try:
-                k = int(edge_types[0].split("_", 1)[1])
-            except (IndexError, ValueError):
-                k = None
-            if k is not None:
-                ca_coords = torch_geometric_batch.x_bb[:, 1].contiguous()
-                edge_index = torch_cluster.knn_graph(
-                    ca_coords,
-                    k=k,
-                    batch=torch_geometric_batch.batch,
-                    loop=False,
-                )
-                torch_geometric_batch.edge_index = edge_index
-                torch_geometric_batch.edge_type = torch.zeros(
-                    edge_index.size(1), dtype=torch.long, device=edge_index.device
-                )
-                torch_geometric_batch.edge_index_precomputed = True
+    if not featuriser or not getattr(featuriser, 'edge_types', None):
+        raise ValueError("Featuriser must supply kNN edge_types for precomputation.")
+
+    edge_types = featuriser.edge_types
+    if len(edge_types) != 1 or not edge_types[0].startswith("knn_"):
+        raise ValueError("Featuriser edge_types must contain a single 'knn_{k}' entry for precomputation.")
+
+    try:
+        k = int(edge_types[0].split("_", 1)[1])
+    except (IndexError, ValueError) as exc:
+        raise ValueError("Unable to parse k from edge_types; expected format 'knn_{k}'.") from exc
+
+    ca_coords = torch_geometric_batch.x_bb[:, 1].contiguous()
+    edge_index = torch_cluster.knn_graph(
+        ca_coords,
+        k=k,
+        batch=torch_geometric_batch.batch,
+        loop=False,
+    )
+    torch_geometric_batch.edge_index = edge_index
+    torch_geometric_batch.edge_type = torch.zeros(
+        edge_index.size(1), dtype=torch.long, device=edge_index.device
+    )
+    torch_geometric_batch.edge_index_precomputed = True
     raw_seqs = [item[1] for item in one_batch]
     plddt_scores = [item[2] for item in one_batch]
     pids = [item[3] for item in one_batch]
