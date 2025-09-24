@@ -22,6 +22,12 @@ class GeometricDecoder(nn.Module):
         # Store the decoder output scaling factor
         self.decoder_output_scaling_factor = configs.model.decoder_output_scaling_factor
 
+        losses_cfg = configs.train_settings.losses
+        self.enable_pairwise_losses = (
+            losses_cfg.binned_distance_classification.enabled
+            or losses_cfg.binned_direction_classification.enabled
+        )
+
         # Use either NdLinear or nn.Linear based on the flag
         if self.use_ndlinear:
             self.projector_in = NdLinear(
@@ -62,17 +68,21 @@ class GeometricDecoder(nn.Module):
             predict_torsion_angles=False,
         )
 
-        self.pairwise_bins = [
-            64,  # distogram
-            self.direction_loss_bins * 6,  # direction bins
-        ]
-        self.pairwise_classification_head = PairwisePredictionHead(
-            self.decoder_channels,
-            downproject_dim=128,
-            hidden_dim=128,
-            n_bins=sum(self.pairwise_bins),
-            bias=False,
-        )
+        if self.enable_pairwise_losses:
+            self.pairwise_bins = [
+                64,  # distogram
+                self.direction_loss_bins * 6,  # direction bins
+            ]
+            self.pairwise_classification_head = PairwisePredictionHead(
+                self.decoder_channels,
+                downproject_dim=128,
+                hidden_dim=128,
+                n_bins=sum(self.pairwise_bins),
+                bias=False,
+            )
+        else:
+            self.pairwise_bins = []
+            self.pairwise_classification_head = None
 
     def create_causal_mask(self, seq_len, device):
         """
@@ -106,11 +116,13 @@ class GeometricDecoder(nn.Module):
         )
 
         # plddt_value, ptm, pae = None, None, None
-        pairwise_logits = self.pairwise_classification_head(x)
-
-        dist_loss_logits, dir_loss_logits = [
-            (o if o.numel() > 0 else None)
-            for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
-        ]
+        dist_loss_logits = None
+        dir_loss_logits = None
+        if self.enable_pairwise_losses:
+            pairwise_logits = self.pairwise_classification_head(x)
+            dist_loss_logits, dir_loss_logits = [
+                (o if o.numel() > 0 else None)
+                for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
+            ]
 
         return bb_pred.flatten(-2)*self.decoder_output_scaling_factor, dir_loss_logits, dist_loss_logits
