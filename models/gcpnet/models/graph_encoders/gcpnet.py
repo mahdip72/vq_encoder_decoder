@@ -1,5 +1,5 @@
 from functools import partial
-from typing import List, Union
+from typing import List, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -92,6 +92,7 @@ class GCPNetModel(torch.nn.Module):
         self.centralize = partial(centralize, key="pos")
         self.localize = partial(localize, norm_pos_diff=module_cfg.norm_pos_diff)
         self.decentralize = partial(decentralize, key="pos")
+        self._frame_update_eps = 1e-6
 
         # Input embeddings
         self.gcp_embedding = gcp.GCPEmbedding(
@@ -142,6 +143,70 @@ class GCPNetModel(torch.nn.Module):
     def required_batch_attributes(self) -> List[str]:
         return ["edge_index", "pos", "x", "batch"]
 
+    def _ensure_edge_frames(
+        self,
+        batch: Union[Batch, ProteinBatch],
+        *,
+        force: bool = False,
+        pos_override: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Reuse cached edge-local frames when node positions are unchanged."""
+
+        if pos_override is not None:
+            frames = self.localize(pos_override, batch.edge_index)
+            batch.f_ij = frames
+            return frames
+
+        pos = batch.pos
+        edge_index = batch.edge_index
+        num_edges = edge_index.size(1)
+
+        cached_pos = getattr(batch, "_f_ij_cache_pos", None)
+        cached_frames = getattr(batch, "f_ij", None)
+
+        # Always recompute if cache is missing, stale, or forced.
+        need_full_recompute = (
+            force
+            or cached_pos is None
+            or cached_frames is None
+            or cached_frames.size(0) != num_edges
+            or cached_pos.shape != pos.shape
+            or cached_pos.device != pos.device
+        )
+
+        detached_pos = pos.detach()
+
+        if need_full_recompute:
+            frames = self.localize(pos, edge_index)
+            batch.f_ij = frames
+            batch._f_ij_cache_pos = detached_pos.clone()
+            return frames
+
+        # Identify nodes whose positions have changed beyond tolerance.
+        pos_delta = torch.max(torch.abs(detached_pos - cached_pos), dim=1).values
+        changed_nodes = pos_delta > self._frame_update_eps
+
+        if changed_nodes.any():
+            row, col = edge_index
+            edge_mask = changed_nodes[row] | changed_nodes[col]
+
+            if edge_mask.any():
+                updated_edges = edge_index[:, edge_mask]
+                updated_frames = self.localize(pos, updated_edges)
+
+                # Clone only when an in-place update is required.
+                frames = cached_frames.clone()
+                frames[edge_mask] = updated_frames
+                batch.f_ij = frames
+            else:
+                frames = cached_frames
+        else:
+            frames = cached_frames
+
+        # Refresh cached positions in-place to avoid reallocations.
+        cached_pos.copy_(detached_pos)
+        return frames
+
     @jaxtyped(typechecker=typechecker)
     def forward(self, batch: Union[Batch, ProteinBatch]) -> EncoderOutput:
         """Implements the forward pass of the GCPNet encoder.
@@ -169,8 +234,8 @@ class GCPNetModel(torch.nn.Module):
             batch.edge_vector_attr,
         )
 
-        # Craft complete local frames corresponding to each edge
-        batch.f_ij = self.localize(batch.pos, batch.edge_index)
+        # Craft complete local frames corresponding to each edge, reusing cached values when possible
+        batch.f_ij = self._ensure_edge_frames(batch)
 
         # Embed node and edge input features
         (h, chi), (e, xi) = self.gcp_embedding(batch)
@@ -201,7 +266,9 @@ class GCPNetModel(torch.nn.Module):
                 _, centralized_node_pos = self.centralize(
                     batch, batch_index=batch.batch
                 )
-                batch.f_ij = self.localize(centralized_node_pos, batch.edge_index)
+                batch.f_ij = self._ensure_edge_frames(
+                    batch, force=True, pos_override=centralized_node_pos
+                )
             encoder_outputs["pos"] = batch.pos  # (n, 3) -> (batch_size, 3)
 
         # Summarize intermediate node representations as final predictions
