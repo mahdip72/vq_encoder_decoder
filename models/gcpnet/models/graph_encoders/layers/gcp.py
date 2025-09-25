@@ -14,7 +14,7 @@
 
 from copy import copy
 from functools import partial
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 import contextlib
 
 import torch
@@ -560,6 +560,9 @@ class GCPMessagePassing(nn.Module):
         self.self_message = self.conv_cfg.self_message
         self.reduce_function = reduce_function
         self.use_scalar_message_attention = use_scalar_message_attention
+        self._selector_cache: Dict[
+            Tuple[str, int, int, int, int], Tuple[torch.Tensor, torch.Tensor]
+        ] = {}
 
         scalars_in_dim = 2 * self.scalar_input_dim + self.edge_scalar_dim
         vectors_in_dim = 2 * self.vector_input_dim + self.edge_vector_dim
@@ -689,16 +692,7 @@ class GCPMessagePassing(nn.Module):
         node_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         num_edges = row.numel()
-        device = row.device
-        edge_ids = torch.arange(num_edges, device=device)
-
-        indices = torch.stack((row, edge_ids))
-        values = torch.ones(num_edges, device=device, dtype=torch.float32)
-        selector = torch.sparse_coo_tensor(
-            indices,
-            values,
-            size=(dim_size, num_edges),
-        ).coalesce()
+        selector = self._get_selector(row, dim_size)
 
         scalar_dtype = scalar_message.dtype
         autocast_context = (
@@ -735,6 +729,33 @@ class GCPMessagePassing(nn.Module):
                 aggregated_vector = aggregated_vector * mask.unsqueeze(-1)
 
         return aggregated_scalar, aggregated_vector
+
+    def _get_selector(self, row: torch.Tensor, dim_size: int) -> torch.Tensor:
+        num_edges = row.numel()
+        device = row.device
+        device_index = -1 if device.type == "cpu" or device.index is None else device.index
+
+        row_signature = row.detach().cpu().contiguous()
+        row_hash = hash(row_signature.numpy().tobytes())
+        cache_key = (device.type, device_index, dim_size, num_edges, row_hash)
+
+        cached = self._selector_cache.get(cache_key)
+        if cached is not None:
+            selector, cached_row = cached
+            if cached_row.shape == row_signature.shape and torch.equal(cached_row, row_signature):
+                return selector
+
+        edge_ids = torch.arange(num_edges, device=device)
+        indices = torch.stack((row, edge_ids))
+        values = torch.ones(num_edges, device=device, dtype=torch.float32)
+        selector = torch.sparse_coo_tensor(
+            indices,
+            values,
+            size=(dim_size, num_edges),
+        ).coalesce()
+
+        self._selector_cache[cache_key] = (selector.detach(), row_signature.clone())
+        return selector
 
 
 class GCPInteractions(nn.Module):
