@@ -60,6 +60,8 @@ class SuperModel(nn.Module):
                 else:
                     _, x, _ = self.encoder(batch['graph'])
 
+                # Encoder may rebucket nodes (e.g., via padding), so refresh the batch index.
+                batch_index = batch['graph'].batch
                 x = separate_features(x, batch_index)
 
             else:

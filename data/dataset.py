@@ -172,7 +172,36 @@ def merge_features_and_create_mask(features_list, max_length=512):
 
 def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=None, fill_value: float = 1e-5):
     # Unpack the batch
-    torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
+    # Preserve alignment while bucketing protein graphs by length to minimise intra-batch variance.
+    packed_batch = [
+        (
+            item[0],  # Data object
+            item[1],
+            item[2],
+            item[3],
+            item[4],
+            item[5],
+            item[6],
+            item[7],
+            item[8],
+            item[9],
+        )
+        for item in one_batch
+    ]
+    packed_batch.sort(key=lambda tup: tup[0].num_nodes, reverse=True)
+
+    (
+        torch_geometric_feature,
+        raw_seqs,
+        plddt_scores,
+        pids,
+        coords_list,
+        masks_list,
+        input_coordinates_list,
+        inverse_folding_labels_list,
+        nan_mask_list,
+        sample_weights_list,
+    ) = map(list, zip(*packed_batch))
 
     # Create a Batch object
     torch_geometric_batch = Batch.from_data_list(torch_geometric_feature)
@@ -201,18 +230,14 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
         edge_index.size(1), dtype=torch.long, device=edge_index.device
     )
     torch_geometric_batch.edge_index_precomputed = True
-    raw_seqs = [item[1] for item in one_batch]
-    plddt_scores = [item[2] for item in one_batch]
-    pids = [item[3] for item in one_batch]
+    coords = torch.stack(coords_list)
+    masks = torch.stack(masks_list)
 
-    coords = torch.stack([item[4] for item in one_batch])
-    masks = torch.stack([item[5] for item in one_batch])
+    input_coordinates = torch.stack(input_coordinates_list)
+    inverse_folding_labels = torch.stack(inverse_folding_labels_list)
 
-    input_coordinates = torch.stack([item[6] for item in one_batch])
-    inverse_folding_labels = torch.stack([item[7] for item in one_batch])
-
-    nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
-    sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
+    nan_mask = torch.stack(nan_mask_list)  # Mask for NaN coordinates
+    sample_weights = torch.tensor(sample_weights_list, dtype=torch.float32)  # Sample weights
 
     plddt_scores = torch.cat(plddt_scores, dim=0)
     one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
