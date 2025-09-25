@@ -81,7 +81,6 @@ class GCPNetModel(torch.nn.Module):
 
         self.predict_node_pos = module_cfg.predict_node_positions
         self.predict_node_rep = module_cfg.predict_node_rep
-        self.block_size = getattr(module_cfg, "block_size", 32)
 
         # Feature dimensionalities
         edge_input_dims = ScalarVector(model_cfg.e_input_dim, model_cfg.xi_input_dim)
@@ -227,9 +226,6 @@ class GCPNetModel(torch.nn.Module):
         # Centralize node positions to make them translation-invariant
         pos_centroid, batch.pos = self.centralize(batch, batch_index=batch.batch)
 
-        # Align node counts to power-of-two blocks to favour dense kernels
-        self._pad_nodes_to_block(batch)
-
         # Install `h`, `chi`, `e`, and `xi` using corresponding features built by the `FeatureFactory`
         batch.h, batch.chi, batch.e, batch.xi = (
             batch.x,
@@ -290,58 +286,3 @@ class GCPNetModel(torch.nn.Module):
             out, batch
         )  # (n, d) -> (batch_size, d)
         return EncoderOutput(encoder_outputs)
-
-    def _pad_nodes_to_block(self, batch: Union[Batch, ProteinBatch]) -> None:
-        block = max(int(self.block_size), 1)
-        total_nodes = batch.pos.size(0)
-        pad = (-total_nodes) % block
-        if pad == 0:
-            return
-
-        device = batch.pos.device
-        last_graph = batch.num_graphs - 1 if batch.batch.numel() else 0
-
-        node_attrs = {"pos", "x", "x_bb", "coords", "x_vector_attr", "seq_pos"}
-
-        def _pad_tensor(attr: str, fill_value: float = 0.0) -> None:
-            if not hasattr(batch, attr):
-                return
-            tensor = getattr(batch, attr)
-            if tensor is None:
-                return
-            if not isinstance(tensor, torch.Tensor):
-                return
-            if tensor.size(0) != total_nodes:
-                return
-            pad_shape = (pad,) + tuple(tensor.shape[1:])
-            pad_tensor = tensor.new_full(pad_shape, fill_value)
-            setattr(batch, attr, torch.cat((tensor, pad_tensor), dim=0))
-
-        # Float tensors initialised to zero
-        for attr in node_attrs:
-            _pad_tensor(attr, 0)
-
-        # Boolean masks -> padded with False
-        if hasattr(batch, "mask") and isinstance(batch.mask, torch.Tensor) and batch.mask.numel() == total_nodes:
-            mask_pad = torch.zeros(pad, dtype=batch.mask.dtype, device=device)
-            batch.mask = torch.cat((batch.mask, mask_pad), dim=0)
-
-        # Residue types default to -1 to mark padding explicitly
-        if hasattr(batch, "residue_type") and isinstance(batch.residue_type, torch.Tensor) and batch.residue_type.numel() == total_nodes:
-            residue_pad = batch.residue_type.new_full((pad,), fill_value=-1)
-            batch.residue_type = torch.cat((batch.residue_type, residue_pad), dim=0)
-
-        # Extend batch index and graph pointer bookkeeping
-        batch_indices_pad = batch.batch.new_full((pad,), last_graph)
-        batch.batch = torch.cat((batch.batch, batch_indices_pad), dim=0)
-
-        if hasattr(batch, "ptr") and isinstance(batch.ptr, torch.Tensor):
-            batch.ptr = batch.ptr.clone()
-            batch.ptr[-1] += pad
-
-        if hasattr(batch, "_slice_dict"):
-            for key, value in batch._slice_dict.items():
-                if key in node_attrs and isinstance(value, torch.Tensor) and value.numel():
-                    updated = value.clone()
-                    updated[-1] += pad
-                    batch._slice_dict[key] = updated
