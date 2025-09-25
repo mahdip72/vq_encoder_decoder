@@ -10,6 +10,7 @@ import random
 from torch.utils.data import DataLoader, Dataset
 from utils.utils import load_h5_file
 from models.gcpnet.models.base import instantiate_module, load_encoder_config
+from models.gcpnet.models.utils import centralize, localize
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
 from typing import Mapping, Tuple
@@ -279,6 +280,40 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
         # Apply the task transform if it exists
         if task_transform:
             one_batch['graph'] = task_transform(one_batch['graph'])
+
+    graph = one_batch["graph"]
+    edge_index = graph.edge_index
+    num_nodes = graph.num_nodes
+
+    if edge_index.numel() == 0 or num_nodes == 0:
+        graph.selector_row_ptr = edge_index.new_zeros((num_nodes + 1,))
+        graph.selector_edge_perm = edge_index.new_empty((0,), dtype=edge_index.dtype)
+    else:
+        row = edge_index[0]
+        row_sorted, selector_perm = torch.sort(row, stable=True)
+        degree = torch.bincount(row_sorted, minlength=num_nodes)
+        row_ptr = edge_index.new_zeros((num_nodes + 1,))
+        row_ptr[1:] = degree.cumsum(0)
+        graph.selector_row_ptr = row_ptr
+        graph.selector_edge_perm = selector_perm
+
+    pos_centroid, centered_pos = centralize(
+        graph,
+        key="pos",
+        batch_index=graph.batch,
+        node_mask=getattr(graph, "mask", None),
+    )
+    graph.pos = centered_pos
+    graph.pos_centroid = pos_centroid
+
+    node_mask = getattr(graph, "mask", None)
+    graph.f_ij = localize(
+        graph.pos,
+        graph.edge_index,
+        norm_pos_diff=True,
+        node_mask=node_mask,
+    )
+    graph._f_ij_cache_pos = graph.pos.detach().clone()
     return one_batch
 
 
