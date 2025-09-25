@@ -361,7 +361,7 @@ class GCPNetDataset(Dataset):
         self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
                               'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
                               'E': 6, 'L': 10, 'R': 1, 'W': 17, 'V': 19,
-                              'N': 2, 'Y': 18, 'M': 12, 'X': 20, 'Z': 20, 'B': 20, 'J': 20}
+                              'N': 2, 'Y': 18, 'M': 12, 'X': 20}
         self.num_to_letter = {v: k for k, v in self.letter_to_num.items()}
 
         self.max_length = kwargs['configs'].model.max_length
@@ -762,7 +762,7 @@ class GCPNetDataset(Dataset):
         pid = basename.split('.h5')[0]
 
         # Decode sequence and replace U with X
-        raw_sequence = sample[0].decode('utf-8').replace('U', 'X').replace('O', 'X')
+        raw_sequence = sample[0].decode('utf-8').replace('U', 'X').replace('O', 'X').replace('B', 'X').replace('Z', 'X')
         
         coords_list = torch.tensor(sample[1].tolist()).tolist()
 
