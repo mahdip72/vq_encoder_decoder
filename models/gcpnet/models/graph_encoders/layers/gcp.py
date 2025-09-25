@@ -15,6 +15,7 @@
 from copy import copy
 from functools import partial
 from typing import Any, Optional, Tuple, Union
+import contextlib
 
 import torch
 import torch_scatter
@@ -608,66 +609,6 @@ class GCPMessagePassing(nn.Module):
             )
 
     @jaxtyped(typechecker=typechecker)
-    def message(
-        self,
-        node_rep: ScalarVector,
-        edge_rep: ScalarVector,
-        edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
-        frames: Float[torch.Tensor, "batch_num_edges 3 3"],
-        node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
-    ) -> Float[torch.Tensor, "batch_num_edges message_dim"]:
-        row, col = edge_index
-        s_row = node_rep.scalar[row]
-        s_col = node_rep.scalar[col]
-
-        v_row = node_rep.vector[row]
-        v_col = node_rep.vector[col]
-
-        scalar_inputs = torch.cat((s_row, edge_rep.scalar, s_col), dim=-1)
-        vector_inputs = torch.cat((v_row, edge_rep.vector, v_col), dim=1)
-
-        message = ScalarVector(scalar_inputs, vector_inputs)
-
-        message_residual = self.message_fusion[0](
-            message, edge_index, frames, node_inputs=False, node_mask=node_mask
-        )
-        for module in self.message_fusion[1:]:
-            # exchange geometric messages while maintaining residual connection to original message
-            new_message = module(
-                message_residual,
-                edge_index,
-                frames,
-                node_inputs=False,
-                node_mask=node_mask,
-            )
-            message_residual = message_residual + new_message
-
-        # learn to gate scalar messages
-        if self.use_scalar_message_attention:
-            message_residual_attn = self.scalar_message_attention(
-                message_residual.scalar
-            )
-            message_residual = ScalarVector(
-                message_residual.scalar * message_residual_attn,
-                message_residual.vector,
-            )
-
-        return message_residual.flatten()
-
-    @jaxtyped(typechecker=typechecker)
-    def aggregate(
-        self,
-        message: Float[torch.Tensor, "batch_num_edges message_dim"],
-        edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
-        dim_size: int,
-    ) -> Float[torch.Tensor, "batch_num_nodes aggregate_dim"]:
-        row, col = edge_index
-        aggregate = torch_scatter.scatter(
-            message, row, dim=0, dim_size=dim_size, reduce=self.reduce_function
-        )
-        return aggregate
-
-    @jaxtyped(typechecker=typechecker)
     def forward(
         self,
         node_rep: ScalarVector,
@@ -676,13 +617,124 @@ class GCPMessagePassing(nn.Module):
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
     ) -> ScalarVector:
-        message = self.message(
+        return self._fused_message_pass(
             node_rep, edge_rep, edge_index, frames, node_mask=node_mask
         )
-        aggregate = self.aggregate(
-            message, edge_index, dim_size=node_rep.scalar.shape[0]
+
+    def _fused_message_pass(
+        self,
+        node_rep: ScalarVector,
+        edge_rep: ScalarVector,
+        edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
+        frames: Float[torch.Tensor, "batch_num_edges 3 3"],
+        node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
+    ) -> ScalarVector:
+        row, col = edge_index
+
+        scalar_src = node_rep.scalar[row]
+        scalar_dst = node_rep.scalar[col]
+
+        vector_src = node_rep.vector[row]
+        vector_dst = node_rep.vector[col]
+
+        scalar_inputs = torch.cat((scalar_src, edge_rep.scalar, scalar_dst), dim=-1)
+
+        if node_rep.vector.shape[1] == 0 and edge_rep.vector.shape[1] == 0:
+            vector_inputs = edge_rep.vector
+        else:
+            vector_inputs = torch.cat((vector_src, edge_rep.vector, vector_dst), dim=1)
+
+        message = ScalarVector(scalar_inputs, vector_inputs)
+
+        message_residual = self.message_fusion[0](
+            message, edge_index, frames, node_inputs=False, node_mask=node_mask
         )
-        return ScalarVector.recover(aggregate, self.vector_output_dim)
+        for module in self.message_fusion[1:]:
+            new_message = module(
+                message_residual,
+                edge_index,
+                frames,
+                node_inputs=False,
+                node_mask=node_mask,
+            )
+            message_residual = ScalarVector(
+                message_residual.scalar + new_message.scalar,
+                message_residual.vector + new_message.vector,
+            )
+
+        if self.use_scalar_message_attention:
+            attention = self.scalar_message_attention(message_residual.scalar)
+            message_residual = ScalarVector(
+                message_residual.scalar * attention,
+                message_residual.vector,
+            )
+
+        agg_scalar, agg_vector = self._sparse_reduce(
+            row,
+            message_residual.scalar,
+            message_residual.vector,
+            dim_size=node_rep.scalar.shape[0],
+            node_mask=node_mask,
+        )
+
+        return ScalarVector(agg_scalar, agg_vector)
+
+    def _sparse_reduce(
+        self,
+        row: torch.Tensor,
+        scalar_message: torch.Tensor,
+        vector_message: torch.Tensor,
+        *,
+        dim_size: int,
+        node_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        num_edges = row.numel()
+        device = row.device
+        edge_ids = torch.arange(num_edges, device=device)
+
+        indices = torch.stack((row, edge_ids))
+        values = torch.ones(num_edges, device=device, dtype=torch.float32)
+        selector = torch.sparse_coo_tensor(
+            indices,
+            values,
+            size=(dim_size, num_edges),
+        ).coalesce()
+
+        scalar_dtype = scalar_message.dtype
+        autocast_context = (
+            (lambda: torch.amp.autocast(device_type="cuda", enabled=False))
+            if scalar_message.is_cuda
+            else contextlib.nullcontext
+        )
+
+        with autocast_context():
+            selector_fp32 = selector.float()
+            scalar_fp32 = scalar_message.float()
+            aggregated_scalar_fp32 = torch.sparse.mm(selector_fp32, scalar_fp32)
+
+        aggregated_scalar = aggregated_scalar_fp32.to(scalar_dtype)
+
+        if vector_message.numel():
+            vector_flat = vector_message.reshape(num_edges, -1)
+            with autocast_context():
+                vector_fp32 = vector_flat.float()
+                aggregated_vector_flat_fp32 = torch.sparse.mm(
+                    selector_fp32, vector_fp32
+                )
+            aggregated_vector_flat = aggregated_vector_flat_fp32.to(vector_message.dtype)
+            aggregated_vector = aggregated_vector_flat.view(
+                dim_size, vector_message.size(1), vector_message.size(2)
+            )
+        else:
+            aggregated_vector = vector_message.new_zeros(dim_size, 0, 3)
+
+        if node_mask is not None:
+            mask = node_mask.to(aggregated_scalar.dtype).unsqueeze(-1)
+            aggregated_scalar = aggregated_scalar * mask
+            if aggregated_vector.numel():
+                aggregated_vector = aggregated_vector * mask.unsqueeze(-1)
+
+        return aggregated_scalar, aggregated_vector
 
 
 class GCPInteractions(nn.Module):
