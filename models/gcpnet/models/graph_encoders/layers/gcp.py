@@ -561,7 +561,7 @@ class GCPMessagePassing(nn.Module):
         self.reduce_function = reduce_function
         self.use_scalar_message_attention = use_scalar_message_attention
         self._selector_cache: Dict[
-            Tuple[str, int, int, int, int], Tuple[torch.Tensor, Optional[torch.Tensor]]
+            Tuple[str, int, int, int, int], Tuple[torch.Tensor, torch.Tensor]
         ] = {}
 
         scalars_in_dim = 2 * self.scalar_input_dim + self.edge_scalar_dim
@@ -619,19 +619,9 @@ class GCPMessagePassing(nn.Module):
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
-        selector_indices: Optional[torch.Tensor] = None,
-        selector_hash: Optional[torch.Tensor] = None,
-        selector_dim_size: Optional[torch.Tensor] = None,
     ) -> ScalarVector:
         return self._fused_message_pass(
-            node_rep,
-            edge_rep,
-            edge_index,
-            frames,
-            node_mask=node_mask,
-            selector_indices=selector_indices,
-            selector_hash=selector_hash,
-            selector_dim_size=selector_dim_size,
+            node_rep, edge_rep, edge_index, frames, node_mask=node_mask
         )
 
     def _fused_message_pass(
@@ -641,9 +631,6 @@ class GCPMessagePassing(nn.Module):
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
-        selector_indices: Optional[torch.Tensor] = None,
-        selector_hash: Optional[torch.Tensor] = None,
-        selector_dim_size: Optional[torch.Tensor] = None,
     ) -> ScalarVector:
         row, col = edge_index
 
@@ -685,17 +672,11 @@ class GCPMessagePassing(nn.Module):
                 message_residual.vector,
             )
 
-        dim_size = node_rep.scalar.shape[0]
-        if selector_dim_size is not None:
-            dim_size = int(selector_dim_size.item())
-
         agg_scalar, agg_vector = self._sparse_reduce(
             row,
             message_residual.scalar,
             message_residual.vector,
-            dim_size=dim_size,
-            selector_indices=selector_indices,
-            selector_hash=selector_hash,
+            dim_size=node_rep.scalar.shape[0],
             node_mask=node_mask,
         )
 
@@ -708,12 +689,10 @@ class GCPMessagePassing(nn.Module):
         vector_message: torch.Tensor,
         *,
         dim_size: int,
-        selector_indices: Optional[torch.Tensor] = None,
-        selector_hash: Optional[torch.Tensor] = None,
         node_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         num_edges = row.numel()
-        selector = self._get_selector(row, dim_size, selector_indices, selector_hash)
+        selector = self._get_selector(row, dim_size)
 
         scalar_dtype = scalar_message.dtype
         autocast_context = (
@@ -751,41 +730,10 @@ class GCPMessagePassing(nn.Module):
 
         return aggregated_scalar, aggregated_vector
 
-    def _get_selector(
-        self,
-        row: torch.Tensor,
-        dim_size: int,
-        selector_indices: Optional[torch.Tensor] = None,
-        selector_hash: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    def _get_selector(self, row: torch.Tensor, dim_size: int) -> torch.Tensor:
         num_edges = row.numel()
         device = row.device
         device_index = -1 if device.type == "cpu" or device.index is None else device.index
-
-        hash_value: Optional[int] = None
-        if selector_hash is not None:
-            hash_value = int(selector_hash.item())
-
-        if hash_value is not None and selector_indices is not None:
-            cache_key = (device.type, device_index, dim_size, num_edges, hash_value)
-            cached = self._selector_cache.get(cache_key)
-            if cached is not None:
-                selector, _ = cached
-                return selector
-
-            indices = selector_indices
-            if indices.device != device:
-                indices = indices.to(device)
-
-            values = torch.ones(num_edges, device=device, dtype=torch.float32)
-            selector = torch.sparse_coo_tensor(
-                indices,
-                values,
-                size=(dim_size, num_edges),
-            ).coalesce()
-
-            self._selector_cache[cache_key] = (selector.detach(), None)
-            return selector
 
         row_signature = row.detach().cpu().contiguous()
         row_hash = hash(row_signature.numpy().tobytes())
@@ -794,10 +742,7 @@ class GCPMessagePassing(nn.Module):
         cached = self._selector_cache.get(cache_key)
         if cached is not None:
             selector, cached_row = cached
-            if cached_row is None or (
-                cached_row.shape == row_signature.shape
-                and torch.equal(cached_row, row_signature)
-            ):
+            if cached_row.shape == row_signature.shape and torch.equal(cached_row, row_signature):
                 return selector
 
         edge_ids = torch.arange(num_edges, device=device)
@@ -956,9 +901,6 @@ class GCPInteractions(nn.Module):
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
         node_pos: Optional[Float[torch.Tensor, "batch_num_nodes 3"]] = None,
-        selector_indices: Optional[torch.Tensor] = None,
-        selector_hash: Optional[torch.Tensor] = None,
-        selector_dim_size: Optional[torch.Tensor] = None,
     ) -> Tuple[
         Tuple[
             Float[torch.Tensor, "batch_num_nodes hidden_dim"],
@@ -975,14 +917,7 @@ class GCPInteractions(nn.Module):
 
         # forward propagate with interaction module
         hidden_residual = self.interaction(
-            node_rep,
-            edge_rep,
-            edge_index,
-            frames,
-            node_mask=node_mask,
-            selector_indices=selector_indices,
-            selector_hash=selector_hash,
-            selector_dim_size=selector_dim_size,
+            node_rep, edge_rep, edge_index, frames, node_mask=node_mask
         )
 
         # aggregate input and hidden features

@@ -251,11 +251,7 @@ class GCPNetModel(torch.nn.Module):
                 (e, xi),
                 batch.edge_index,
                 batch.f_ij,
-                node_mask=getattr(batch, "mask", None),
                 node_pos=batch.pos,
-                selector_indices=getattr(batch, "selector_indices", None),
-                selector_hash=getattr(batch, "selector_hash", None),
-                selector_dim_size=getattr(batch, "selector_dim_size", None),
             )
 
         # Record final version of each feature in `Batch` object
@@ -349,12 +345,3 @@ class GCPNetModel(torch.nn.Module):
                     updated = value.clone()
                     updated[-1] += pad
                     batch._slice_dict[key] = updated
-
-        if hasattr(batch, "selector_dim_size"):
-            selector_dim_size = batch.selector_dim_size
-            if isinstance(selector_dim_size, torch.Tensor):
-                if selector_dim_size.device != batch.pos.device:
-                    selector_dim_size = selector_dim_size.to(batch.pos.device)
-                batch.selector_dim_size = selector_dim_size + pad
-            else:
-                batch.selector_dim_size = selector_dim_size + pad

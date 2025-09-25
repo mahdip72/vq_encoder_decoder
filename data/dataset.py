@@ -1,5 +1,4 @@
 import glob
-import hashlib
 import math
 import numpy as np
 import torch
@@ -231,20 +230,6 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
         edge_index.size(1), dtype=torch.long, device=edge_index.device
     )
     torch_geometric_batch.edge_index_precomputed = True
-
-    row_cpu = edge_index[0].cpu()
-    num_edges = row_cpu.numel()
-    edge_ids_cpu = torch.arange(num_edges, dtype=torch.long)
-    selector_indices = torch.stack((row_cpu, edge_ids_cpu))
-    hash_bytes = selector_indices.numpy().tobytes()
-    selector_hash = int.from_bytes(hashlib.sha1(hash_bytes).digest()[:8], "little", signed=False)
-    selector_hash &= (1 << 63) - 1
-
-    torch_geometric_batch.selector_indices = selector_indices
-    torch_geometric_batch.selector_dim_size = torch.tensor(
-        torch_geometric_batch.num_nodes, dtype=torch.long
-    )
-    torch_geometric_batch.selector_hash = torch.tensor(selector_hash, dtype=torch.long)
     coords = torch.stack(coords_list)
     masks = torch.stack(masks_list)
 
