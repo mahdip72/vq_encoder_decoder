@@ -224,20 +224,11 @@ class GCPNetModel(torch.nn.Module):
             the dimension of the embeddings.
         :rtype: EncoderOutput
         """
-        pos_centroid = getattr(batch, "pos_centroid", None)
-        if pos_centroid is None:
-            # Centralize node positions to make them translation-invariant
-            pos_centroid, batch.pos = self.centralize(batch, batch_index=batch.batch)
-            batch.pos_centroid = pos_centroid
+        # Centralize node positions to make them translation-invariant
+        pos_centroid, batch.pos = self.centralize(batch, batch_index=batch.batch)
 
         # Align node counts to power-of-two blocks to favour dense kernels
         self._pad_nodes_to_block(batch)
-
-        selectors = None
-        selector_row_ptr = getattr(batch, "selector_row_ptr", None)
-        selector_edge_perm = getattr(batch, "selector_edge_perm", None)
-        if selector_row_ptr is not None and selector_edge_perm is not None:
-            selectors = (selector_row_ptr, selector_edge_perm)
 
         # Install `h`, `chi`, `e`, and `xi` using corresponding features built by the `FeatureFactory`
         batch.h, batch.chi, batch.e, batch.xi = (
@@ -260,7 +251,6 @@ class GCPNetModel(torch.nn.Module):
                 (e, xi),
                 batch.edge_index,
                 batch.f_ij,
-                selectors=selectors,
                 node_mask=getattr(batch, "mask", None),
                 node_pos=batch.pos,
             )
@@ -356,11 +346,3 @@ class GCPNetModel(torch.nn.Module):
                     updated = value.clone()
                     updated[-1] += pad
                     batch._slice_dict[key] = updated
-
-        if (
-            hasattr(batch, "selector_row_ptr")
-            and isinstance(batch.selector_row_ptr, torch.Tensor)
-            and batch.selector_row_ptr.numel() == total_nodes + 1
-        ):
-            pad_values = batch.selector_row_ptr.new_full((pad,), batch.selector_row_ptr[-1])
-            batch.selector_row_ptr = torch.cat((batch.selector_row_ptr, pad_values), dim=0)

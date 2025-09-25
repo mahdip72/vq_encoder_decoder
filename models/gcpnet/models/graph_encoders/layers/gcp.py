@@ -18,7 +18,6 @@ from typing import Any, Optional, Tuple, Union
 
 import torch
 import torch_scatter
-from torch_scatter import segment_csr
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import Bool, Float, Int64
 from torch import nn
@@ -615,7 +614,6 @@ class GCPMessagePassing(nn.Module):
         edge_rep: ScalarVector,
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
-        selectors: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
     ) -> ScalarVector:
         return self._fused_message_pass(
@@ -623,7 +621,6 @@ class GCPMessagePassing(nn.Module):
             edge_rep,
             edge_index,
             frames,
-            selectors=selectors,
             node_mask=node_mask,
         )
 
@@ -633,7 +630,6 @@ class GCPMessagePassing(nn.Module):
         edge_rep: ScalarVector,
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
-        selectors: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
     ) -> ScalarVector:
         row, col = edge_index
@@ -681,7 +677,6 @@ class GCPMessagePassing(nn.Module):
             message_residual.scalar,
             message_residual.vector,
             dim_size=node_rep.scalar.shape[0],
-            selectors=selectors,
             node_mask=node_mask,
         )
 
@@ -694,7 +689,8 @@ class GCPMessagePassing(nn.Module):
         vector_message: torch.Tensor,
         *,
         dim_size: int,
-        selectors: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        selector_indices: Optional[torch.Tensor] = None,
+        selector_hash: Optional[torch.Tensor] = None,
         node_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         num_edges = row.numel()
@@ -707,33 +703,16 @@ class GCPMessagePassing(nn.Module):
         else:
             combined = scalar_message
 
-        use_segment = (
-            selectors is not None
-            and selectors[0] is not None
-            and selectors[1] is not None
-            and selectors[1].numel() == combined.size(0)
-            and selectors[0].numel() == dim_size + 1
+        index = row.unsqueeze(-1)
+        if index.dim() != combined.dim():
+            index = index.expand_as(combined)
+        aggregated_combined = torch_scatter.scatter(
+            combined,
+            index,
+            dim=0,
+            dim_size=dim_size,
+            reduce=self.reduce_function,
         )
-
-        if use_segment:
-            row_ptr, selector_perm = selectors
-            combined = combined.index_select(0, selector_perm)
-            aggregated_combined = segment_csr(
-                combined,
-                row_ptr,
-                reduce=self.reduce_function,
-            )
-        else:
-            index = row.unsqueeze(-1)
-            if index.dim() != combined.dim():
-                index = index.expand_as(combined)
-            aggregated_combined = torch_scatter.scatter(
-                combined,
-                index,
-                dim=0,
-                dim_size=dim_size,
-                reduce=self.reduce_function,
-            )
 
         scalar_dim = scalar_message.size(1)
         aggregated_scalar = aggregated_combined[:, :scalar_dim]
@@ -894,7 +873,6 @@ class GCPInteractions(nn.Module):
         ],
         edge_index: Int64[torch.Tensor, "2 batch_num_edges"],
         frames: Float[torch.Tensor, "batch_num_edges 3 3"],
-        selectors: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         node_mask: Optional[Bool[torch.Tensor, "batch_num_nodes"]] = None,
         node_pos: Optional[Float[torch.Tensor, "batch_num_nodes 3"]] = None,
     ) -> Tuple[
@@ -917,7 +895,6 @@ class GCPInteractions(nn.Module):
             edge_rep,
             edge_index,
             frames,
-            selectors=selectors,
             node_mask=node_mask,
         )
 
