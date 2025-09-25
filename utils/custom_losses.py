@@ -17,13 +17,16 @@ def compute_grad_norm(loss, parameters, norm_type=2):
     Returns:
         torch.Tensor: The gradient norm.
     """
-    grads = torch.autograd.grad(
-        loss,
-        [p for p in parameters if p.requires_grad],
-        retain_graph=True,
-        create_graph=False,
-        allow_unused=True
-    )
+    import torch._functorch.config as functorch_config
+
+    with functorch_config.patch(donated_buffer=False):
+        grads = torch.autograd.grad(
+            loss,
+            [p for p in parameters if p.requires_grad],
+            retain_graph=True,
+            create_graph=False,
+            allow_unused=True
+        )
     grads = [g for g in grads if g is not None]
     if not grads:
         return torch.tensor(0.0)
