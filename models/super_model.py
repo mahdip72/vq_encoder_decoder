@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 from models.vqvae import VQVAETransformer
 from models.decoders import GeometricDecoder
-from models.gcpnet.models.graph_encoders.gcpnet import GCPNetModel
 from models.gcpnet.models.base import (
     instantiate_encoder,
     load_pretrained_encoder,
