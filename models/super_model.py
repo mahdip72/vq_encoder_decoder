@@ -50,20 +50,12 @@ class SuperModel(nn.Module):
         if not self.decoder_only:
             batch_index = batch['graph'].batch
 
-            if self.configs.model.encoder.name == "gcpnet":
-                if self.configs.model.encoder.pretrained.enabled:
-                    # No explicit casting or autocast override here.
-                    model_output = self.encoder(batch['graph'])
-                    x = model_output["node_embedding"]
+            # No explicit casting or autocast override here.
+            model_output = self.encoder(batch['graph'])
 
-                else:
-                    _, x, _ = self.encoder(batch['graph'])
+            x = model_output["node_embedding"]
 
-                x = separate_features(x, batch_index)
-
-            else:
-                x = self.encoder(batch, output_logits=False)
-
+            x = separate_features(x, batch_index)
             x = merge_features(x, self.max_length)
         else:
             x = batch['indices']
