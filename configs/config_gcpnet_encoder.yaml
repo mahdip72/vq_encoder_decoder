@@ -3,21 +3,23 @@ features:
   kwargs:
     representation: CA
     scalar_node_features:
-    - amino_acid_one_hot
-    - sequence_positional_encoding
-    - alpha
-    - kappa
-    - dihedrals
+      - amino_acid_one_hot
+      - sequence_positional_encoding
+      - alpha
+      - kappa
+      - dihedrals
     vector_node_features:
-    - orientation
+      - orientation
     edge_types:
-    - knn_16
+      - knn_16
     scalar_edge_features:
-    - edge_distance
+      - edge_distance
     vector_edge_features:
-    - edge_vectors
+      - edge_vectors
+
 task:
   transform: null
+
 encoder:
   module: models.gcpnet.models.graph_encoders.gcpnet.GCPNetModel
   kwargs:
@@ -38,8 +40,8 @@ encoder:
       scalar_nonlinearity: silu
       vector_nonlinearity: silu
       nonlinearities:
-      - silu
-      - silu
+        - silu
+        - silu
       r_max: 10.0
       num_rbf: 8
       bottleneck: 4
@@ -78,6 +80,3 @@ encoder:
         message_residual: 0
         message_ff_multiplier: 1
         self_message: true
-  checkpoint_path: ./models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt
-top_k: 30
-num_positional_embeddings: 16
