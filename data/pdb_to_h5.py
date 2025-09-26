@@ -211,6 +211,34 @@ def evaluate_missing_content(pos, max_missing_ratio=0.2, max_consecutive_missing
     return True, ''
 
 
+def propagate_nan_residues(pos):
+    """
+    For each residue, if any backbone atom coordinate is missing/NaN,
+    set all backbone atom coordinates of that residue to NaN.
+
+    Returns the number of residues updated.
+    """
+    updated_count = 0
+    for i, residue_coords in enumerate(pos):
+        # Detect if residue already fully NaN (all four atoms are NaN triplets)
+        is_fully_nan = True
+        has_any_missing = False
+        for atom_coords in residue_coords:
+            if len(atom_coords) != 3:
+                has_any_missing = True
+                continue
+            any_nan = any(math.isnan(v) for v in atom_coords)
+            if any_nan:
+                has_any_missing = True
+            else:
+                is_fully_nan = False
+        # Propagate to full-NaN only if there is some missing but not already full-NaN
+        if has_any_missing and not is_fully_nan:
+            pos[i] = [[math.nan, math.nan, math.nan] for _ in range(4)]
+            updated_count += 1
+    return updated_count
+
+
 def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, use_cif, no_file_index, gap_threshold):
     """
     Processes a structure file (PDB/mmCIF) into HDF5 format, handling insertion codes and numeric gaps.
@@ -314,6 +342,13 @@ def preprocess_file(file_index, file_path, max_len, min_len, save_path, dictn, u
                 plddt_scores[i:i] = nan_plddt_padding
                 stats['missing_residues'] += insert_count
         # --- END Gap handling ---
+        
+        # --- Residue-level NaN propagation ---
+        nan_residue_count = propagate_nan_residues(pos)
+        if nan_residue_count > 0:
+            stats['missing_coordinates'] += nan_residue_count
+        # --- END NaN propagation ---
+
         # Enforce final length constraints before writing
         final_len = len(protein_seq)
         if final_len < min_len:
