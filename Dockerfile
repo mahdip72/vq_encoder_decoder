@@ -3,81 +3,73 @@ FROM nvcr.io/nvidia/pytorch:25.06-py3
 # Use bash as default shell
 SHELL ["/bin/bash", "-c"]
 
-
-# Graph and geometric deep learning libraries
-RUN pip install torch_geometric
-RUN pip install torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
-RUN pip install torch-cluster -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
-
-# ProteinWorkshop from specific commit
-RUN pip install --no-deps git+https://github.com/mahdip72/ProteinWorkshop.git
-
-# Additional PyTorch-related packages
-# RUN pip install torchtext
-RUN pip install torchmetrics
-RUN pip install einops
-
-# Transformers ecosystem
-RUN pip install accelerate
-RUN pip install transformers
-RUN pip install timm
-RUN pip install 'git+https://github.com/katsura-jp/pytorch-cosine-annealing-with-warmup'
-
-# Visualization and logging
-RUN pip install tensorboard
-RUN pip install plotly
-
-# Data handling & utilities
-RUN pip install python-box
-RUN pip install h5py
-RUN pip install pandas
-RUN pip install scikit-learn
-RUN pip install joblib
-
-# Specialized libraries
-RUN pip install fair-esm
-RUN pip install vector-quantize-pytorch
-RUN pip install x_transformers
-RUN pip install tmtools
-RUN pip install jaxtyping
-RUN pip install beartype
-RUN pip install omegaconf
-RUN pip install ndlinear
-RUN pip install torch_tb_profiler
-
-RUN python3 -m pip install "graphein==1.7.7"
-RUN python3 -m pip install "loguru==0.7.0"
-RUN python3 -m pip install "fair-esm==2.0.0"
-RUN python3 -m pip install "hydra-core==1.3.2"
-RUN python3 -m pip install "biotite==0.37.0"
-RUN python3 -m pip install "e3nn==0.5.1"
-RUN python3 -m pip install "einops==0.6.1"
-RUN python3 -m pip install "beartype==0.15.0"
-RUN python3 -m pip install "rich==13.5.2"
-RUN python3 -m pip install "pytdc"
-RUN python3 -m pip install "wandb"
-RUN python3 -m pip install "lovely-tensors==0.1.15"
-RUN python3 -m pip install "psutil==5.9.5"
-RUN python3 -m pip install "tqdm==4.66.1"
-RUN python3 -m pip install "jaxtyping==0.2.24"
-RUN python3 -m pip install "omegaconf==2.3.0"
-RUN python3 -m pip install "pytorch-lightning"
-RUN python3 -m pip install "lightning"
-RUN python3 -m pip install "python-dotenv==1.0.0"
-RUN python3 -m pip install "wget==3.2"
-RUN python3 -m pip install "opt-einsum==3.3.0"
-RUN python3 -m pip install "pyrootutils==1.0.4"
-RUN python3 -m pip install "hydra-colorlog==1.2.0"
-RUN python3 -m pip install "bitsandbytes"
-RUN pip install -U einops
-
-
-# Environment variables
-ENV TOKENIZERS_PARALLELISM=false
-
+# (Optional) system utilities similar to previous image layer; can be removed if undesired
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         tmux \
         htop \
         nvtop \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# (Optional) upgrade pip first (not in install.sh but kept for robustness)
+RUN pip3 install --no-cache-dir --upgrade pip
+
+# -----------------------------
+# Install PyTorch (matches install.sh order)
+# -----------------------------
+RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu129
+RUN pip3 install --no-cache-dir torchvision --index-url https://download.pytorch.org/whl/cu129
+
+# -----------------------------
+# Graph and geometric deep learning libraries
+# -----------------------------
+RUN pip3 install --no-cache-dir torch_geometric
+RUN pip3 install --no-cache-dir torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
+RUN pip3 install --no-cache-dir torch-cluster -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
+
+# -----------------------------
+# Additional PyTorch-related packages
+# -----------------------------
+RUN pip3 install --no-cache-dir torchmetrics
+RUN pip3 install --no-cache-dir -U einops
+RUN pip3 install --no-cache-dir bitsandbytes
+
+# -----------------------------
+# Transformers ecosystem
+# -----------------------------
+RUN pip3 install --no-cache-dir accelerate
+RUN pip3 install --no-cache-dir transformers
+RUN pip3 install --no-cache-dir timm
+RUN pip3 install --no-cache-dir 'git+https://github.com/katsura-jp/pytorch-cosine-annealing-with-warmup'
+
+# -----------------------------
+# Visualization and logging
+# -----------------------------
+RUN pip3 install --no-cache-dir tensorboard
+
+# -----------------------------
+# Data handling & utilities
+# -----------------------------
+RUN pip3 install --no-cache-dir python-box
+RUN pip3 install --no-cache-dir h5py
+RUN pip3 install --no-cache-dir pandas
+RUN pip3 install --no-cache-dir scikit-learn
+RUN pip3 install --no-cache-dir joblib
+
+# -----------------------------
+# Specialized libraries
+# -----------------------------
+RUN pip3 install --no-cache-dir -U vector-quantize-pytorch
+RUN pip3 install --no-cache-dir -U x_transformers
+RUN pip3 install --no-cache-dir tmtools
+RUN pip3 install --no-cache-dir jaxtyping
+RUN pip3 install --no-cache-dir beartype
+RUN pip3 install --no-cache-dir omegaconf
+RUN pip3 install --no-cache-dir ndlinear
+RUN pip3 install --no-cache-dir torch_tb_profiler
+RUN pip3 install --no-cache-dir tqdm
+RUN pip3 install --no-cache-dir biopython
+RUN pip3 install --no-cache-dir graphein
+
+# Environment variables
+ENV TOKENIZERS_PARALLELISM=false
