@@ -271,7 +271,7 @@ We welcome independent validation of our ESM3 and FoldToken-4 conversion scripts
 
 ## Results
 
-The table below reproduces Table 2 from the manuscript: reconstruction accuracy on community benchmarks. Metrics are backbone TM-score (↑) and RMSD in Å (↓).
+The table below reproduces Table 2 from the manuscript: reconstruction accuracy on community benchmarks and a zero-shot setting. Metrics are backbone TM-score (↑) and RMSD in Å (↓).
 
 <table>
   <thead>
@@ -345,12 +345,28 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td>12.1138</td>
       <td>13.5360</td>
     </tr>
+    <tr>
+      <td style="text-align:right;" rowspan="2">Zero-Shot</td>
+      <td>TM-score</td>
+      <td>0.9747</td>
+      <td>0.3324</td>
+      <td>0.3131</td>
+      <td>-</td>
+    </tr>
+    <tr>
+      <td>RMSD</td>
+      <td>0.8033</td>
+      <td>17.4449</td>
+      <td>18.9335</td>
+      <td>-</td>
+    </tr>
   </tbody>
 </table>
 
 Notes:
 - FoldToken-4 uses a 256-size vocabulary; others use 4096.
 - The Structure Tokenizer baseline supports only sequence lengths 50–512; out-of-range samples are excluded for that column only.
+- Zero-shot results for the Structure Tokenizer are omitted due to limited coverage.
 - Evaluation scripts for baselines were reproduced where public tooling was incomplete; see repository docs for details.
 
 ## 📜 Citation
