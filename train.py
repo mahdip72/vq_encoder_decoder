@@ -355,7 +355,7 @@ def main(dict_config, config_file_path):
             net = compile_gcp_encoder(net, mode=None, backend="inductor")
             logging.info('GCP encoder compiled.')
         net = compile_non_gcp_and_exclude_vq(net, mode=None, backend="inductor")
-        logging.info('VQVAE projection layers compiled; transformer blocks, decoder, and vector quantizer left in eager.')
+        logging.info('All VQVAE layers compiled except VQ layer.')
     net, optimizer, train_dataloader, valid_dataloader, scheduler = accelerator.prepare(
         net, optimizer, train_dataloader, valid_dataloader, scheduler
     )
