@@ -11,6 +11,9 @@
 import csv
 import math
 from collections import Counter, defaultdict
+import os
+import sys
+from datetime import datetime
 
 # ========= Configure this =========
 CSV_PATH = "path/to/vq_indices.csv"
@@ -19,6 +22,18 @@ CODEBOOK_SIZE = 4096          # set to None to skip bound check
 MI_LAGS = [1, 2, 4]           # lags for MI computation
 TOPK = 10                     # how many unigrams/bigrams/trigrams to print
 # ==================================
+
+class Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
 
 def safe_int(tok_s):
     try:
@@ -93,6 +108,13 @@ def compute_mi_from_pairs(pair_counts):
     return I
 
 def main():
+    # Setup log file beside the input CSV; tee stdout to both console and file
+    log_dir = os.path.dirname(os.path.abspath(CSV_PATH))
+    log_path = os.path.join(log_dir, "codebook_analysis.txt")
+    log_file = open(log_path, "w", encoding="utf-8")
+    old_stdout = sys.stdout
+    sys.stdout = Tee(old_stdout, log_file)
+
     # Unigram
     unigram = Counter()
     total_rows = 0
@@ -263,6 +285,11 @@ def main():
     for (i, j, k), c in trigram_flat.most_common(TOPK):
         pct = (c / total_trigrams * 100.0) if total_trigrams > 0 else 0.0
         print(f"  ({i:>4} -> {j:>4} -> {k:>4}): {c}  ({pct:.4f}%)")
+
+    print(f"\nSaved log to: {log_path}")
+    log_file.flush()
+    sys.stdout = old_stdout
+    log_file.close()
 
 if __name__ == "__main__":
     main()
