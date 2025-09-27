@@ -80,3 +80,6 @@ encoder:
         message_residual: 0
         message_ff_multiplier: 1
         self_message: true
+
+top_k: 30
+num_positional_embeddings: 16
