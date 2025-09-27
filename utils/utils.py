@@ -4,6 +4,7 @@ import datetime
 import shutil
 import ast
 import logging as log
+from collections import OrderedDict
 from pathlib import Path
 from box import Box
 from torch.utils.tensorboard import SummaryWriter
@@ -130,6 +131,59 @@ def get_dummy_logger():
     return logger
 
 
+def _remap_gcp_encoder_keys(state_dict, model, logger=None):
+    """Align checkpoint encoder keys with the current model structure."""
+    if not isinstance(state_dict, (dict, OrderedDict)):
+        return state_dict
+
+    encoder = getattr(model, "encoder", None)
+    if encoder is None:
+        return state_dict
+
+    try:
+        from models.gcpnet.models.base import PretrainedEncoder  # local import avoids circular import on module load
+    except ImportError:  # pragma: no cover - defensive guard if dependency missing
+        PretrainedEncoder = ()  # type: ignore
+
+    def _is_unwrapped_key(key: str) -> bool:
+        return (
+            key.startswith("encoder.")
+            and not key.startswith("encoder.encoder.")
+            and not key.startswith("encoder.featuriser.")
+            and not key.startswith("encoder.task_transform.")
+        )
+
+    has_wrapped_keys = any(key.startswith("encoder.encoder.") for key in state_dict)
+    has_unwrapped_keys = any(_is_unwrapped_key(key) for key in state_dict)
+    is_wrapped_model = isinstance(encoder, PretrainedEncoder)
+
+    if not is_wrapped_model and has_wrapped_keys:
+        remapped = OrderedDict()
+        for key, value in state_dict.items():
+            if key.startswith("encoder.encoder."):
+                remapped["encoder." + key[len("encoder.encoder."):]] = value
+            elif key.startswith("encoder.featuriser.") or key.startswith("encoder.task_transform."):
+                continue
+            else:
+                remapped[key] = value
+        if logger is not None:
+            logger.info("Remapped encoder checkpoint keys for non-pretrained encoder.")
+        return remapped
+
+    if is_wrapped_model and not has_wrapped_keys and has_unwrapped_keys:
+        remapped = OrderedDict()
+        for key, value in state_dict.items():
+            if _is_unwrapped_key(key):
+                remapped["encoder.encoder." + key[len("encoder."):]] = value
+            else:
+                remapped[key] = value
+        if logger is not None:
+            logger.info("Remapped encoder checkpoint keys for pretrained encoder wrapper.")
+        return remapped
+
+    return state_dict
+
+
 def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwargs):
     """
     Save the models checkpoints during training.
@@ -162,6 +216,8 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
 def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False):
     model_checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     pretrained_state_dict = model_checkpoint['model_state_dict']
+
+    pretrained_state_dict = _remap_gcp_encoder_keys(pretrained_state_dict, net, logger)
 
     if decoder_only:
         pretrained_state_dict = {k: v for k, v in pretrained_state_dict.items() if
@@ -199,6 +255,8 @@ def load_checkpoints(configs, optimizer, scheduler, logging, net, accelerator):
             keys_to_remove = [k for k in pretrained_state_dict if k.startswith('vqvae.decoder')]
             for k in keys_to_remove:
                 del pretrained_state_dict[k]
+
+        pretrained_state_dict = _remap_gcp_encoder_keys(pretrained_state_dict, net, logging)
 
         loading_log = net.load_state_dict(pretrained_state_dict, strict=False)
 
