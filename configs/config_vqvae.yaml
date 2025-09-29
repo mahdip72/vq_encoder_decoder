@@ -38,9 +38,11 @@ model:
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
       rotation_trick: True
-      threshold_ema_dead_code: 1
+      threshold_ema_dead_code: 2
       kmeans_init: True
       kmeans_iters: 10
+      stochastic_sample_codes: True
+      sample_codebook_temp: 0.1
       alpha: 1.0
     encoder:
       freeze_parameters: False
@@ -119,7 +121,7 @@ train_settings:
       enabled: True
       weight: 0.001
       adaptive_coefficient: True
-      blocks: 2  # Number of transformer blocks, 0 means a linear layer only
+      blocks: 0  # Number of transformer blocks, 0 means a linear layer only
     vq:
       adaptive_coefficient: True
 
