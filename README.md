@@ -70,6 +70,32 @@ bash install.sh
 
 ## Data
 
+### Download PDBs with Foldcomp (recommended)
+We provide a helper script to fetch a Foldcomp-formatted database and extract structures to uncompressed `.pdb` files. See the official docs for more details: [Foldcomp README](https://github.com/steineggerlab/foldcomp) and the [Foldcomp download server](https://foldcomp.steineggerlab.workers.dev/).
+
+Quick start (preferred):
+```bash
+# 1) Open the script and set parameters at the top:
+#    - DATABASE_NAME (e.g. afdb_swissprot_v4, afdb_uniprot_v4, afdb_rep_v4, afdb_rep_dark_v4,
+#      esmatlas, esmatlas_v2023_02, highquality_clust30, or organism sets like h_sapiens)
+#    - DOWNLOAD_DIR (where DB files live)
+#    - OUTPUT_DIR (where .pdb files will be written)
+
+nano data/download_foldcomp_db_to_pdb.sh
+
+# 2) Run the script
+bash data/download_foldcomp_db_to_pdb.sh
+
+# The script will (a) fetch the DB via the optional Python helper if available,
+# or instruct you to download DB files from the Foldcomp server, then (b) call
+# `foldcomp decompress` to write uncompressed .pdb files to OUTPUT_DIR.
+```
+
+Notes:
+- You need the `foldcomp` CLI in your PATH. Install guidance is available in the [Foldcomp README](https://github.com/steineggerlab/foldcomp).
+- The script optionally uses the Python package `foldcomp` to auto-download DB files. If not present, it prints the exact files to fetch from the official server.
+- After PDBs are downloaded, continue with the converters below to produce the `.h5` dataset used by this repo.
+
 ### HDF5 format used by this repo
 - **seq**: length‑L amino‑acid string. Standard 20‑letter alphabet; **X** marks unknowns and numbering gaps.
 - **N_CA_C_O_coord**: float array of shape (L, 4, 3). Backbone atom coordinates in Å for [N, CA, C, O] per residue. Missing atoms/residues are NaN‑filled.
