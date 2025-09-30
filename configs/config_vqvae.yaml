@@ -41,9 +41,13 @@ model:
       threshold_ema_dead_code: 2
       kmeans_init: True
       kmeans_iters: 10
-      stochastic_sample_codes: True
-      sample_codebook_temp: 0.1
+      stochastic_sample_codes: False
+      sample_codebook_temp: 0.01
       alpha: 1.0
+      tik_tok:
+        enabled: True
+        compression_factor: 8
+        residual_depth: 1
     encoder:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
@@ -57,7 +61,7 @@ model:
       pre_norm: True
       residual_attn: False # Set pre_norm to False if residual_attn is True
       num_memory_tokens: 0 # Number of memory tokens, 0 means no memory tokens
-      causal: True # Enable causal masking for autoregressive attention
+      causal: False # Enable causal masking for autoregressive attention
     decoder:
       name: geometric_decoder # geometric_decoder
       freeze_parameters: False
@@ -73,10 +77,10 @@ train_settings:
   shuffle: False
   mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
-  batch_size: 16
+  batch_size: 32
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 200000
+  max_task_samples: 100000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False
@@ -87,7 +91,7 @@ train_settings:
     probability: 0.05
     max_length: 50
   gaussian_jitter:           # Added augmentation block
-    enabled: True           # Set True to enable Gaussian coordinate jitter
+    enabled: False           # Set True to enable Gaussian coordinate jitter
     std: 0.05                # Standard deviation in Angstroms for N(0, std^2) noise
     probability: 0.5         # Probability to apply jitter to a sample
   random_rotation:           # New rotation-only augmentation (global rigid rotation)
