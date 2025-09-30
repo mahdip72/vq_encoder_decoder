@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from utils.alignment import kabsch
 import torch.distributed as dist
 from typing import Optional, Dict, Any
+import torch._functorch.config as functorch_config
 
 
 def compute_grad_norm(loss, parameters, norm_type=2):
@@ -17,7 +18,6 @@ def compute_grad_norm(loss, parameters, norm_type=2):
     Returns:
         torch.Tensor: The gradient norm.
     """
-    import torch._functorch.config as functorch_config
 
     with functorch_config.patch(donated_buffer=False):
         grads = torch.autograd.grad(
