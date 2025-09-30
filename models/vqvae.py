@@ -126,8 +126,8 @@ class VQVAETransformer(nn.Module):
                 threshold_ema_dead_code=configs.model.vqvae.vector_quantization.threshold_ema_dead_code,
                 kmeans_init=configs.model.vqvae.vector_quantization.kmeans_init,
                 kmeans_iters=configs.model.vqvae.vector_quantization.kmeans_iters,  # number of kmeans iterations to calculate the centroids for the codebook on init
-                stochastic_sample_codes=configs.model.vqvae.vector_quantization.stochastic_sample_codes,
-                sample_codebook_temp=configs.model.vqvae.vector_quantization.sample_codebook_temp
+                stochastic_sample_codes=getattr(configs.model.vqvae.vector_quantization, 'stochastic_sample_codes', False),
+                sample_codebook_temp=getattr(configs.model.vqvae.vector_quantization, 'sample_codebook_temp', 0.1),
             )
 
             if configs.model.vqvae.vector_quantization.get('freeze_parameters', False):
