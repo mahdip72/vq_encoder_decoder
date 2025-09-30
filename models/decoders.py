@@ -1,4 +1,5 @@
 import torch
+import math
 import torch.nn as nn
 from models.gcpnet.layers.structure_proj import Dim6RotStructureHead
 from models.gcpnet.heads import PairwisePredictionHead, RegressionHead
@@ -17,6 +18,35 @@ class GeometricDecoder(nn.Module):
         self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim
         self.decoder_channels = decoder_configs.dimension
 
+        tik_tok_cfg = getattr(
+            configs.model.vqvae.vector_quantization, "tik_tok", None
+        ) or {}
+        self.tik_tok_enabled = tik_tok_cfg.get("enabled", False)
+        compression_factor = tik_tok_cfg.get("compression_factor", 1)
+        self.tik_tok_compression_factor = int(compression_factor)
+        if self.tik_tok_enabled:
+            if self.tik_tok_compression_factor <= 0:
+                raise ValueError("TikTok compression_factor must be a positive integer")
+            if self.tik_tok_compression_factor % 2 != 0:
+                raise ValueError("TikTok compression_factor must be an even integer")
+            if self.decoder_causal:
+                raise ValueError(
+                    "TikTok latent tokens require a non-causal decoder. "
+                    "Disable configs.model.vqvae.decoder.causal when tik_tok is enabled."
+                )
+            self.latent_token_count = math.ceil(
+                self.max_length / self.tik_tok_compression_factor
+            )
+        else:
+            self.latent_token_count = 0
+        self.decoder_max_seq_len = self.max_length + (
+            self.latent_token_count if self.tik_tok_enabled else 0
+        )
+
+        projector_input_length = (
+            self.latent_token_count if self.tik_tok_enabled else self.max_length
+        )
+
         self.direction_loss_bins = decoder_configs.direction_loss_bins
 
         # Store the decoder output scaling factor
@@ -31,18 +61,25 @@ class GeometricDecoder(nn.Module):
         # Use either NdLinear or nn.Linear based on the flag
         if self.use_ndlinear:
             self.projector_in = NdLinear(
-                input_dims=(self.max_length, self.vqvae_dimension),
-                hidden_size=(self.max_length, self.decoder_channels),
+                input_dims=(projector_input_length, self.vqvae_dimension),
+                hidden_size=(projector_input_length, self.decoder_channels),
             )
         else:
             self.projector_in = nn.Linear(
                 self.vqvae_dimension, self.decoder_channels, bias=False
             )
 
+        if self.tik_tok_enabled:
+            self.decoder_mask_token = nn.Parameter(
+                torch.randn(self.decoder_channels)
+            )
+        else:
+            self.decoder_mask_token = None
+
         self.decoder_stack = ContinuousTransformerWrapper(
             dim_in=decoder_configs.dimension,
             dim_out=decoder_configs.dimension,
-            max_seq_len=configs.model.max_length,
+            max_seq_len=self.decoder_max_seq_len,
             num_memory_tokens=decoder_configs.num_memory_tokens,
             attn_layers=Encoder(
                 dim=decoder_configs.dimension,
@@ -104,12 +141,23 @@ class GeometricDecoder(nn.Module):
             # Original linear approach
             x = self.projector_in(structure_tokens)
 
+        decoder_mask_bool = mask.to(torch.bool)
+
+        if self.tik_tok_enabled:
+            x, decoder_mask_bool = self._build_decoder_tik_tok_stream(
+                latent_tokens=x,
+                original_mask=decoder_mask_bool,
+            )
+
         decoder_attn_mask = None
         if self.decoder_causal:
             seq_len = x.size(1)
             decoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
 
-        x = self.decoder_stack(x, mask=mask, attn_mask=decoder_attn_mask)
+        x = self.decoder_stack(x, mask=decoder_mask_bool, attn_mask=decoder_attn_mask)
+
+        if self.tik_tok_enabled:
+            x = x[:, :self.max_length, :]
 
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
@@ -126,3 +174,50 @@ class GeometricDecoder(nn.Module):
             ]
 
         return bb_pred.flatten(-2)*self.decoder_output_scaling_factor, dir_loss_logits, dist_loss_logits
+
+    def _build_decoder_tik_tok_stream(
+        self,
+        latent_tokens: torch.Tensor,
+        original_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Construct the decoder input sequence when TikTok is enabled.
+
+        Args:
+            latent_tokens: Tensor ``(B, latent_count, D)`` output by the VQ layer.
+            original_mask: Bool tensor ``(B, max_length)`` indicating valid
+                residue positions prior to TikTok augmentation.
+
+        Returns:
+            tuple containing:
+                - Concatenated decoder input ``(B, max_length + latent_count, D)``
+                - Updated key padding mask of shape ``(B, max_length + latent_count)``
+
+        Raises:
+            RuntimeError: If the decoder mask token has not been created.
+        """
+        if self.decoder_mask_token is None:
+            raise RuntimeError("TikTok decoder mask token is not initialized.")
+
+        batch_size = latent_tokens.size(0)
+        latent_token_length = latent_tokens.size(1)
+
+        mask_token = self.decoder_mask_token.unsqueeze(0).unsqueeze(0)
+        mask_tokens = mask_token.expand(batch_size, self.max_length, -1)
+        mask_tokens = mask_tokens * original_mask.to(mask_tokens.dtype).unsqueeze(-1)
+
+        active_tokens = original_mask.to(torch.int64).sum(dim=1)
+        latent_keep = (active_tokens + self.tik_tok_compression_factor - 1) // self.tik_tok_compression_factor
+        latent_keep = latent_keep.clamp(min=0, max=latent_token_length)
+
+        latent_positions = torch.arange(
+            latent_token_length,
+            device=latent_tokens.device,
+            dtype=latent_keep.dtype
+        ).unsqueeze(0)
+        latent_mask_bool = latent_positions < latent_keep.unsqueeze(1)
+        latent_tokens = latent_tokens * latent_mask_bool.to(latent_tokens.dtype).unsqueeze(-1)
+
+        decoder_mask_bool = torch.cat([original_mask, latent_mask_bool], dim=1)
+        decoder_input = torch.cat([mask_tokens, latent_tokens], dim=1)
+
+        return decoder_input, decoder_mask_bool
