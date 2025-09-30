@@ -704,7 +704,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     ntp_logits = output_dict.get('ntp_logits', None)
     vq_loss = output_dict.get('vq_loss', torch.tensor(0.0, device=outputs.device))
     indices = output_dict.get('indices', None)
-    valid_mask = output_dict.get('valid_mask', None)
+    ntp_mask = output_dict.get('ntp_mask', None)
     alpha = configs.model.vqvae.vector_quantization.alpha
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
@@ -789,7 +789,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     if configs.train_settings.losses.next_token_prediction.enabled:
         w = configs.train_settings.losses.next_token_prediction.weight
         ntp_coeff = adaptive.get('ntp', 1.0)
-        ntp_per_sample = calculate_ntp_loss(ntp_logits, indices, valid_mask)
+        ntp_per_sample = calculate_ntp_loss(ntp_logits, indices, ntp_mask)
         ntp_unscaled = ntp_per_sample.mean()
         loss_dict['unscaled_ntp_loss'] = ntp_unscaled
         loss_dict['ntp_loss'] = ntp_unscaled * w * ntp_coeff

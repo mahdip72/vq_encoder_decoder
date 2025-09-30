@@ -61,12 +61,12 @@ class SuperModel(nn.Module):
             x = batch['indices']
 
         # give kwargs to vqvae
-        x, indices, vq_loss, ntp_logits, valid_mask = self.vqvae(x, mask, nan_mask, **kwargs)
+        x, indices, vq_loss, ntp_logits, ntp_mask = self.vqvae(x, mask, nan_mask, **kwargs)
 
         output_dict["indices"] = indices
         output_dict["vq_loss"] = vq_loss
         output_dict["ntp_logits"] = ntp_logits
-        output_dict["valid_mask"] = valid_mask
+        output_dict["ntp_mask"] = ntp_mask
 
         if kwargs.get('return_vq_layer', False):
             output_dict["embeddings"] = x
