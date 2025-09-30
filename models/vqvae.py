@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import math
 from x_transformers import ContinuousTransformerWrapper, Encoder
 from vector_quantize_pytorch import VectorQuantize
 from ndlinear import NdLinear
@@ -18,6 +19,27 @@ class VQVAETransformer(nn.Module):
         self.vqvae_enabled = configs.model.vqvae.vector_quantization.enabled
         self.vqvae_dim = configs.model.vqvae.vector_quantization.dim
         self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
+
+        tik_tok_cfg = getattr(
+            configs.model.vqvae.vector_quantization, "tik_tok", None
+        ) or {}
+        self.tik_tok_enabled = tik_tok_cfg.get("enabled", False)
+        compression_factor = tik_tok_cfg.get("compression_factor", 1)
+        self.tik_tok_compression_factor = int(compression_factor)
+        if self.tik_tok_enabled:
+            if self.tik_tok_compression_factor <= 0:
+                raise ValueError("TikTok compression_factor must be a positive integer")
+            if self.tik_tok_compression_factor % 2 != 0:
+                raise ValueError("TikTok compression_factor must be an even integer")
+            self.latent_token_count = math.ceil(
+                self.max_length / self.tik_tok_compression_factor
+            )
+        else:
+            self.latent_token_count = 0
+
+        encoder_sequence_extension = self.latent_token_count if self.tik_tok_enabled else 0
+        self.encoder_max_seq_len = self.max_length + encoder_sequence_extension
+
         if getattr(configs.train_settings.losses, "next_token_prediction", False):
             self.ntp_enabled = configs.train_settings.losses.next_token_prediction.enabled
             self.ntp_depth = getattr(configs.train_settings.losses, "next_token_prediction", 0).get('blocks', 0)
@@ -28,6 +50,13 @@ class VQVAETransformer(nn.Module):
         input_shape = 128
 
         self.encoder_causal = getattr(configs.model.vqvae.encoder, 'causal', False)
+        if self.tik_tok_enabled and self.encoder_causal:
+            raise ValueError(
+                "TikTok latent tokens require a non-causal encoder. "
+                "Disable configs.model.vqvae.encoder.causal when tik_tok is enabled."
+            )
+
+        self.tik_tok_latent_tokens = None
 
         if not self.decoder_only:
             # Encoder
@@ -44,7 +73,7 @@ class VQVAETransformer(nn.Module):
             self.encoder_blocks = ContinuousTransformerWrapper(
                 dim_in=configs.model.vqvae.encoder.dimension,
                 dim_out=configs.model.vqvae.encoder.dimension,
-                max_seq_len=configs.model.max_length,
+                max_seq_len=self.encoder_max_seq_len,
                 num_memory_tokens=configs.model.vqvae.encoder.num_memory_tokens,
                 attn_layers=Encoder(
                     dim=configs.model.vqvae.encoder.dimension,
@@ -70,7 +99,7 @@ class VQVAETransformer(nn.Module):
                     self.ntp_blocks = ContinuousTransformerWrapper(
                         dim_in=configs.model.vqvae.encoder.dimension,
                         dim_out=configs.model.vqvae.encoder.dimension,
-                        max_seq_len=configs.model.max_length,
+                        max_seq_len=self.encoder_max_seq_len if not self.tik_tok_enabled else self.latent_token_count,
                         num_memory_tokens=configs.model.vqvae.encoder.num_memory_tokens,
                         attn_layers=Encoder(
                             dim=configs.model.vqvae.encoder.dimension,
@@ -93,12 +122,18 @@ class VQVAETransformer(nn.Module):
 
             if self.use_ndlinear:
                 self.encoder_head = NdLinear(
-                    input_dims=(self.max_length, configs.model.vqvae.encoder.dimension),
-                    hidden_size=(self.max_length, self.vqvae_dim)
+                    input_dims=(self.encoder_max_seq_len, configs.model.vqvae.encoder.dimension),
+                    hidden_size=(self.encoder_max_seq_len, self.vqvae_dim)
                 )
             else:
                 self.encoder_head = nn.Sequential(
                     nn.Conv1d(configs.model.vqvae.encoder.dimension, self.vqvae_dim, 1),
+                )
+
+            encoder_dim = configs.model.vqvae.encoder.dimension
+            if self.tik_tok_enabled and self.latent_token_count > 0:
+                self.tik_tok_latent_tokens = nn.Parameter(
+                    torch.randn(self.latent_token_count, encoder_dim)
                 )
 
             if configs.model.vqvae.encoder.get('freeze_parameters', False):
@@ -136,6 +171,11 @@ class VQVAETransformer(nn.Module):
                 logger.info("VQ layer parameters frozen.")
 
         self.decoder = decoder
+        if self.tik_tok_enabled and getattr(self.decoder, 'decoder_causal', False):
+            raise ValueError(
+                "TikTok latent tokens require a non-causal decoder. "
+                "Disable configs.model.vqvae.decoder.causal when tik_tok is enabled."
+            )
 
     def create_causal_mask(self, seq_len, device):
         """
@@ -158,8 +198,13 @@ class VQVAETransformer(nn.Module):
 
     def forward(self, x, mask, nan_mask, **kwargs):
         # mask, nan_mask are (B, N) bool; keep passing the key-padding mask as (B, N)
-        valid = torch.logical_and(mask, nan_mask)
+        mask_bool = mask.to(torch.bool)
+        nan_mask_bool = nan_mask.to(torch.bool)
+        valid = torch.logical_and(mask_bool, nan_mask_bool)
         ntp_logits = None
+        ntp_valid_mask = valid
+        encoder_mask_bool = valid
+        latent_mask_bool = None
         if not self.decoder_only:
             # Apply input projection
             if self.use_ndlinear:
@@ -171,16 +216,27 @@ class VQVAETransformer(nn.Module):
                 x = self.encoder_tail(x)
                 x = x.permute(0, 2, 1)
 
+            if self.tik_tok_enabled and self.latent_token_count > 0:
+                x, latent_mask_bool, encoder_mask_bool = self._append_tik_tok_latents(
+                    x,
+                    valid_mask=valid,
+                    encoder_mask_bool=encoder_mask_bool,
+                )
+
             encoder_attn_mask = None
             if self.encoder_causal:
                 seq_len = x.size(1)
                 encoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
 
-            x = self.encoder_blocks(x, mask=valid, attn_mask=encoder_attn_mask)
+            x = self.encoder_blocks(x, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
 
-            # NTP logits from encoder block outputs
             if self.ntp_enabled:
-                ntp_logits = self.ntp_forward(x, valid=valid)
+                if self.tik_tok_enabled and self.latent_token_count > 0 and latent_mask_bool is not None:
+                    ntp_input = x[:, self.max_length:, :]
+                    ntp_valid_mask = latent_mask_bool
+                else:
+                    ntp_input = x
+                ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
 
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear
@@ -194,14 +250,80 @@ class VQVAETransformer(nn.Module):
 
         if self.vqvae_enabled:
             if not self.decoder_only:
-                # Apply vector quantization
-                x, indices, vq_loss = self.vector_quantizer(x, mask=valid)
+                if self.tik_tok_enabled and self.latent_token_count > 0:
+                    latent_tokens = x[:, self.max_length:, :]
+                    if latent_mask_bool is None:
+                        raise RuntimeError("TikTok latent mask was not created.")
+                    latent_mask_bool = latent_mask_bool.to(torch.bool)
+                    decoder_input, indices, vq_loss = self.vector_quantizer(
+                        latent_tokens,
+                        mask=latent_mask_bool
+                    )
+                    if self.ntp_enabled:
+                        ntp_valid_mask = latent_mask_bool
+                else:
+                    # Apply vector quantization over original tokens
+                    decoder_input, indices, vq_loss = self.vector_quantizer(x, mask=valid)
 
                 if kwargs.get('return_vq_layer', False):
-                    return x, indices, vq_loss, ntp_logits, valid
+                    return decoder_input, indices, vq_loss, ntp_logits, ntp_valid_mask
+
             else:
                 indices = x
-                x = self.vector_quantizer.get_output_from_indices(indices)
-        x = self.decoder(x, valid)
+                decoder_input = self.vector_quantizer.get_output_from_indices(indices)
+        else:
+            decoder_input = x
 
-        return x, indices, vq_loss, ntp_logits, valid
+        x = self.decoder(decoder_input, valid)
+
+        return x, indices, vq_loss, ntp_logits, ntp_valid_mask
+
+    def _append_tik_tok_latents(self, x: torch.Tensor, valid_mask: torch.Tensor, encoder_mask_bool: torch.Tensor):
+        """Append TikTok latent tokens to the encoder stream and update masks.
+
+        This helper handles the boilerplate for TikTok-mode: it concatenates the
+        learnable latent token bank to each sequence, derives how many of those
+        latents should remain active based on the number of valid input tokens,
+        and merges the resulting latent mask into the encoder's key padding mask.
+
+        Args:
+            x: Tensor of shape ``(B, L, D)`` containing the encoder activations
+               directly after ``encoder_tail`` (before TikTok augmentation).
+            valid_mask: Bool tensor ``(B, L)`` where True marks residues that are
+               both unmasked and non-NaN; used to compute the latent keep count.
+            encoder_mask_bool: Bool tensor ``(B, L)`` representing the current
+               key-padding mask passed to the transformer encoder; typically this
+               is identical to ``valid_mask`` prior to TikTok augmentation.
+
+        Returns:
+            tuple:
+                - augmented activations ``(B, L + latent_count, D)``
+                - latent activation mask ``(B, latent_count)`` with True for
+                  latents that should remain active
+                - updated key-padding mask ``(B, L + latent_count)`` ready to be
+                  forwarded to the encoder blocks
+
+        Raises:
+            RuntimeError: If the TikTok latent parameter tensor has not been
+                initialised (should not happen when TikTok is enabled).
+        """
+        batch_size = x.size(0)
+        if self.tik_tok_latent_tokens is None:
+            raise RuntimeError("TikTok latent tokens are not initialized.")
+
+        latent_tokens = self.tik_tok_latent_tokens.unsqueeze(0).expand(batch_size, -1, -1)
+        x = torch.cat([x, latent_tokens], dim=1)
+
+        active_tokens = valid_mask.to(torch.int64).sum(dim=1)
+        latent_keep = (active_tokens + self.tik_tok_compression_factor - 1) // self.tik_tok_compression_factor
+        latent_keep = latent_keep.clamp(min=0, max=self.latent_token_count)
+
+        latent_positions = torch.arange(
+            self.latent_token_count,
+            device=x.device,
+            dtype=latent_keep.dtype
+        ).unsqueeze(0)
+        latent_mask_bool = latent_positions < latent_keep.unsqueeze(1)
+        encoder_mask_bool = torch.cat([encoder_mask_bool, latent_mask_bool], dim=1)
+
+        return x, latent_mask_bool, encoder_mask_bool
