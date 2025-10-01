@@ -705,6 +705,8 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     vq_loss = output_dict.get('vq_loss', torch.tensor(0.0, device=outputs.device))
     indices = output_dict.get('indices', None)
     ntp_mask = output_dict.get('ntp_mask', None)
+    tik_tok_padding_logits = output_dict.get('tik_tok_padding_logits', None)
+    tik_tok_padding_targets = output_dict.get('tik_tok_padding_targets', None)
     alpha = configs.model.vqvae.vector_quantization.alpha
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
@@ -798,6 +800,17 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['unscaled_ntp_loss'] = zero
         loss_dict['ntp_loss'] = zero
 
+    tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', False)
+    if tik_tok_cfg.enabled:
+        tik_tok_weight = float(tik_tok_cfg.classifier_weight)
+        tik_tok_unscaled = F.cross_entropy(tik_tok_padding_logits, tik_tok_padding_targets)
+        loss_dict['unscaled_tik_tok_padding_loss'] = tik_tok_unscaled
+        loss_dict['tik_tok_padding_loss'] = tik_tok_unscaled * tik_tok_weight
+    else:
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_tik_tok_padding_loss'] = zero
+        loss_dict['tik_tok_padding_loss'] = zero
+
     # Sum reconstruction components
     valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v) and k not in ('ntp_loss', 'vq_loss', 'step_loss') and not k.startswith('unscaled_')]
     if not valid_losses:
@@ -812,6 +825,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'unscaled_backbone_direction_loss',
         'unscaled_binned_direction_classification_loss',
         'unscaled_binned_distance_classification_loss',
+        'unscaled_tik_tok_padding_loss',
     ]
     unscaled_vals = [loss_dict[k] for k in unscaled_keys if k in loss_dict and not torch.isnan(loss_dict[k])]
     if not unscaled_vals:
