@@ -48,6 +48,7 @@ model:
         enabled: True
         compression_factor: 8
         residual_depth: 1
+        classifier_weight: 0.1
     encoder:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
