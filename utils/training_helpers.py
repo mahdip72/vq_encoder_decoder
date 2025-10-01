@@ -99,7 +99,7 @@ def update_metrics(metrics: Dict[str, Any],
             metrics['perplexity'],
             output_dict.get('ntp_logits', None),
             output_dict.get('indices', None),
-            output_dict.get('valid_mask', None),
+            output_dict.get('ntp_mask', None),
             ignore_index=ignore_index,
         )
 
