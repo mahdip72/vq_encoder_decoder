@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 
 
 CSV_PATH = \
-    "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/cluster_maximum_similarity_50_merged.csv"
+    "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/merged_final_results.csv"
 OUT_PDF_PATH = \
     "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/plots/missing_residues_vs_rmsd_cluster50.pdf"
 
@@ -50,10 +50,10 @@ def _style(ax: plt.Axes) -> None:
 
 def main() -> None:
     df = pd.read_csv(CSV_PATH)
-    if "nan_value_count" not in df.columns or "rmsd" not in df.columns:
-        raise KeyError("CSV must contain 'nan_value_count' and 'rmsd' columns")
+    if "nan_residue_count" not in df.columns or "rmsd" not in df.columns:
+        raise KeyError("CSV must contain 'nan_residue_count' and 'rmsd' columns")
 
-    x = _coerce_numeric(df["nan_value_count"]).to_numpy(dtype=float)
+    x = _coerce_numeric(df["nan_residue_count"]).to_numpy(dtype=float)
     y = _coerce_numeric(df["rmsd"]).to_numpy(dtype=float)
     mask = ~np.isnan(x) & ~np.isnan(y)
     x = x[mask]

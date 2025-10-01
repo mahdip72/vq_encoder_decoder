@@ -29,7 +29,7 @@ import pandas as pd
 
 
 CSV_PATH = \
-    "/mnt/hdd8/mehdi/datasets/vqvae/zero-shot-set/cluster_maximum_similarity_50_merged.csv"
+    "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/merged_final_results.csv"
 
 
 def _coerce_numeric(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
@@ -49,7 +49,7 @@ def compute_group_means(df: pd.DataFrame) -> pd.DataFrame:
             "percent_coil",
             "tm_score",
             "rmsd",
-            "nan_value_count",
+            "nan_residue_count",
         ],
     )
 
@@ -64,8 +64,8 @@ def compute_group_means(df: pd.DataFrame) -> pd.DataFrame:
     mask_B = (b >= 25) & ((b - a) >= 10)
     mask_AB = (a >= 25) & (b >= 15) & ((a - b).abs() <= 10)
     mask_D = c >= 60
-    mask_no_nan_res = df["nan_value_count"].fillna(0) == 0
-    mask_has_nan_res = df["nan_value_count"].fillna(0) > 0
+    mask_no_nan_res = df["nan_residue_count"].fillna(0) == 0
+    mask_has_nan_res = df["nan_residue_count"].fillna(0) > 0
 
     def summarize(name: str, mask: pd.Series) -> Dict[str, object]:
         subset = df.loc[mask]

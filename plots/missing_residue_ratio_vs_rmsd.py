@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 
 
 CSV_PATH = \
-    "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/cluster_maximum_similarity_50_merged.csv"
+    "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/merged_final_results.csv"
 OUT_PDF_PATH = \
     "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/plots/missing_residue_ratio_vs_rmsd_cluster50.pdf"
 
