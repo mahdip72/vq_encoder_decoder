@@ -1,6 +1,6 @@
 import torch
 import math
-from typing import Tuple
+from typing import Tuple, Optional
 import torch.nn as nn
 from models.gcpnet.layers.structure_proj import Dim6RotStructureHead
 from models.gcpnet.heads import PairwisePredictionHead, RegressionHead
@@ -133,6 +133,8 @@ class GeometricDecoder(nn.Module):
             self,
             structure_tokens: torch.Tensor,
             mask: torch.Tensor,
+            *,
+            true_lengths: Optional[torch.Tensor] = None,
     ):
         # Apply projector_in with appropriate reshaping for NdLinear if needed
         if self.use_ndlinear:
@@ -143,6 +145,11 @@ class GeometricDecoder(nn.Module):
             x = self.projector_in(structure_tokens)
 
         decoder_mask_bool = mask.to(torch.bool)
+
+        if true_lengths is not None:
+            true_lengths = true_lengths.to(torch.long)
+            positions = torch.arange(self.max_length, device=mask.device).unsqueeze(0)
+            decoder_mask_bool = positions < true_lengths.unsqueeze(1)
 
         if self.tik_tok_enabled:
             x, decoder_mask_bool = self._build_decoder_tik_tok_stream(

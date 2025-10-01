@@ -33,15 +33,8 @@ class SuperModel(nn.Module):
             **kwargs: Additional arguments passed to VQVAETransformer.
 
         Returns:
-            dict: {
-                'indices': Tensor of shape (B, L) with VQ indices,
-                'vq_loss': VQ loss from VQ layer,
-                'ntp_logits': NTP logits if NTP is enabled,
-                'outputs': Decoded outputs of shape (B, L, 3),
-                'dir_loss_logits': Direction loss logits if applicable,
-                'dist_loss_logits': Distance loss logits if applicable
-                'valid_mask': Valid mask of shape (B, L)
-            }
+            dict containing VQ outputs, decoder predictions, and optional
+            auxiliary tensors (NTP, TikTok padding classifier, masks).
         """
         output_dict = {}
         nan_mask = batch['nan_masks']
@@ -61,12 +54,24 @@ class SuperModel(nn.Module):
             x = batch['indices']
 
         # give kwargs to vqvae
-        x, indices, vq_loss, ntp_logits, ntp_mask = self.vqvae(x, mask, nan_mask, **kwargs)
+        (
+            x,
+            indices,
+            vq_loss,
+            ntp_logits,
+            ntp_mask,
+            tik_tok_padding_logits,
+            tik_tok_padding_targets,
+            sequence_lengths,
+        ) = self.vqvae(x, mask, nan_mask, **kwargs)
 
         output_dict["indices"] = indices
         output_dict["vq_loss"] = vq_loss
         output_dict["ntp_logits"] = ntp_logits
         output_dict["ntp_mask"] = ntp_mask
+        output_dict["tik_tok_padding_logits"] = tik_tok_padding_logits
+        output_dict["tik_tok_padding_targets"] = tik_tok_padding_targets
+        output_dict["sequence_lengths"] = sequence_lengths
 
         if kwargs.get('return_vq_layer', False):
             output_dict["embeddings"] = x
