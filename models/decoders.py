@@ -1,5 +1,6 @@
 import torch
 import math
+from typing import Tuple
 import torch.nn as nn
 from models.gcpnet.layers.structure_proj import Dim6RotStructureHead
 from models.gcpnet.heads import PairwisePredictionHead, RegressionHead
@@ -179,7 +180,7 @@ class GeometricDecoder(nn.Module):
         self,
         latent_tokens: torch.Tensor,
         original_mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Construct the decoder input sequence when TikTok is enabled.
 
         Args:
