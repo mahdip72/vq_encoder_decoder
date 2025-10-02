@@ -395,6 +395,11 @@ Notes:
 - Zero-shot results for Gaujac et al. (2024) are omitted due to limited coverage.
 - Evaluation scripts for baselines were reproduced where public tooling was incomplete; see repository docs for details.
 
+## Experimental Features
+
+- Added an experimental option to compress token sequences using latent codebooks inspired by [ByteDance’s 1D tokenizer](https://github.com/bytedance/1d-tokenizer); this enables configurable compression factors within our VQ pipeline.
+- Included an optional next-token prediction head, drawing on the autoregressive regularization ideas from *“When Worse is Better: Navigating the Compression-Generation Tradeoff in Visual Tokenization”*, to encourage codebooks that are friendlier to autoregressive modeling.
+
 ## Acknowledgments
 
 This repository builds upon several excellent open-source projects:
