@@ -12,13 +12,13 @@ def random_color():
 
 def main():
     # Hardcoded paths and parameters (modify as needed)
-    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_codebook_extraction_results/2025-09-27__23-51-51"  # folder containing the HDF5 file
-    output_base_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_codebook_extraction_results/2025-09-27__23-51-51/plots"
+    latest_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/2025-09-05__17-32-53"  # folder containing the HDF5 file
+    output_base_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_embed_results/2025-09-05__17-32-53/plots"
     os.makedirs(output_base_dir, exist_ok=True)
     perplexity = 30
     n_iter = 1000
     # When True: run t-SNE on all residue embeddings but overlay the per-protein centroid (mean) on the 2D map
-    overlay_protein_centroids = False
+    overlay_protein_centroids = True
 
     h5_path = find_h5_file_in_dir(latest_dir)
 
@@ -39,7 +39,7 @@ def main():
     X = np.asarray(all_points)
 
     # Run t-SNE
-    tsne = TSNE(n_components=2, perplexity=perplexity, init='random', random_state=42)
+    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, init='random', random_state=42)
     Y = tsne.fit_transform(X)
 
     plt.figure(figsize=(10, 10))

@@ -29,13 +29,13 @@ IFS=$'\n\t'
 # ------------------------
 
 # Example: "afdb_swissprot_v4" or "afdb_uniprot_v4" or "esmatlas"
-DATABASE_NAME="afdb_rep_v4"
+DATABASE_NAME="afdb_swissprot_v4"
 
 # Where to store/download the foldcomp DB files (index, lookup, dbtype, source)
-DOWNLOAD_DIR="/mnt/hdd8/mehdi/datasets/foldcomp/foldcomp_dbs/"
+DOWNLOAD_DIR="/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/foldcomp_dbs"
 
 # Where to write uncompressed .pdb outputs
-OUTPUT_DIR="/mnt/hdd8/mehdi/datasets/foldcomp/pdbs/${DATABASE_NAME}"
+OUTPUT_DIR="/mnt/hdd8/mehdi/projects/vq_encoder_decoder/data/pdb_from_foldcomp/${DATABASE_NAME}"
 
 # Number of threads for decompression
 THREADS="8"
