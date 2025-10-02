@@ -400,7 +400,7 @@ Notes:
 This repository builds upon several excellent open-source projects:
 
 - [**vector-quantize-pytorch**](https://github.com/lucidrains/vector-quantize-pytorch) – Vector quantization implementations used in our VQ-VAE architecture.
-- [**x-transformers**](https://github.com/lucidrains/x-transformers) – Transformer components integrated into our decoder.
+- [**x-transformers**](https://github.com/lucidrains/x-transformers) – Transformer components integrated into our encoder and decoder modules of VQ-VAE.
 - [**ProteinWorkshop**](https://github.com/a-r-j/ProteinWorkshop) – We heavily slimmed this repository to extract and optimize only the GCPNet model, with significant enhancements to support model compilation.
 
 
