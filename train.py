@@ -181,6 +181,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "gdtts": metrics_values['gdtts'],
         "tm_score": metrics_values['tm_score'],
         "perplexity": metrics_values['perplexity'],
+        "padding_accuracy": metrics_values.get('tik_tok_padding_accuracy', float('nan')),
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
         "global_step": global_step,
@@ -280,6 +281,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "gdtts": metrics_values['gdtts'],
         "tm_score": metrics_values['tm_score'],
         "perplexity": metrics_values['perplexity'],
+        "padding_accuracy": metrics_values.get('tik_tok_padding_accuracy', float('nan')),
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
     }
@@ -402,8 +404,16 @@ def main(dict_config, config_file_path):
         'ntp': 1.0
     }
 
-    best_valid_metrics = {'gdtts': 0.0, 'mae': 1000.0, 'rmsd': 1000.0, 'lddt': 0.0, 'loss': 1000.0, 'tm_score': 0.0,
-                          'perplexity': 1000.0}
+    best_valid_metrics = {
+        'gdtts': 0.0,
+        'mae': 1000.0,
+        'rmsd': 1000.0,
+        'lddt': 0.0,
+        'loss': 1000.0,
+        'tm_score': 0.0,
+        'perplexity': 1000.0,
+        'padding_accuracy': 0.0,
+    }
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
         training_loop_reports = train_loop(net, train_dataloader, epoch, adaptive_loss_coeffs,
@@ -431,6 +441,7 @@ def main(dict_config, config_file_path):
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
             f'ntp loss {training_loop_reports["ntp_loss"]:.4f}, '
             f'perplexity {training_loop_reports.get("perplexity", float("nan")):.2f}, '
+            f'padding acc {training_loop_reports.get("padding_accuracy", float("nan")):.4f}, '
             f'vq loss {training_loop_reports["vq_loss"]:.4f}, '
             f'activation {training_loop_reports["activation"]:.1f}')
 
@@ -475,6 +486,7 @@ def main(dict_config, config_file_path):
                 f'tm_score {valid_loop_reports["tm_score"]:.4f}, '
                 f'ntp loss {valid_loop_reports["ntp_loss"]:.4f}, '
                 f'perplexity {valid_loop_reports.get("perplexity", float("nan")):.2f}, '
+                f'padding acc {valid_loop_reports.get("padding_accuracy", float("nan")):.4f}, '
                 f'vq loss {valid_loop_reports["vq_loss"]:.4f}, '
                 f'activation {valid_loop_reports["activation"]:.1f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
@@ -488,6 +500,7 @@ def main(dict_config, config_file_path):
                 best_valid_metrics['loss'] = valid_loop_reports["loss"]
                 best_valid_metrics['tm_score'] = valid_loop_reports["tm_score"]
                 best_valid_metrics['perplexity'] = valid_loop_reports.get("perplexity", float("nan"))
+                best_valid_metrics['padding_accuracy'] = valid_loop_reports.get("padding_accuracy", float("nan"))
 
                 tools = dict()
                 tools['net'] = net
@@ -511,6 +524,7 @@ def main(dict_config, config_file_path):
     logging.info(f"best valid rmsd: {best_valid_metrics['rmsd']:.4f}")
     logging.info(f"best valid mae: {best_valid_metrics['mae']:.4f}")
     logging.info(f"best valid perplexity: {best_valid_metrics['perplexity']:.2f}")
+    logging.info(f"best valid padding accuracy: {best_valid_metrics['padding_accuracy']:.4f}")
     logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
 
     if accelerator.is_main_process:

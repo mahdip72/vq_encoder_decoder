@@ -7,23 +7,15 @@ from utils.metrics import GDTTS, TMScore, update_perplexity_from_ntp
 def init_metrics(configs, accelerator) -> Dict[str, Any]:
     """Initialize metric objects used in training/validation.
 
-    Inputs:
-    - configs: Hydrated config object with train_settings.losses and NTP settings.
-    - accelerator: accelerate.Accelerator with a target device for metric state.
-
-    Behavior:
-    - Always creates MAE, RMSD, GDTTS, and TMScore metrics on the correct device.
-    - Optionally creates a Perplexity metric if next_token_prediction is enabled.
+    Args:
+        configs: Hydrated config object with loss toggles (NTP, TikTok).
+        accelerator: ``accelerate.Accelerator`` whose device hosts the metrics.
 
     Returns:
-    - Dict[str, Any]:
-        {
-          'mae': torchmetrics.MeanAbsoluteError,
-          'rmsd': torchmetrics.MeanSquaredError(squared=False),
-          'gdtts': utils.metrics.GDTTS,
-          'tm_score': utils.metrics.TMScore,
-          'perplexity': torchmetrics.text.Perplexity | None
-        }
+        Dict[str, Any]: A dictionary of metric instances keyed by name. Always
+        includes ``mae``, ``rmsd``, ``gdtts`` and ``tm_score``; optionally
+        includes ``perplexity`` (when next-token prediction is enabled) and
+        ``tik_tok_padding_accuracy`` (when the TikTok classifier is enabled).
     """
     metrics: Dict[str, Any] = {
         'mae': torchmetrics.MeanAbsoluteError().to(accelerator.device),
@@ -31,6 +23,7 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
         'gdtts': GDTTS().to(accelerator.device),
         'tm_score': TMScore().to(accelerator.device),
         'perplexity': None,
+        'tik_tok_padding_accuracy': None,
     }
 
     if getattr(configs.train_settings, 'losses', None) and \
@@ -40,14 +33,23 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
         # cast to Any to satisfy type checkers that try to unify dict value types
         metrics['perplexity'] = cast(Any, Perplexity(ignore_index=-100).to(accelerator.device))
 
+    tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', None)
+    if tik_tok_cfg is not None and getattr(tik_tok_cfg, 'enabled', False):
+        from torchmetrics.classification import MulticlassAccuracy
+        num_classes = int(getattr(tik_tok_cfg, 'compression_factor', 1))
+        metrics['tik_tok_padding_accuracy'] = cast(
+            Any,
+            MulticlassAccuracy(num_classes=num_classes, average='macro').to(accelerator.device),
+        )
+
     return metrics
 
 
 def reset_metrics(metrics: Dict[str, Any]) -> None:
     """Reset all metric states (to start a new epoch or phase).
 
-    Inputs:
-    - metrics: Dict returned by init_metrics.
+    Args:
+        metrics: Dict returned by :func:`init_metrics`.
     """
     metrics['mae'].reset()
     metrics['rmsd'].reset()
@@ -55,6 +57,8 @@ def reset_metrics(metrics: Dict[str, Any]) -> None:
     metrics['tm_score'].reset()
     if metrics.get('perplexity') is not None:
         metrics['perplexity'].reset()
+    if metrics.get('tik_tok_padding_accuracy') is not None:
+        metrics['tik_tok_padding_accuracy'].reset()
 
 
 def update_metrics(metrics: Dict[str, Any],
@@ -65,18 +69,19 @@ def update_metrics(metrics: Dict[str, Any],
                    ignore_index: int = -100) -> None:
     """Update metric states with a new batch.
 
-    Inputs:
-    - metrics: Dict returned by init_metrics.
-    - trans_pred_coords: Tensor of shape (B, L, 3_atoms, 3_xyz) predicted coords (e.g., N-CA-C-O).
-    - trans_true_coords: Tensor of shape (B, L, 3_atoms, 3_xyz) target coords.
-    - masks: Bool/float tensor of shape (B, L) denoting valid residues.
-    - output_dict: Model outputs that may include 'ntp_logits', 'indices', 'valid_mask' for perplexity.
-    - ignore_index: Label index to ignore when updating perplexity.
+    Args:
+        metrics: Dict returned by :func:`init_metrics`.
+        trans_pred_coords: Predicted coordinates ``(B, L, 3_atoms, 3_xyz)``.
+        trans_true_coords: Ground-truth coordinates with the same shape.
+        masks: Boolean/float mask ``(B, L)`` of valid residues.
+        output_dict: Model outputs; may contain NTP logits/indices/masks and
+            TikTok classifier logits/targets.
+        ignore_index: Index ignored when computing perplexity.
 
-    Behavior:
-    - Updates MAE, RMSD, GDTTS using masked per-atom points.
-    - Updates TM-Score using C-alpha (atom index 1) and the provided masks.
-    - If available, updates Perplexity using next-token prediction logits and indices.
+    Notes:
+        - Always updates MAE/RMSD/GDTTS/TM-score.
+        - Updates perplexity when the metric exists and NTP outputs are present.
+        - Updates padding-accuracy when the TikTok metric exists and logits / targets are available.
     """
     # Coordinate-based metrics (MAE/RMSD/GDTTS)
     if masks.any():
@@ -103,26 +108,37 @@ def update_metrics(metrics: Dict[str, Any],
             ignore_index=ignore_index,
         )
 
+    tik_tok_metric = metrics.get('tik_tok_padding_accuracy', None)
+    if tik_tok_metric is not None:
+        logits = output_dict.get('tik_tok_padding_logits', None)
+        targets = output_dict.get('tik_tok_padding_targets', None)
+        if logits is not None and targets is not None and targets.numel() > 0:
+            tik_tok_metric.update(logits.detach(), targets.detach())
+
 
 def compute_metrics(metrics: Dict[str, Any]) -> Dict[str, float]:
     """Compute scalar values from metric states.
 
-    Inputs:
-    - metrics: Dict returned by init_metrics.
+    Args:
+        metrics: Dict returned by :func:`init_metrics`.
 
     Returns:
-    - Dict[str, float]: {'mae', 'rmsd', 'gdtts', 'tm_score', 'perplexity'} where
-      perplexity is NaN if the metric wasn't enabled.
+        Dict[str, float]: Contains ``mae``, ``rmsd``, ``gdtts``, ``tm_score`` and
+        optionally ``perplexity`` / ``tik_tok_padding_accuracy``. Metrics that
+        were not enabled are reported as ``NaN``.
     """
     out = {
         'mae': metrics['mae'].compute().cpu().item(),
         'rmsd': metrics['rmsd'].compute().cpu().item(),
         'gdtts': metrics['gdtts'].compute().cpu().item(),
         'tm_score': metrics['tm_score'].compute().cpu().item(),
-        'perplexity': float('nan')
+        'perplexity': float('nan'),
+        'tik_tok_padding_accuracy': float('nan'),
     }
     if metrics.get('perplexity') is not None:
         out['perplexity'] = metrics['perplexity'].compute().cpu().item()
+    if metrics.get('tik_tok_padding_accuracy') is not None:
+        out['tik_tok_padding_accuracy'] = metrics['tik_tok_padding_accuracy'].compute().cpu().item()
     return out
 
 
@@ -357,17 +373,19 @@ def log_tensorboard_epoch(writer,
                           include_ntp: bool = False) -> None:
     """Log epoch-level losses and metrics to TensorBoard.
 
-    Inputs:
-    - writer: TensorBoard SummaryWriter or compatible interface.
-    - avgs: Dict from average_losses with keys: avg_step_loss, avg_rec_loss, avg_vq_loss, avg_ntp_loss.
-    - metrics_values: Dict from compute_metrics with keys: mae, rmsd, gdtts, tm_score, perplexity.
-    - epoch: Current epoch index (int) used as global step for TB scalars.
-    - activation_percent: Codebook activation percent already scaled 0-100.
-    - include_ntp: Whether to also log NTP loss (validation currently does, training previously omitted).
+    Args:
+        writer: TensorBoard writer (or ``None`` to skip logging).
+        avgs: Output of :func:`average_losses`; may include TikTok padding loss.
+        metrics_values: Output of :func:`compute_metrics`; may include perplexity
+            and TikTok padding accuracy.
+        epoch: Epoch index used as the TensorBoard step.
+        activation_percent: Codebook activation ratio (%).
+        include_ntp: Whether to log the NTP loss scalars.
 
-    Behavior:
-    - Logs stable set of scalars used across training/validation.
-    - Perplexity is only logged if it’s a finite number (metric enabled).
+    Notes:
+        Logs the standard loss/metric suite; optional scalars (NTP loss,
+        TikTok padding loss/accuracy) are emitted only when present in ``avgs`` /
+        ``metrics_values``.
     """
     if writer is None:
         return
@@ -396,6 +414,9 @@ def log_tensorboard_epoch(writer,
     writer.add_scalar('metric/rmsd', metrics_values['rmsd'], epoch)
     writer.add_scalar('metric/gdtts', metrics_values['gdtts'], epoch)
     writer.add_scalar('metric/tm_score', metrics_values['tm_score'], epoch)
+    tik_tok_acc = metrics_values.get('tik_tok_padding_accuracy', float('nan'))
+    if tik_tok_acc == tik_tok_acc:
+        writer.add_scalar('metric/padding_accuracy', tik_tok_acc, epoch)
 
     writer.add_scalar('codebook_activation', activation_percent, epoch)
 
