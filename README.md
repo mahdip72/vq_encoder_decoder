@@ -7,9 +7,9 @@
 
 ## Abstract
 
-Converting protein tertiary structure into discrete tokens via vector-quantized variational autoencoders (VQ-VAEs) creates a language of 3D geometry and provides a natural interface between sequence and structure models. While pose invariance is commonly enforced, retaining chirality and directional cues without sacrificing reconstruction accuracy remains challenging. In this paper, we introduce GCP-VQVAE, a geometry-complete tokenizer built around a strictly SE(3)-equivariant GCPNet encoder that preserves orientation and chirality of protein backbones. We vector-quantize rotation/translation-invariant readouts that retain chirality into a 4\,096-token vocabulary, and a transformer decoder maps tokens back to backbone coordinates via a 6D rotation head trained with SE(3)-invariant objectives. 
+Converting protein tertiary structure into discrete tokens via vector-quantized variational autoencoders (VQ-VAEs) creates a language of 3D geometry and provides a natural interface between sequence and structure models. While pose invariance is commonly enforced, retaining chirality and directional cues without sacrificing reconstruction accuracy remains challenging. In this paper, we introduce GCP-VQVAE, a geometry-complete tokenizer built around a strictly SE(3)-equivariant GCPNet encoder that preserves orientation and chirality of protein backbones. We vector-quantize rotation/translation-invariant readouts that retain chirality into a 4096-token vocabulary, and a transformer decoder maps tokens back to backbone coordinates via a 6D rotation head trained with SE(3)-invariant objectives.
 
-Building on these properties, we train GCP‑VQVAE on a corpus of 24 million monomer protein backbone structures gathered from the AlphaFold Protein Structure Database. On the CAMEO2024, CASP15, and CASP16 evaluation datasets, the model achieves backbone RMSDs of 0.4377 , 0.5293 Å, and 0.7567 Å, respectively, and achieves 100% codebook utilization on a held‑out validation set, substantially outperforming prior VQ‑VAE–based tokenizers and achieving state-of-the-art performance. Beyond these benchmarks, on a zero-shot set of 2,261 completely new experimental structures, GCP-VQVAE attains a backbone RMSD of 0.8033 Å and a TM-score of 0.9747, demonstrating robust generalization to unseen proteins. Lastly, we elaborate on the various applications of this foundation-like model, such as protein structure compression and the integration of generative protein language models. We make the GCP‑VQVAE source code, zero-shot dataset, and its pretrained weights fully open for the research community.Converting protein tertiary structure into discrete tokens via vector-quantized variational autoencoders (VQVAEs) creates a language of 3D geometry and provides a natural interface between sequence and structure models. While pose invariance is commonly enforced, retaining chirality and directional cues without sacrificing reconstruction accuracy remains challenging. In this paper, we introduce GCP-VQVAE, a geometry-complete tokenizer built around a strictly SE(3)-equivariant GCPNet encoder that preserves orientation and chirality of protein backbone. We vector-quantize pose-invariant readouts into a 4096-token vocabulary, and a transformer decoder maps tokens back to backbone coordinates via a 6D rotation head trained with SE(3)-invariant objectives. 
+Building on these properties, we train GCP-VQVAE on a corpus of 24 million monomer protein backbone structures gathered from the AlphaFold Protein Structure Database. On the CAMEO2024, CASP15, and CASP16 evaluation datasets, the model achieves backbone RMSDs of 0.4377 Å, 0.5293 Å, and 0.7567 Å, respectively, and achieves 100% codebook utilization on a held-out validation set, substantially outperforming prior VQ-VAE–based tokenizers and achieving state-of-the-art performance. Beyond these benchmarks, on a zero-shot set of 1938 completely new experimental structures, GCP-VQVAE attains a backbone RMSD of 0.8193 Å and a TM-score of 0.9673, demonstrating robust generalization to unseen proteins. Lastly, we elaborate on the various applications of this foundation-like model, such as protein structure compression and the integration of generative protein language models. We make the GCP-VQVAE source code, zero-shot dataset, and its pretrained weights fully open for the research community. 
 
 ## News
 - 
@@ -305,9 +305,9 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <th style="text-align:right;">Dataset</th>
       <th style="text-align:left;">Metric</th>
       <th>GCP-VQVAE (Ours)</th>
-      <th>FoldToken-4</th>
-      <th>ESM-3 VQVAE</th>
-      <th>Structure Tokenizer</th>
+      <th>FoldToken 4 (Gao et al., 2024c)</th>
+      <th>ESM-3 VQVAE (Hayes et al., 2025)</th>
+      <th>(Gaujac et al., 2024)</th>
     </tr>
   </thead>
   <tbody>
@@ -357,7 +357,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td>8.7106</td>
     </tr>
     <tr>
-      <td style="text-align:right;" rowspan="2">CAMEO-2024</td>
+      <td style="text-align:right;" rowspan="2">CAMEO2024</td>
       <td>TM-score</td>
       <td>0.9918</td>
       <td>0.4784</td>
@@ -374,14 +374,14 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td style="text-align:right;" rowspan="2">Zero-Shot</td>
       <td>TM-score</td>
-      <td>0.9747</td>
+      <td>0.9673</td>
       <td>0.3324</td>
       <td>0.3131</td>
       <td>-</td>
     </tr>
     <tr>
       <td>RMSD</td>
-      <td>0.8033</td>
+      <td>0.8193</td>
       <td>17.4449</td>
       <td>18.9335</td>
       <td>-</td>
@@ -390,9 +390,9 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
 </table>
 
 Notes:
-- FoldToken-4 uses a 256-size vocabulary; others use 4096.
-- The Structure Tokenizer baseline supports only sequence lengths 50–512; out-of-range samples are excluded for that column only.
-- Zero-shot results for the Structure Tokenizer are omitted due to limited coverage.
+- FoldToken 4 uses a 256-size vocabulary; others use 4096.
+- The Structure Tokenizer of Gaujac et al. (2024) only supports sequences of length 50–512; out-of-range samples are excluded for that column only.
+- Zero-shot results for Gaujac et al. (2024) are omitted due to limited coverage.
 - Evaluation scripts for baselines were reproduced where public tooling was incomplete; see repository docs for details.
 
 ## Acknowledgments
