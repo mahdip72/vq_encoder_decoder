@@ -395,6 +395,15 @@ Notes:
 - Zero-shot results for the Structure Tokenizer are omitted due to limited coverage.
 - Evaluation scripts for baselines were reproduced where public tooling was incomplete; see repository docs for details.
 
+## Acknowledgments
+
+This repository builds upon several excellent open-source projects:
+
+- [**vector-quantize-pytorch**](https://github.com/lucidrains/vector-quantize-pytorch) – Vector quantization implementations used in our VQ-VAE architecture.
+- [**x-transformers**](https://github.com/lucidrains/x-transformers) – Transformer components integrated into our decoder.
+- [**ProteinWorkshop**](https://github.com/a-r-j/ProteinWorkshop) – We heavily slimmed this repository to extract and optimize only the GCPNet model, with significant enhancements to support model compilation.
+
+
 ## 📜 Citation
 
 If you use this code or the pretrained models, please cite the following paper:
