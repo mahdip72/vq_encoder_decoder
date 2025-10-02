@@ -1,4 +1,4 @@
-trained_model_dir: "path/to/trained_model"  # Directory where the trained model is saved
+trained_model_dir: "results/dgx/final/2025-09-12__22-58-01"
 checkpoint_path: "checkpoints/best_valid.pth"
 config_vqvae: "config_vqvae.yaml"
 config_encoder: "config_gcpnet_encoder.yaml"

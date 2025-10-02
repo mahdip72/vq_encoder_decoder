@@ -48,7 +48,7 @@ model:
         enabled: True
         compression_factor: 8
         residual_depth: 1
-        classifier_weight: 1.0
+        classifier_weight: 0.1
     encoder:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
@@ -69,7 +69,7 @@ model:
 
 train_settings:
   data_path: ../../datasets/vqvae/uniref_50/
-  num_epochs: 32
+  num_epochs: 16
   sample_weighting:
     enabled: True
     min_weight: 1.0
@@ -81,7 +81,7 @@ train_settings:
   batch_size: 32
   num_workers: 8
   grad_accumulation: 1
-  max_task_samples: 100000
+  max_task_samples: 200000
   profile_train_loop: False
   cutoff_augmentation:
     enabled: False

@@ -1,13 +1,13 @@
-trained_model_dir: "path/to/trained_model"  # Directory where the trained model is saved
+trained_model_dir: "results/dgx/vqvae/2025-07-19__20-09-19"
 checkpoint_path: "checkpoints/best_valid.pth"
 config_vqvae: "config_vqvae.yaml"
 config_encoder: "config_gcpnet_encoder.yaml"
 config_decoder: "config_geometric_decoder.yaml"
 
-data_path: "path/to/evaluation/h5/data"
+data_path: "/mnt/hdd8/mehdi/datasets/vqvae/zero-shot-set/new/pdb_2024_2025_separated_chains_below_50_reduced_h5/"
 output_base_dir: "evaluation_results"
 
-batch_size: 8
+batch_size: 32
 shuffle: True
 num_workers: 0
 max_task_samples: 5000000

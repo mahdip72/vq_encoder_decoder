@@ -1,15 +1,15 @@
-trained_model_dir: "path/to/trained_model"  # Directory where the trained model is saved
+trained_model_dir: "results/dgx/vqvae/2025-07-19__20-09-19"  # Directory where the trained model is saved
 checkpoint_path: "checkpoints/best_valid.pth"
 config_vqvae: "config_vqvae.yaml"
 config_encoder: "config_gcpnet_encoder.yaml"
 config_decoder: "config_geometric_decoder.yaml"
 
-data_path: "path/to/inference/h5/data"
-output_base_dir: "inference_encode_results"
+data_path: "/mnt/hdd8/mehdi/datasets/vqvae/whole_validation_2048_h5/validation_set_2048_h5"
+output_base_dir: "inference_encode_results/validation_set_2048_h5"
 
-batch_size: 16
+batch_size: 128
 shuffle: True
-num_workers: 0
+num_workers: 8
 max_task_samples: 5000000
 vq_indices_csv_filename: "vq_indices.csv"
 mixed_precision: "bf16"  # no, fp16, bf16, fp8

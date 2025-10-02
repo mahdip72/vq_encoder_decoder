@@ -116,12 +116,12 @@ def extract_base_name(filename):
 
 # Example usage (adjust as needed)
 if __name__ == "__main__":
-    real_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_results/2025-07-06__16-09-07/original_pdb_files/"
+    real_dir = "/mnt/hdd8/mehdi/datasets/vqvae/zero-shot-set/cluster_maximum_similarity_50_pdb/"
 
-    parent_dir = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_results/2025-07-06__16-09-07/pdb_files/"
+    parent_dir = "/mnt/hdd8/mehdi/projects/FoldToken_open/foldtoken/results/reconstructions/cluster_maximum_similarity_50_pdb"
 
     # pred_dir = "cameo_foldtoken_4_official/cameo_rec_level8/"
-    output_csv = "/mnt/hdd8/mehdi/projects/vq_encoder_decoder/inference_results/2025-07-06__16-09-07/evaluation.csv"
+    output_csv = "/mnt/hdd8/mehdi/projects/FoldToken_open/foldtoken/results/tokens/cluster_maximum_similarity_50_pdb/evaluation.csv"
 
     # replace_dot_with_underscore(real_dir)
 
