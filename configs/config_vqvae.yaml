@@ -16,7 +16,7 @@ resume:
   discard_decoder_weights: False
 
 model:
-  compile_model: False
+  compile_model: True
   max_length: 512
   decoder_output_scaling_factor: 1  # Added scaling factor for backbone prediction outputs
   use_ndlinear: False  # Toggle for using NdLinear instead of Conv1d layers
@@ -41,14 +41,14 @@ model:
       threshold_ema_dead_code: 2
       kmeans_init: True
       kmeans_iters: 10
-      stochastic_sample_codes: False
-      sample_codebook_temp: 0.01
+      stochastic_sample_codes: False # Doesn't work well with rotation trick
+      sample_codebook_temp: 0.1
       alpha: 1.0
       tik_tok:
         enabled: True
         compression_factor: 8
         residual_depth: 1
-        classifier_weight: 0.1
+        classifier_weight: 1.0
     encoder:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
