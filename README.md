@@ -107,7 +107,7 @@ Notes:
 - **N_CA_C_O_coord**: float array of shape (L, 4, 3). Backbone atom coordinates in Å for [N, CA, C, O] per residue. Missing atoms/residues are NaN‑filled.
 - **plddt_scores**: float array of shape (L,). Per‑residue pLDDT pulled from B‑factors when present; NaN if unavailable.
 
-### Convert PDB/CIF → HDF5 (`data/pdb_to_h5.py`)
+### Convert PDB/CIF → HDF5
 This script scans a directory recursively and writes one `.h5` per processed chain.
 - **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
 - **Chain filtering**: drops chains whose final length (after gap handling) is < `--min_len` or > `--max_len`.
@@ -150,7 +150,7 @@ python data/pdb_to_h5.py \
   --save_path /abs/path/to/output_h5
 ```
 
-### Convert HDF5 → PDB (`data/h5_to_pdb.py`)
+### Convert HDF5 → PDB
 Converts `.h5` backbones to PDB, writing only N/CA/C atoms and skipping residues with any NaN coordinates.
 
 Example:
@@ -160,7 +160,7 @@ python data/h5_to_pdb.py \
   --pdb_dir /abs/path/to/output_pdb
 ```
 
-### Split complexes into monomer PDBs (`data/break_complex_to_monumers.py`)
+### Split complexes into monomer PDBs
 Scans a directory recursively and writes one PDB per selected chain, deduplicating highly similar chains.
 
 - **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
