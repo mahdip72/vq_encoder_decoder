@@ -98,11 +98,11 @@ class VQVAETransformer(nn.Module):
 
             # Next-token prediction head from encoder block embeddings
             if self.ntp_enabled:
-                self.ntp_projector_head = nn.Linear(configs.model.vqvae.encoder.dimension, self.codebook_size)
+                self.ntp_projector_head = nn.Linear(configs.model.vqvae.vector_quantization.dim, self.codebook_size)
                 if self.ntp_depth > 0:
                     self.ntp_blocks = ContinuousTransformerWrapper(
-                        dim_in=configs.model.vqvae.encoder.dimension,
-                        dim_out=configs.model.vqvae.encoder.dimension,
+                        dim_in=configs.model.vqvae.vector_quantization.dim,
+                        dim_out=configs.model.vqvae.vector_quantization.dim,
                         max_seq_len=self.encoder_max_seq_len if not self.tik_tok_enabled else self.latent_token_count*self.residual_depth,
                         num_memory_tokens=configs.model.vqvae.encoder.num_memory_tokens,
                         attn_layers=Encoder(
@@ -312,9 +312,10 @@ class VQVAETransformer(nn.Module):
                             ntp_valid_mask = latent_mask_bool
                             ntp_input = decoder_input[:, self.max_length:, :]
                     else:
+                        ntp_valid_mask = valid
                         ntp_input = decoder_input
+
                     ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
-                    ntp_valid_mask = latent_mask_bool
 
             else:
                 indices = x
