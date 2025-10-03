@@ -14,7 +14,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 <img src="src/reconstruction.png" alt="Reconstruction Example" width="1000">
 
 ## News
-- 
+- 🗓️ **25 Sept 2025** — 🎉 Our paper was accepted to the NeurIPS 2025 AI4Science workshop!
 
 
 
