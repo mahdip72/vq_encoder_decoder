@@ -3,7 +3,7 @@ import torch
 import math
 from typing import Optional
 from x_transformers import ContinuousTransformerWrapper, Encoder
-from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import VectorQuantize, ResidualVQ
 from ndlinear import NdLinear
 
 
@@ -27,6 +27,8 @@ class VQVAETransformer(nn.Module):
         self.tik_tok_enabled = tik_tok_cfg.get("enabled", False)
         compression_factor = tik_tok_cfg.get("compression_factor", 1)
         self.tik_tok_compression_factor = int(compression_factor)
+        self.residual_depth = int(tik_tok_cfg.get("residual_depth", 1))
+        self.use_residual_vq = self.tik_tok_enabled and self.residual_depth > 1
         if self.tik_tok_enabled:
             if self.tik_tok_compression_factor <= 0:
                 raise ValueError("TikTok compression_factor must be a positive integer")
@@ -101,7 +103,7 @@ class VQVAETransformer(nn.Module):
                     self.ntp_blocks = ContinuousTransformerWrapper(
                         dim_in=configs.model.vqvae.encoder.dimension,
                         dim_out=configs.model.vqvae.encoder.dimension,
-                        max_seq_len=self.encoder_max_seq_len if not self.tik_tok_enabled else self.latent_token_count,
+                        max_seq_len=self.encoder_max_seq_len if not self.tik_tok_enabled else self.latent_token_count*self.residual_depth,
                         num_memory_tokens=configs.model.vqvae.encoder.num_memory_tokens,
                         attn_layers=Encoder(
                             dim=configs.model.vqvae.encoder.dimension,
@@ -149,9 +151,7 @@ class VQVAETransformer(nn.Module):
 
         # Vector Quantizer layer
         if self.vqvae_enabled:
-            self.vector_quantizer = VectorQuantize(
-                dim=configs.model.vqvae.vector_quantization.dim,
-                codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+            vq_common_kwargs = dict(
                 decay=configs.model.vqvae.vector_quantization.decay,
                 commitment_weight=configs.model.vqvae.vector_quantization.commitment_weight,
                 orthogonal_reg_weight=configs.model.vqvae.vector_quantization.orthogonal_reg_weight,
@@ -163,11 +163,28 @@ class VQVAETransformer(nn.Module):
                 threshold_ema_dead_code=configs.model.vqvae.vector_quantization.threshold_ema_dead_code,
                 kmeans_init=configs.model.vqvae.vector_quantization.kmeans_init,
                 kmeans_iters=configs.model.vqvae.vector_quantization.kmeans_iters,
-                # number of kmeans iterations to calculate the centroids for the codebook on init
-                stochastic_sample_codes=getattr(configs.model.vqvae.vector_quantization, 'stochastic_sample_codes',
-                                                False),
-                sample_codebook_temp=getattr(configs.model.vqvae.vector_quantization, 'sample_codebook_temp', 0.1),
+                stochastic_sample_codes=getattr(
+                    configs.model.vqvae.vector_quantization, 'stochastic_sample_codes', False
+                ),
+                sample_codebook_temp=getattr(
+                    configs.model.vqvae.vector_quantization, 'sample_codebook_temp', 0.1
+                ),
             )
+
+            if self.use_residual_vq:
+                self.vector_quantizer = ResidualVQ(
+                    dim=configs.model.vqvae.vector_quantization.dim,
+                    num_quantizers=self.residual_depth,
+                    codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+                    shared_codebook=True,
+                    **vq_common_kwargs,
+                )
+            else:
+                self.vector_quantizer = VectorQuantize(
+                    dim=configs.model.vqvae.vector_quantization.dim,
+                    codebook_size=configs.model.vqvae.vector_quantization.codebook_size,
+                    **vq_common_kwargs,
+                )
 
             if configs.model.vqvae.vector_quantization.get('freeze_parameters', False):
                 for param in self.vector_quantizer.parameters():
@@ -245,14 +262,6 @@ class VQVAETransformer(nn.Module):
 
             x = self.encoder_blocks(x, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
 
-            if self.ntp_enabled:
-                if self.tik_tok_enabled and self.latent_token_count > 0 and latent_mask_bool is not None:
-                    ntp_input = x[:, self.max_length:, :]
-                    ntp_valid_mask = latent_mask_bool
-                else:
-                    ntp_input = x
-                ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
-
             if self.use_ndlinear:
                 # Apply encoder_head NdLinear
                 x = self.encoder_head(x)
@@ -274,8 +283,10 @@ class VQVAETransformer(nn.Module):
                         latent_tokens,
                         mask=latent_mask_bool
                     )
-                    if self.ntp_enabled:
-                        ntp_valid_mask = latent_mask_bool
+                    if self.use_residual_vq:
+                        unflatten_indices = indices
+                        indices = self._flatten_residual_indices(indices)
+                        vq_loss = vq_loss.sum(dim=-1).mean().unsqueeze(0)
 
                     tik_tok_padding_logits, tik_tok_padding_targets, _, = self._compute_tik_tok_padding_output(
                         decoder_input,
@@ -292,6 +303,18 @@ class VQVAETransformer(nn.Module):
                         tik_tok_padding_targets,
                         sequence_lengths,
                     )
+                if self.ntp_enabled:
+                    if self.tik_tok_enabled and self.latent_token_count > 0 and latent_mask_bool is not None:
+                        if self.use_residual_vq:
+                            ntp_valid_mask = self._flatten_residual_mask(latent_mask_bool)
+                            ntp_input = self._build_residual_ntp_input(unflatten_indices)
+                        else:
+                            ntp_valid_mask = latent_mask_bool
+                            ntp_input = decoder_input[:, self.max_length:, :]
+                    else:
+                        ntp_input = decoder_input
+                    ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
+                    ntp_valid_mask = latent_mask_bool
 
             else:
                 indices = x
@@ -425,3 +448,106 @@ class VQVAETransformer(nn.Module):
             targets = active_tokens.to(torch.long) % self.tik_tok_compression_factor
 
         return logits, targets, active_counts
+
+    def _flatten_residual_indices(self, indices: torch.Tensor) -> torch.Tensor:
+        """Flatten residual codes and push padding to the tail.
+
+        Args:
+            indices: Tensor ``(B, L, D)`` produced by :class:`ResidualVQ`, where
+                ``B`` is the batch size, ``L`` the latent token count, and ``D``
+                the residual depth. ``-1`` marks padded tokens. TikTok ensures
+                masking is uniform across depths, so a padded position is padded
+                for every quantizer.
+
+        Returns:
+            Tensor ``(B, L * D)`` with valid entries reordered depth-by-depth at
+            the head and all ``-1`` padding collected at the end. The same
+            scatter pattern is reused for flattening masks and embeddings so all
+            downstream tensors stay aligned.
+
+        Example:
+            ``[[[0, 10], [1, 11], [-1, -1]]]`` → ``[[0, 1, 10, 11, -1, -1]]``
+        """
+
+        if indices.dim() != 3:
+            return indices
+
+        batch, length, depth = indices.shape
+        flat_len = length * depth
+
+        per_level = indices.permute(0, 2, 1).contiguous().view(batch, flat_len)
+        level_mask = (indices[..., 0] >= 0).unsqueeze(1).expand(batch, depth, length)
+        mask_flat = level_mask.reshape(batch, flat_len)
+
+        mask_long = mask_flat.long()
+        valid_pos = mask_long.cumsum(dim=1) - 1
+        invalid_pos = (~mask_flat).long().cumsum(dim=1) - 1
+        valid_count = mask_long.sum(dim=1, keepdim=True)
+
+        target_pos = torch.where(mask_flat, valid_pos, valid_count + invalid_pos)
+
+        reordered = indices.new_full(per_level.shape, -1)
+        reordered.scatter_(1, target_pos, per_level)
+        return reordered
+
+    def _flatten_residual_mask(self, mask: torch.Tensor) -> torch.Tensor:
+        """Flatten residual masks to match :meth:`_flatten_residual_indices`.
+
+        Args:
+            mask: Bool tensor ``(B, L)`` with ``True`` marking valid tokens per
+                sequence position (shared across depths).
+
+        Returns:
+            Bool tensor ``(B, L * D)`` whose ``True`` values occupy the same
+            leading slots as the flattened indices, with ``False`` values filling
+            the trailing padding region.
+        """
+
+        if mask.dim() != 2:
+            return mask
+
+        batch, length = mask.shape
+        depth = self.residual_depth
+        flat_len = length * depth
+        valid_count = mask.sum(dim=1, keepdim=True) * depth
+        positions = torch.arange(flat_len, device=mask.device).unsqueeze(0)
+        return positions < valid_count
+
+    def _build_residual_ntp_input(self, residual_indices: torch.Tensor) -> torch.Tensor:
+        """Return flattened embeddings aligned with residual-flattened indices.
+
+        Args:
+            residual_indices: Tensor ``(B, L, D)`` of residual code indices.
+
+        Returns:
+            Tensor ``(B, L * D, dim)`` containing the per-depth embeddings in the
+            exact order produced by :meth:`_flatten_residual_indices`. Valid
+            vectors occupy the front, while padded slots are zero-filled at the
+            tail. This ensures the NTP logits, labels, and mask reference the same
+            sequence positions element-wise.
+        """
+
+        if residual_indices.dim() != 3:
+            raise ValueError("Residual indices must have shape (B, L, D).")
+
+        codes_per_level = self.vector_quantizer.get_codes_from_indices(residual_indices)
+        codes_per_level = codes_per_level.permute(1, 0, 2, 3).contiguous()
+        batch, depth, length, dim = codes_per_level.shape
+        embeddings = codes_per_level.reshape(batch, depth * length, dim)
+
+        mask = (residual_indices[..., 0] >= 0)
+        expanded_mask = mask.unsqueeze(1).expand(batch, depth, length)
+        mask_flat = expanded_mask.reshape(batch, depth * length)
+
+        mask_long = mask_flat.long()
+        valid_pos = mask_long.cumsum(dim=1) - 1
+        invalid_pos = (~mask_flat).long().cumsum(dim=1) - 1
+        valid_count = mask_long.sum(dim=1, keepdim=True)
+
+        target_pos = torch.where(mask_flat, valid_pos, valid_count + invalid_pos)
+
+        embeddings = embeddings * mask_flat.unsqueeze(-1)
+        output = embeddings.new_zeros(embeddings.shape)
+        scatter_indices = target_pos.unsqueeze(-1).expand_as(embeddings)
+        output.scatter_(1, scatter_indices, embeddings)
+        return output
