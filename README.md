@@ -398,6 +398,7 @@ Notes:
 ## Experimental Features
 
 - Added an experimental option to compress token sequences using latent codebooks inspired by [ByteDance’s 1D tokenizer](https://github.com/bytedance/1d-tokenizer); this enables configurable compression factors within our VQ pipeline.
+- Introduced TikTok residual quantization (multi-depth VQ) using a shared codebook when `tik_tok.residual_depth > 1`. Residual latents are packed depth-by-depth, flattened into a single stream for NTP and decoding, and their masks/embeddings remain aligned with the flattened indices. This improves reconstruction capacity without expanding the base codebook.
 - Included an optional next-token prediction head, drawing on the autoregressive regularization ideas from *“When Worse is Better: Navigating the Compression-Generation Tradeoff in Visual Tokenization”*, to encourage codebooks that are friendlier to autoregressive modeling.
 
 ## Acknowledgments
