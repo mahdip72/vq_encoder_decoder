@@ -32,13 +32,13 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 
 For AMD64 systems:
 ```bash
-docker pull mahdip72/vqvae3d:amd_v3
+docker pull mahdip72/vqvae3d:amd_v8
 docker run --gpus all -it mahdip72/vqvae3d:amd_v8
 ```
 
 For ARM64 systems:
 ```bash
-docker pull mahdip72/vqvae3d:arm_v2
+docker pull mahdip72/vqvae3d:arm_v3
 docker run --gpus all -it mahdip72/vqvae3d:arm_v3
 ```
 
