@@ -286,7 +286,7 @@ class VQVAETransformer(nn.Module):
                     if self.use_residual_vq:
                         unflatten_indices = indices
                         indices = self._flatten_residual_indices(indices)
-                        vq_loss = vq_loss.sum(dim=-1).mean().unsqueeze(0)
+                        vq_loss = vq_loss.sum(dim=-1)
 
                     tik_tok_padding_logits, tik_tok_padding_targets, _, = self._compute_tik_tok_padding_output(
                         decoder_input,
