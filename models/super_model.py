@@ -157,30 +157,58 @@ def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead", bac
     Compile non-GCP parts of the SuperModel while excluding the VectorQuantizer.
 
     - Does NOT compile `net.encoder` (GCPNet or pretrained BenchMarkModel).
-    - Compiles VQVAE submodules except `vector_quantizer`.
+    - Compiles every child module of VQVAE except `vector_quantizer`.
     """
     if not hasattr(net, 'vqvae'):
         return net
 
-    # Encoder tail / blocks / head
-    if hasattr(net.vqvae, 'encoder_tail') and net.vqvae.encoder_tail is not None:
-        net.vqvae.encoder_tail = torch.compile(net.vqvae.encoder_tail, mode=mode, backend=backend)
-    if hasattr(net.vqvae, 'encoder_blocks') and net.vqvae.encoder_blocks is not None:
-        net.vqvae.encoder_blocks = torch.compile(net.vqvae.encoder_blocks, mode=mode, backend=backend)
-    if hasattr(net.vqvae, 'ntp_blocks') and net.vqvae.ntp_enabled:
-        net.vqvae.ntp_blocks = torch.compile(net.vqvae.ntp_blocks, mode=mode, backend=backend)
-    if hasattr(net.vqvae, 'ntp_projector_head') and net.vqvae.ntp_enabled:
-        net.vqvae.ntp_projector_head = torch.compile(net.vqvae.ntp_projector_head, mode=mode, backend=backend)
-    if hasattr(net.vqvae, 'encoder_head') and net.vqvae.encoder_head is not None:
-        net.vqvae.encoder_head = torch.compile(net.vqvae.encoder_head, mode=mode, backend=backend)
+    vqvae = net.vqvae
 
-    # Exclude vector_quantizer on purpose
-    # if hasattr(net.vqvae, 'vector_quantizer'):  # do not compile
-    #     pass
+    def _compile_child(name: str, child):
+        if child is None:
+            return
+        if name == 'vector_quantizer':
+            return
 
-    # Decoder
-    if hasattr(net.vqvae, 'decoder') and net.vqvae.decoder is not None:
-        net.vqvae.decoder = torch.compile(net.vqvae.decoder, mode=mode, backend=backend)
+        if isinstance(child, nn.ModuleList):
+            compiled = nn.ModuleList([
+                torch.compile(module, mode=mode, backend=backend)
+                if isinstance(module, nn.Module) else module
+                for module in child
+            ])
+            setattr(vqvae, name, compiled)
+            return
+
+        if isinstance(child, nn.ModuleDict):
+            compiled_dict = nn.ModuleDict({
+                key: torch.compile(module, mode=mode, backend=backend)
+                if isinstance(module, nn.Module) else module
+                for key, module in child.items()
+            })
+            setattr(vqvae, name, compiled_dict)
+            return
+
+        if isinstance(child, nn.Module):
+            setattr(vqvae, name, torch.compile(child, mode=mode, backend=backend))
+
+    compiled_names: set[str] = set()
+    for name, child in list(vqvae.named_children()):
+        _compile_child(name, child)
+        compiled_names.add(name)
+
+    # Also compile any direct attributes that are modules but not registered as children
+    extra_attrs = (
+        'encoder_tail', 'encoder_blocks', 'encoder_head',
+        'ntp_blocks', 'ntp_projector_head', 'decoder',
+        'tik_tok_latent_tokens', 'tik_tok_padding_classifier'
+    )
+    for attr in extra_attrs:
+        if attr in compiled_names:
+            continue
+        if hasattr(vqvae, attr):
+            child = getattr(vqvae, attr)
+            if isinstance(child, nn.Module) and attr != 'vector_quantizer':
+                setattr(vqvae, attr, torch.compile(child, mode=mode, backend=backend))
 
     return net
 
