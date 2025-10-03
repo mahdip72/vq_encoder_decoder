@@ -14,7 +14,9 @@ from utils.utils import (
     prepare_tensorboard,
     save_checkpoint,
     load_encoder_decoder_configs)
-from accelerate import Accelerator, DataLoaderConfiguration, DistributedDataParallelKwargs
+from accelerate import Accelerator, DataLoaderConfiguration
+from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
+from datetime import timedelta
 from tqdm import tqdm
 import time
 from data.dataset import prepare_gcpnet_vqvae_dataloaders
@@ -305,7 +307,7 @@ def main(dict_config, config_file_path):
         # use_stateful_dataloader=True
     )
     accelerator = Accelerator(
-        kwargs_handlers=[ddp_kwargs],
+        kwargs_handlers=[ddp_kwargs, InitProcessGroupKwargs(timeout=timedelta(minutes=20))],
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
         dataloader_config=dataloader_config
