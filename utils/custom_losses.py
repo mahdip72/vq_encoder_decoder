@@ -291,6 +291,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     # Adjust coefficients and broadcast (only after warmup and if any adaptive coefficients are enabled)
     if (accelerator.is_main_process and
             global_step > configs.optimizer.decay.warmup and
+            configs.train_settings.adaptive_loss_coefficient and
             len(local_grad_norms) > 0):  # Only proceed if we have any losses with adaptive coefficients
 
         adaptive_loss_coeffs = adjust_adaptive_coefficients(
