@@ -409,6 +409,8 @@ class VQVAETransformer(nn.Module):
         encoder_mask_bool = valid
         latent_mask_bool = None
 
+        indices, vq_loss = torch.Tensor([0]).to(mask.device), torch.Tensor([0]).to(mask.device)
+
         if not self.decoder_only:
             encoder_input = self._project_encoder_input(x)
 
@@ -427,8 +429,6 @@ class VQVAETransformer(nn.Module):
             encoder_embeddings = self.encoder_blocks(encoder_input, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
 
             quantizer_input = self._project_encoder_output(encoder_embeddings)
-
-            indices, vq_loss = torch.Tensor([0]).to(mask.device), torch.Tensor([0]).to(mask.device)
 
             if self.vqvae_enabled:
                 (
