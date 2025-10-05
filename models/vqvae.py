@@ -32,7 +32,7 @@ class VQVAETransformer(nn.Module):
         if self.tik_tok_enabled:
             if self.tik_tok_compression_factor <= 0:
                 raise ValueError("TikTok compression_factor must be a positive integer")
-            if self.tik_tok_compression_factor % 2 != 0:
+            if (self.tik_tok_compression_factor != 1) and (self.tik_tok_compression_factor % 2) != 0:
                 raise ValueError("TikTok compression_factor must be an even integer")
             self.latent_token_count = math.ceil(
                 self.max_length / self.tik_tok_compression_factor
