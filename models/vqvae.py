@@ -323,7 +323,7 @@ class VQVAETransformer(nn.Module):
                 ntp_input = self._build_residual_ntp_input(unflatten_indices)
             else:
                 ntp_valid_mask = latent_mask
-                ntp_input = decoder_input[:, self.max_length:, :]
+                ntp_input = decoder_input
         else:
             ntp_valid_mask = valid_mask
             ntp_input = decoder_input
