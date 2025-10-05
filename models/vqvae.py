@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 import math
-from typing import Optional
+from typing import Optional, Tuple
 from x_transformers import ContinuousTransformerWrapper, Encoder
 from vector_quantize_pytorch import VectorQuantize, ResidualVQ
 from ndlinear import NdLinear
@@ -223,45 +223,67 @@ class VQVAETransformer(nn.Module):
         return x.permute(0, 2, 1)
 
     def _apply_vector_quantization(
-        self,
-        x: torch.Tensor,
-        valid_mask: torch.Tensor,
-        latent_mask_bool: Optional[torch.Tensor],
-        active_tokens: Optional[torch.Tensor],
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[
-        torch.Tensor], Optional[torch.Tensor]]:
-        """Quantize encoder activations, handling TikTok masking and residual depth.
+            self,
+            quantizer_input: torch.Tensor,
+            valid_mask: torch.Tensor,
+            latent_mask_bool: Optional[torch.Tensor],
+            active_tokens: Optional[torch.Tensor],
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+    ]:
+        """Pass encoder activations through the VQ layer, including TikTok/residual paths.
 
-        Returns the quantized tokens along with indices, VQ loss, updated masks,
-        optional TikTok padding logits/targets, and the unflattened residual
-        indices when residual VQ is active.
+        Args:
+            quantizer_input: Transformer encoder activations with optional TikTok latents
+                appended at the tail when ``tik_tok`` is enabled.
+            valid_mask: Standard key-padding mask for the original residues.
+            latent_mask_bool: Boolean mask over TikTok latent slots; ``None`` when TikTok is
+                disabled and the entire sequence should be quantized in one pass.
+            active_tokens: Per-sample residue counts prior to compression, used to
+                supervise the padding classifier.
+
+        Returns:
+            Tuple containing the decoder input (quantized embeddings), flattened codebook
+            indices, VQ loss, updated latent mask, optional TikTok padding logits/targets,
+            residual indices (when residual VQ is active), and latent-token counts.
         """
 
         tik_tok_padding_logits: Optional[torch.Tensor] = None
         tik_tok_padding_targets: Optional[torch.Tensor] = None
         unflatten_indices: Optional[torch.Tensor] = None
+        latent_counts: Optional[torch.Tensor] = None
+
+        valid_mask = valid_mask.to(torch.bool)
 
         if self.tik_tok_enabled and self.latent_token_count > 0:
-            latent_tokens = x[:, self.max_length:, :]
+            latent_tokens = quantizer_input[:, self.max_length:, :]
             if latent_mask_bool is None:
                 raise RuntimeError("TikTok latent mask was not created.")
             latent_mask_bool = latent_mask_bool.to(torch.bool)
             decoder_input, indices, vq_loss = self.vector_quantizer(
                 latent_tokens,
-                mask=latent_mask_bool
+                mask=latent_mask_bool,
             )
+            unflatten_indices = indices
             if self.use_residual_vq:
-                unflatten_indices = indices
                 indices = self._flatten_residual_indices(indices)
                 vq_loss = vq_loss.sum(dim=-1)
 
-            tik_tok_padding_logits, tik_tok_padding_targets, _ = self._compute_tik_tok_padding_output(
+            tik_tok_padding_logits, tik_tok_padding_targets, latent_counts = self._compute_tik_tok_padding_output(
                 decoder_input,
                 latent_mask_bool,
                 active_tokens,
             )
+
         else:
-            decoder_input, indices, vq_loss = self.vector_quantizer(x, mask=valid_mask)
+            decoder_input, indices, vq_loss = self.vector_quantizer(quantizer_input, mask=valid_mask)
 
         return (
             decoder_input,
@@ -271,6 +293,7 @@ class VQVAETransformer(nn.Module):
             tik_tok_padding_logits,
             tik_tok_padding_targets,
             unflatten_indices,
+            latent_counts,
         )
 
     def _prepare_ntp_inputs(
@@ -385,36 +408,39 @@ class VQVAETransformer(nn.Module):
         active_tokens = None
         encoder_mask_bool = valid
         latent_mask_bool = None
+
         if not self.decoder_only:
-            x = self._project_encoder_input(x)
+            encoder_input = self._project_encoder_input(x)
 
             if self.tik_tok_enabled and self.latent_token_count > 0:
-                x, latent_mask_bool, encoder_mask_bool, active_tokens = self._append_tik_tok_latents(
-                    x,
+                encoder_input, latent_mask_bool, encoder_mask_bool, active_tokens = self._append_tik_tok_latents(
+                    encoder_input,
                     valid_mask=valid,
                     encoder_mask_bool=encoder_mask_bool,
                 )
-                sequence_lengths = active_tokens.to(torch.long).clamp(max=self.max_length)
 
             encoder_attn_mask = None
             if self.encoder_causal:
                 seq_len = x.size(1)
                 encoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
 
-            x = self.encoder_blocks(x, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
+            encoder_embeddings = self.encoder_blocks(x, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
 
-            x = self._project_encoder_output(x)
+            quantizer_input = self._project_encoder_output(encoder_embeddings)
 
-        indices, vq_loss = torch.Tensor([0]).to(mask.device), torch.Tensor([0]).to(mask.device)
+            indices, vq_loss = torch.Tensor([0]).to(mask.device), torch.Tensor([0]).to(mask.device)
 
-        if self.vqvae_enabled:
-            if not self.decoder_only:
-                decoder_input, indices, vq_loss, latent_mask_bool, tik_tok_padding_logits, tik_tok_padding_targets, unflatten_indices = self._apply_vector_quantization(
-                    x,
-                    valid,
+            if self.vqvae_enabled:
+                (
+                    decoder_input,
+                    indices,
+                    vq_loss,
                     latent_mask_bool,
-                    active_tokens,
-                )
+                    tik_tok_padding_logits,
+                    tik_tok_padding_targets,
+                    unflatten_indices,
+                    latent_counts,
+                ) = self._apply_vector_quantization(quantizer_input, valid, latent_mask_bool, active_tokens)
 
                 if kwargs.get('return_vq_layer', False):
                     return (
@@ -423,35 +449,35 @@ class VQVAETransformer(nn.Module):
                         sequence_lengths,
                     )
                 if self.ntp_enabled:
-                    ntp_input, ntp_valid_mask = self._prepare_ntp_inputs(
-                        decoder_input,
-                        latent_mask_bool,
-                        unflatten_indices,
-                        valid,
-                    )
+                    ntp_input, ntp_valid_mask = self._prepare_ntp_inputs(decoder_input, latent_mask_bool,
+                        unflatten_indices, valid)
                     ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
 
+                if self.tik_tok_enabled and latent_counts is not None and tik_tok_padding_logits is not None:
+                    predicted_remainder = tik_tok_padding_logits.argmax(dim=-1)
+                    sequence_lengths = latent_counts.to(
+                        torch.long) * self.tik_tok_compression_factor + predicted_remainder
+                    sequence_lengths = torch.min(sequence_lengths, torch.full_like(sequence_lengths, self.max_length))
+
             else:
-                indices = x
-                (
-                    decoder_input,
-                    latent_mask_bool,
-                    valid,
-                    ntp_valid_mask,
-                    sequence_lengths,
-                    tik_tok_padding_logits,
-                    tik_tok_padding_targets,
-                ) = self._decode_from_indices(
-                    indices,
-                    valid,
-                    mask.device,
-                )
+                decoder_input = x
+                if self.tik_tok_enabled:
+                    # sequence_lengths = valid.sum(dim=1).to(torch.long)
+                    # Error to say not implemented if tik_tok enabled without vqvae
+                    raise NotImplementedError("TikTok mode requires vector quantization to be enabled.")
+
         else:
-            decoder_input = x
-            if self.tik_tok_enabled:
-                # sequence_lengths = valid.sum(dim=1).to(torch.long)
-                # Error to say not implemented if tik_tok enabled without vqvae
-                raise NotImplementedError("TikTok mode requires vector quantization to be enabled.")
+            indices = x
+            (
+                decoder_input,
+                latent_mask_bool,
+                valid,
+                ntp_valid_mask,
+                sequence_lengths,
+                tik_tok_padding_logits,
+                tik_tok_padding_targets,
+            ) = self._decode_from_indices(indices, valid, mask.device)
+
 
         decoder_true_lengths = sequence_lengths if self.tik_tok_enabled else None
 
