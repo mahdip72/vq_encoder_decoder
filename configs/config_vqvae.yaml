@@ -48,7 +48,8 @@ model:
         enabled: True
         compression_factor: 8
         residual_depth: 1
-        classifier_weight: 1.0
+        classifier_weight: 0.1
+        adaptive_coefficient: True
     encoder:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper
@@ -75,7 +76,7 @@ train_settings:
     min_weight: 1.0
     max_weight: 4.0
     threshold_length: 384
-  shuffle: False
+  shuffle: True
   mixed_precision: bf16 # no, fp16, bf16, fp8
   save_pdb_every: 8
   batch_size: 32

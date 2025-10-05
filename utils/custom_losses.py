@@ -135,6 +135,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
+    tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
     vq_adaptive = configs.train_settings.losses.vq.adaptive_coefficient
 
     # Adjust each coefficient based on its global grad norm only if adaptive is enabled for that loss
@@ -172,6 +173,11 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     if 'ntp' in global_grad_norms and ntp_adaptive:
         adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
+        )
+
+    if 'tik_tok_padding' in global_grad_norms and tik_tok_adaptive:
+        adaptive_loss_coeffs['tik_tok_padding'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('tik_tok_padding', 1.0), global_grad_norms['tik_tok_padding']
         )
 
     return adaptive_loss_coeffs
@@ -249,6 +255,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
+    tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
 
     if configs.train_settings.losses.mse.enabled and mse_adaptive:
         local_grad_norms['mse'] = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
@@ -281,8 +288,19 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     if configs.model.vqvae.vector_quantization.enabled:
         local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq_loss', torch.tensor(0.0)), net.parameters())
 
+    if configs.model.vqvae.vector_quantization.tik_tok.enabled and tik_tok_adaptive:
+        local_grad_norms['tik_tok_padding'] = compute_grad_norm(
+            loss_dict.get('tik_tok_padding_loss', torch.tensor(0.0, device=loss_dict['rec_loss'].device)),
+            net.parameters()
+        )
+
     zero = torch.tensor(0.0, device=loss_dict['rec_loss'].device)
-    total_loss_unscaled = loss_dict['rec_loss'] + loss_dict.get('vq_loss', zero) + loss_dict.get('ntp_loss', zero)
+    total_loss_unscaled = (
+        loss_dict['rec_loss']
+        + loss_dict.get('vq_loss', zero)
+        + loss_dict.get('ntp_loss', zero)
+        + loss_dict.get('tik_tok_padding_loss', zero)
+    )
     local_grad_norms['total_unscaled'] = compute_grad_norm(total_loss_unscaled, net.parameters())
 
     # Aggregate across ranks for global signal
@@ -722,7 +740,8 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'binned_direction_classification': 1.0,
         'binned_distance_classification': 1.0,
         'ntp': 1.0,
-        'vq': 1.0
+        'vq': 1.0,
+        'tik_tok_padding': 1.0,
     }
 
     # Prepare loss dict with weighted (scaled) and unscaled components
@@ -802,11 +821,12 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['ntp_loss'] = zero
 
     tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', False)
-    if tik_tok_cfg.enabled:
+    if tik_tok_cfg and getattr(tik_tok_cfg, 'enabled', False) and tik_tok_padding_logits is not None and tik_tok_padding_targets is not None and tik_tok_padding_targets.numel() > 0:
         tik_tok_weight = float(tik_tok_cfg.classifier_weight)
+        tik_tok_coeff = adaptive.get('tik_tok_padding', 1.0)
         tik_tok_unscaled = F.cross_entropy(tik_tok_padding_logits, tik_tok_padding_targets)
         loss_dict['unscaled_tik_tok_padding_loss'] = tik_tok_unscaled
-        loss_dict['tik_tok_padding_loss'] = tik_tok_unscaled * tik_tok_weight
+        loss_dict['tik_tok_padding_loss'] = tik_tok_unscaled * tik_tok_weight * tik_tok_coeff
     else:
         zero = torch.tensor(0.0, device=device)
         loss_dict['unscaled_tik_tok_padding_loss'] = zero

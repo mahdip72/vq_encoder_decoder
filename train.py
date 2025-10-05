@@ -403,7 +403,8 @@ def main(dict_config, config_file_path):
         'binned_direction_classification': 1.0,
         'binned_distance_classification': 1.0,
         'vq': 1.0,
-        'ntp': 1.0
+        'ntp': 1.0,
+        'tik_tok_padding': 1.0,
     }
 
     best_valid_metrics = {
