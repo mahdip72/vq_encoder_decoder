@@ -421,10 +421,10 @@ class VQVAETransformer(nn.Module):
 
             encoder_attn_mask = None
             if self.encoder_causal:
-                seq_len = x.size(1)
-                encoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
+                seq_len = encoder_input.size(1)
+                encoder_attn_mask = self.create_causal_mask(seq_len, device=encoder_input.device)
 
-            encoder_embeddings = self.encoder_blocks(x, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
+            encoder_embeddings = self.encoder_blocks(encoder_input, mask=encoder_mask_bool, attn_mask=encoder_attn_mask)
 
             quantizer_input = self._project_encoder_output(encoder_embeddings)
 
