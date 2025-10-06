@@ -305,12 +305,12 @@ We welcome independent validation of our ESM3 and FoldToken-4 conversion scripts
 
 The table below reproduces Table 2 from the manuscript: reconstruction accuracy on community benchmarks and a zero-shot setting. Metrics are backbone TM-score (↑) and RMSD in Å (↓).
 
-<table>
+<table style="font-size:70%; line-height:1.05;">
   <thead>
     <tr>
       <th style="text-align:right;">Dataset</th>
       <th style="text-align:left;">Metric</th>
-      <th>GCP-VQVAE (Ours)</th>
+      <th><strong>GCP-VQVAE (Ours)</strong></th>
       <th>FoldToken 4 (Gao et al., 2024c)</th>
       <th>ESM-3 VQVAE (Hayes et al., 2025)</th>
       <th>(Gaujac et al., 2024)</th>
@@ -320,14 +320,14 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td style="text-align:right;" rowspan="2">CASP14</td>
       <td>TM-score</td>
-      <td>0.9890</td>
+      <td><strong>0.9890</strong></td>
       <td>0.5410</td>
       <td>0.5042</td>
       <td>0.3624</td>
     </tr>
     <tr>
       <td>RMSD</td>
-      <td>0.5431</td>
+      <td><strong>0.5431</strong></td>
       <td>8.9838</td>
       <td>10.4611</td>
       <td>10.5344</td>
@@ -335,14 +335,14 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td style="text-align:right;" rowspan="2">CASP15</td>
       <td>TM-score</td>
-      <td>0.9884</td>
+      <td><strong>0.9884</strong></td>
       <td>0.3289</td>
       <td>0.3206</td>
       <td>0.2329</td>
     </tr>
     <tr>
       <td>RMSD</td>
-      <td>0.5293</td>
+      <td><strong>0.5293</strong></td>
       <td>14.6702</td>
       <td>13.1877</td>
       <td>14.8956</td>
@@ -350,14 +350,14 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td style="text-align:right;" rowspan="2">CASP16</td>
       <td>TM-score</td>
-      <td>0.9857</td>
+      <td><strong>0.9857</strong></td>
       <td>0.8055</td>
       <td>0.7685</td>
       <td>0.6058</td>
     </tr>
     <tr>
       <td>RMSD</td>
-      <td>0.7567</td>
+      <td><strong>0.7567</strong></td>
       <td>5.5094</td>
       <td>8.2640</td>
       <td>8.7106</td>
@@ -365,14 +365,14 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td style="text-align:right;" rowspan="2">CAMEO2024</td>
       <td>TM-score</td>
-      <td>0.9918</td>
+      <td><strong>0.9918</strong></td>
       <td>0.4784</td>
       <td>0.4633</td>
       <td>0.3575</td>
     </tr>
     <tr>
       <td>RMSD</td>
-      <td>0.4377</td>
+      <td><strong>0.4377</strong></td>
       <td>12.1089</td>
       <td>12.1138</td>
       <td>13.5360</td>
@@ -380,14 +380,14 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td style="text-align:right;" rowspan="2">Zero-Shot</td>
       <td>TM-score</td>
-      <td>0.9673</td>
+      <td><strong>0.9673</strong></td>
       <td>0.3324</td>
       <td>0.3131</td>
       <td>-</td>
     </tr>
     <tr>
       <td>RMSD</td>
-      <td>0.8193</td>
+      <td><strong>0.8193</strong></td>
       <td>17.4449</td>
       <td>18.9335</td>
       <td>-</td>
