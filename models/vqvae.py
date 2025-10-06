@@ -276,11 +276,12 @@ class VQVAETransformer(nn.Module):
                 indices = self._flatten_residual_indices(indices)
                 vq_loss = vq_loss.sum(dim=-1)
 
-            tik_tok_padding_logits, tik_tok_padding_targets, latent_counts = self._compute_tik_tok_padding_output(
-                decoder_input,
-                latent_mask_bool,
-                active_tokens,
-            )
+            if self.tik_tok_padding_classifier:
+                tik_tok_padding_logits, tik_tok_padding_targets, latent_counts = self._compute_tik_tok_padding_output(
+                    decoder_input,
+                    latent_mask_bool,
+                    active_tokens,
+                )
 
         else:
             decoder_input, indices, vq_loss = self.vector_quantizer(quantizer_input, mask=valid_mask)
@@ -453,11 +454,13 @@ class VQVAETransformer(nn.Module):
                         unflatten_indices, valid)
                     ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
 
-                if self.tik_tok_enabled and latent_counts is not None and tik_tok_padding_logits is not None:
+                if self.tik_tok_enabled and self.tik_tok_padding_classifier is not None:
                     predicted_remainder = tik_tok_padding_logits.argmax(dim=-1)
                     sequence_lengths = latent_counts.to(
                         torch.long) * self.tik_tok_compression_factor + predicted_remainder
                     sequence_lengths = torch.min(sequence_lengths, torch.full_like(sequence_lengths, self.max_length))
+                elif self.tik_tok_enabled and self.tik_tok_padding_classifier is None:
+                    sequence_lengths = latent_mask_bool.sum(dim=-1)
 
             else:
                 decoder_input = x
