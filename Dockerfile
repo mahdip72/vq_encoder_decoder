@@ -15,12 +15,6 @@ RUN apt-get update \
 RUN pip3 install --no-cache-dir --upgrade pip
 
 # -----------------------------
-# Install PyTorch (matches install.sh order)
-# -----------------------------
-RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu129
-RUN pip3 install --no-cache-dir torchvision --index-url https://download.pytorch.org/whl/cu129
-
-# -----------------------------
 # Graph and geometric deep learning libraries
 # -----------------------------
 RUN pip3 install --no-cache-dir torch_geometric
