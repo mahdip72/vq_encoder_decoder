@@ -692,14 +692,6 @@ class GCPMessagePassing(nn.Module):
         device = row.device
         edge_ids = torch.arange(num_edges, device=device)
 
-        indices = torch.stack((row, edge_ids))
-        values = torch.ones(num_edges, device=device, dtype=torch.float32)
-        selector = torch.sparse_coo_tensor(
-            indices,
-            values,
-            size=(dim_size, num_edges),
-        ).coalesce()
-
         scalar_dtype = scalar_message.dtype
         autocast_context = (
             (lambda: torch.amp.autocast(device_type="cuda", enabled=False))
@@ -708,9 +700,14 @@ class GCPMessagePassing(nn.Module):
         )
 
         with autocast_context():
-            selector_fp32 = selector.float()
             scalar_fp32 = scalar_message.float()
-            aggregated_scalar_fp32 = torch.sparse.mm(selector_fp32, scalar_fp32)
+            aggregated_scalar_fp32 = torch_scatter.scatter(
+                scalar_fp32,
+                row,
+                dim=0,
+                dim_size=dim_size,
+                reduce="sum"
+            )
 
         aggregated_scalar = aggregated_scalar_fp32.to(scalar_dtype)
 
@@ -718,8 +715,12 @@ class GCPMessagePassing(nn.Module):
             vector_flat = vector_message.reshape(num_edges, -1)
             with autocast_context():
                 vector_fp32 = vector_flat.float()
-                aggregated_vector_flat_fp32 = torch.sparse.mm(
-                    selector_fp32, vector_fp32
+                aggregated_vector_flat_fp32 = torch_scatter.scatter(
+                    vector_fp32,
+                    row,
+                    dim=0,
+                    dim_size=dim_size,
+                    reduce="sum"
                 )
             aggregated_vector_flat = aggregated_vector_flat_fp32.to(vector_message.dtype)
             aggregated_vector = aggregated_vector_flat.view(
