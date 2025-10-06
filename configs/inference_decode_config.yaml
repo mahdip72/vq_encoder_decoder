@@ -14,3 +14,9 @@ max_task_samples: 5000000
 mixed_precision: "bf16"  # no, fp16, bf16, fp8
 
 tqdm_progress_bar: True
+
+compile_model:
+  enabled: false
+  mode: null
+  backend: inductor
+  compile_encoder: false

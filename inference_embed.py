@@ -13,7 +13,11 @@ import h5py
 
 from utils.utils import load_configs, load_checkpoints_simple, get_logging
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
-from models.super_model import prepare_model
+from models.super_model import (
+    prepare_model,
+    compile_non_gcp_and_exclude_vq,
+    compile_gcp_encoder,
+)
 
 
 def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
@@ -130,6 +134,19 @@ def main():
     checkpoint_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.checkpoint_path)
     model = load_checkpoints_simple(checkpoint_path, model, logger)
 
+    compile_cfg = infer_cfg.get('compile_model')
+    if compile_cfg and compile_cfg.get('enabled', False):
+        compile_mode = compile_cfg.get('mode')
+        compile_backend = compile_cfg.get('backend', 'inductor')
+        compile_encoder = compile_cfg.get('compile_encoder', True)
+
+        if compile_encoder and hasattr(model, 'encoder') and getattr(configs.model.encoder, 'name', None) == 'gcpnet':
+            model = compile_gcp_encoder(model, mode=compile_mode, backend=compile_backend)
+            logger.info('GCP encoder compiled for embedding inference.')
+
+        model = compile_non_gcp_and_exclude_vq(model, mode=compile_mode, backend=compile_backend)
+        logger.info('Compiled VQVAE components for embedding inference (VQ layer excluded).')
+
     model, loader = accelerator.prepare(model, loader)
 
     embeddings_records = []  # list of dicts {'pid', 'embedding', 'protein_sequence'}
@@ -180,4 +197,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -15,3 +15,9 @@ vq_indices_csv_filename: "vq_indices.csv"
 mixed_precision: "bf16"  # no, fp16, bf16, fp8
 
 tqdm_progress_bar: True
+
+compile_model:
+  enabled: False
+  mode: null
+  backend: inductor
+  compile_encoder: True
