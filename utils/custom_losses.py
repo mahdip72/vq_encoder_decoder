@@ -289,7 +289,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq_loss', torch.tensor(0.0)), net.parameters())
 
     if configs.model.vqvae.vector_quantization.tik_tok.enabled and tik_tok_adaptive:
-        tik_tok_loss = loss_batch.get('tik_tok_padding_loss', None)
+        tik_tok_loss = loss_dict.get('tik_tok_padding_loss', None)
         if isinstance(tik_tok_loss, torch.Tensor) and tik_tok_loss.requires_grad:
             local_grad_norms['tik_tok_padding'] = compute_grad_norm(tik_tok_loss, net.parameters())
 
