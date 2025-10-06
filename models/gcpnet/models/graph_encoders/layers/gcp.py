@@ -690,7 +690,6 @@ class GCPMessagePassing(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         num_edges = row.numel()
         device = row.device
-        edge_ids = torch.arange(num_edges, device=device)
 
         scalar_dtype = scalar_message.dtype
         autocast_context = (
@@ -699,14 +698,35 @@ class GCPMessagePassing(nn.Module):
             else contextlib.nullcontext
         )
 
+        if num_edges == 0:
+            aggregated_scalar = scalar_message.new_zeros(dim_size, *scalar_message.shape[1:])
+            if vector_message.numel():
+                aggregated_vector = vector_message.new_zeros(dim_size, vector_message.size(1), vector_message.size(2))
+            else:
+                aggregated_vector = vector_message.new_zeros(dim_size, 0, 3)
+            if node_mask is not None:
+                mask = node_mask.to(aggregated_scalar.dtype).unsqueeze(-1)
+                aggregated_scalar = aggregated_scalar * mask
+                if aggregated_vector.numel():
+                    aggregated_vector = aggregated_vector * mask.unsqueeze(-1)
+            return aggregated_scalar, aggregated_vector
+
+        counts = torch.bincount(row, minlength=dim_size)
+        indptr = torch.zeros(dim_size + 1, device=device, dtype=torch.long)
+        indptr[1:] = counts.cumsum(0)
+
+        perm = torch.argsort(row)
+        scalar_message = scalar_message.index_select(0, perm)
+        if vector_message.numel():
+            vector_message = vector_message.index_select(0, perm)
+
         with autocast_context():
             scalar_fp32 = scalar_message.float()
-            aggregated_scalar_fp32 = torch_scatter.scatter(
+            aggregated_scalar_fp32 = torch.segment_reduce(
                 scalar_fp32,
-                row,
-                dim=0,
-                dim_size=dim_size,
-                reduce="sum"
+                reduce="sum",
+                offsets=indptr,
+                axis=0,
             )
 
         aggregated_scalar = aggregated_scalar_fp32.to(scalar_dtype)
@@ -715,12 +735,11 @@ class GCPMessagePassing(nn.Module):
             vector_flat = vector_message.reshape(num_edges, -1)
             with autocast_context():
                 vector_fp32 = vector_flat.float()
-                aggregated_vector_flat_fp32 = torch_scatter.scatter(
+                aggregated_vector_flat_fp32 = torch.segment_reduce(
                     vector_fp32,
-                    row,
-                    dim=0,
-                    dim_size=dim_size,
-                    reduce="sum"
+                    reduce="sum",
+                    offsets=indptr,
+                    axis=0,
                 )
             aggregated_vector_flat = aggregated_vector_flat_fp32.to(vector_message.dtype)
             aggregated_vector = aggregated_vector_flat.view(
