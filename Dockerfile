@@ -3,6 +3,9 @@ FROM nvcr.io/nvidia/pytorch:25.06-py3
 # Use bash as default shell
 SHELL ["/bin/bash", "-c"]
 
+# Toggle FlashAttention-3 installation at build time
+ARG FA3=0
+
 # (Optional) system utilities similar to previous image layer; can be removed if undesired
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -64,6 +67,13 @@ RUN pip3 install --no-cache-dir torch_tb_profiler
 RUN pip3 install --no-cache-dir tqdm
 RUN pip3 install --no-cache-dir biopython
 RUN pip3 install --no-cache-dir graphein
+
+# Optional FlashAttention-3 install for Hopper GPUs
+COPY install_flash_attention_3_hopper.sh /opt/install_flash_attention_3_hopper.sh
+RUN chmod +x /opt/install_flash_attention_3_hopper.sh
+RUN if [ "$FA3" = "1" ]; then \
+      /opt/install_flash_attention_3_hopper.sh; \
+    fi \
 
 # Environment variables
 ENV TOKENIZERS_PARALLELISM=false

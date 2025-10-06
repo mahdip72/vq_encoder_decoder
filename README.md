@@ -60,18 +60,12 @@ docker build -t vqvae3d .
 docker run --gpus all -it vqvae3d
 ```
 
-### Option 3: Python Virtual Environment Setup
+#### (Optional, Hopper only) FlashAttention-3
+If you are on H100, H800, GH200, H200 (SM90) you can enable FlashAttention-3 for faster, lower‑memory attention.
 
-Create and activate a Python virtual environment:
+Build with FA3 baked in:
 ```bash
-python3 -m venv vqvae_env
-source vqvae_env/bin/activate  # On Windows: vqvae_env\Scripts\activate
-```
-
-Make the installation script executable and run it:
-```bash
-chmod +x install.sh
-bash install.sh
+docker build --build-arg FA3=1 -t vqvae3d-fa3 .
 ```
 
 ## Data
