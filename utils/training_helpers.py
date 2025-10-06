@@ -34,7 +34,8 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
         metrics['perplexity'] = cast(Any, Perplexity(ignore_index=-100).to(accelerator.device))
 
     tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', None)
-    if tik_tok_cfg is not None and getattr(tik_tok_cfg, 'enabled', False):
+    compression_factor = getattr(configs.model.vqvae.vector_quantization.tik_tok, 'compression_factor', 1)
+    if tik_tok_cfg is not None and getattr(tik_tok_cfg, 'enabled', False) and compression_factor > 1:
         from torchmetrics.classification import MulticlassAccuracy
         num_classes = int(getattr(tik_tok_cfg, 'compression_factor', 1))
         metrics['tik_tok_padding_accuracy'] = cast(
