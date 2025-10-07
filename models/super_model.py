@@ -152,12 +152,27 @@ def prepare_model(configs, logger, *, log_details=None, **kwargs):
     return vqvae
 
 
-def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead", backend: str | None = "eager") -> nn.Module:
+def compile_non_gcp_and_exclude_vq(net: nn.Module, mode: str | None, backend: str | None) -> nn.Module:
     """
     Compile non-GCP parts of the SuperModel while excluding the VectorQuantizer.
 
-    - Does NOT compile `net.encoder` (GCPNet or pretrained BenchMarkModel).
-    - Compiles every child module of VQVAE except `vector_quantizer`.
+    Does NOT compile `net.encoder` (GCPNet or pretrained BenchMarkModel).
+    Compiles every child module of VQVAE except `vector_quantizer`.
+
+    Parameters
+    ----------
+    net : nn.Module
+        The SuperModel instance.
+    mode : str | None
+        torch.compile optimization mode. Options: "reduce-overhead", "default", "max-autotune", or None.
+        (None forwards directly to torch.compile allowing its internal default.)
+    backend : str | None
+        torch.compile backend. Common options here: "eager" or "inductor". (None lets torch pick a default.)
+
+    Returns
+    -------
+    nn.Module
+        The (in-place) modified model.
     """
     if not hasattr(net, 'vqvae'):
         return net
@@ -213,9 +228,25 @@ def compile_non_gcp_and_exclude_vq(net: nn.Module, mode = "reduce-overhead", bac
     return net
 
 
-def compile_gcp_encoder(net: nn.Module, mode: str | None = "reduce-overhead", backend: str | None = "inductor") -> nn.Module:
-    """Compile the GCP encoder component of ``SuperModel`` while leaving VQVAE untouched."""
+def compile_gcp_encoder(net: nn.Module, mode: str | None, backend: str | None) -> nn.Module:
+    """Compile the GCP encoder component of ``SuperModel`` while leaving VQVAE untouched.
 
+    Parameters
+    ----------
+    net : nn.Module
+        The SuperModel instance.
+    mode : str | None
+        torch.compile optimization mode. Options: "reduce-overhead", "default", "max-autotune", or None.
+        Use None to fall back to torch.compile's internal default behavior.
+    backend : str | None
+        torch.compile backend. Typical choices used here: "inductor" (recommended) or "eager".
+        Use None to let torch decide / future default.
+
+    Returns
+    -------
+    nn.Module
+        The (in-place) modified model with its encoder compiled if present.
+    """
     if not hasattr(net, "encoder") or net.encoder is None:
         return net
 
