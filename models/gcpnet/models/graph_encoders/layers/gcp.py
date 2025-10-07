@@ -18,7 +18,21 @@ from typing import Any, Optional, Tuple, Union
 import contextlib
 
 import torch
+import torch._dynamo as dynamo
 import torch_scatter
+
+try:  # Optional fused message-passing dependency
+    import cupy as cp  # type: ignore
+    from pylibcugraphops import make_csc  # type: ignore
+    from pylibcugraphops import operators as cgo  # type: ignore
+
+    _HAS_CUGRAPH_OPS = True
+except ImportError:  # pragma: no cover - fallback when cuGraph-ops is unavailable
+    cp = None  # type: ignore
+    make_csc = None  # type: ignore
+    cgo = None  # type: ignore
+    _HAS_CUGRAPH_OPS = False
+
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import Bool, Float, Int64
 from torch import nn
@@ -40,6 +54,84 @@ try:  # Optional dependency for backwards compatibility
 except ModuleNotFoundError:  # pragma: no cover - fallback when OmegaConf is unavailable
     DictConfig = Any  # type: ignore
     OmegaConf = None  # type: ignore
+
+
+@dynamo.disable
+def _torch_to_cupy(tensor: torch.Tensor):
+    if cp is None:
+        raise RuntimeError("CuPy is required for cuGraph-ops aggregation.")
+    return cp.asarray(tensor)
+
+
+class _CuGraphSimpleE2N(torch.autograd.Function):
+    """Edge-to-node aggregation backed by pylibcugraphops."""
+
+    @staticmethod
+    @dynamo.disable
+    def forward(ctx, messages: torch.Tensor, row: torch.Tensor, col: torch.Tensor, num_nodes: int) -> torch.Tensor:
+        if cp is None or make_csc is None or cgo is None:
+            raise RuntimeError("pylibcugraphops is not available but CuGraph aggregation was requested.")
+        if messages.numel() == 0:
+            ctx.save_for_backward(row.new_empty(0))
+            ctx.graph = None
+            ctx.num_edges = 0
+            ctx.feature_dim = messages.shape[-1]
+            return messages.new_zeros(num_nodes, messages.shape[-1])
+
+        # sort edges by destination (row) so that offsets are monotonic
+        dest = row.to(torch.int64)
+        src = col.to(torch.int64)
+        sorted_dest, perm = torch.sort(dest)
+        src_sorted = src.index_select(0, perm)
+
+        messages_sorted = messages.index_select(0, perm)
+        feature_dim = messages_sorted.shape[-1]
+
+        counts = torch.bincount(sorted_dest, minlength=num_nodes)
+        offsets = torch.empty(num_nodes + 1, device=messages.device, dtype=torch.int64)
+        offsets[0] = 0
+        offsets[1:] = counts.cumsum(0)
+
+        # Convert to float32 for the fused CUDA kernel if necessary
+        messages_comp = messages_sorted.to(torch.float32)
+        output_comp = torch.zeros(num_nodes, feature_dim, device=messages.device, dtype=torch.float32)
+
+        offsets_cp = _torch_to_cupy(offsets)
+        indices_cp = _torch_to_cupy(src_sorted)
+        max_src = int(src.max().item()) + 1 if src.numel() else 0
+        num_src_nodes = max(num_nodes, max_src)
+        graph = make_csc(offsets_cp, indices_cp, num_src_nodes)
+
+        cgo.agg_simple_e2n_fwd(_torch_to_cupy(output_comp), _torch_to_cupy(messages_comp), graph)
+
+        output = output_comp.to(messages.dtype)
+
+        ctx.save_for_backward(perm)
+        ctx.graph = graph
+        ctx.num_edges = messages.shape[0]
+        ctx.feature_dim = feature_dim
+        ctx.messages_dtype = messages.dtype
+        return output
+
+    @staticmethod
+    @dynamo.disable
+    def backward(ctx, grad_output: torch.Tensor):
+        (perm,) = ctx.saved_tensors
+
+        if ctx.num_edges == 0:
+            grad_messages = grad_output.new_zeros((0, grad_output.shape[-1]))
+            return grad_messages, None, None, None
+
+        grad_output_comp = grad_output.to(torch.float32)
+        grad_input_comp = torch.zeros(ctx.num_edges, ctx.feature_dim, device=grad_output.device, dtype=torch.float32)
+
+        cgo.agg_simple_e2n_bwd(_torch_to_cupy(grad_input_comp), _torch_to_cupy(grad_output_comp), ctx.graph)
+
+        grad_messages_sorted = grad_input_comp.to(grad_output.dtype)
+        grad_messages = torch.empty_like(grad_messages_sorted)
+        grad_messages[perm] = grad_messages_sorted
+
+        return grad_messages, None, None, None
 
 
 def _cfg_to_dict(cfg: Any) -> Any:
@@ -671,6 +763,7 @@ class GCPMessagePassing(nn.Module):
 
         agg_scalar, agg_vector = self._sparse_reduce(
             row,
+            col,
             message_residual.scalar,
             message_residual.vector,
             dim_size=node_rep.scalar.shape[0],
@@ -682,6 +775,7 @@ class GCPMessagePassing(nn.Module):
     def _sparse_reduce(
         self,
         row: torch.Tensor,
+        col: torch.Tensor,
         scalar_message: torch.Tensor,
         vector_message: torch.Tensor,
         *,
@@ -690,13 +784,6 @@ class GCPMessagePassing(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         num_edges = row.numel()
         device = row.device
-
-        scalar_dtype = scalar_message.dtype
-        autocast_context = (
-            (lambda: torch.amp.autocast(device_type="cuda", enabled=False))
-            if scalar_message.is_cuda
-            else contextlib.nullcontext
-        )
 
         if num_edges == 0:
             aggregated_scalar = scalar_message.new_zeros(dim_size, *scalar_message.shape[1:])
@@ -711,42 +798,66 @@ class GCPMessagePassing(nn.Module):
                     aggregated_vector = aggregated_vector * mask.unsqueeze(-1)
             return aggregated_scalar, aggregated_vector
 
-        counts = torch.bincount(row, minlength=dim_size)
-        indptr = torch.zeros(dim_size + 1, device=device, dtype=torch.long)
-        indptr[1:] = counts.cumsum(0)
+        use_cugraph = (
+            _HAS_CUGRAPH_OPS
+            and scalar_message.is_cuda
+            and (vector_message.numel() == 0 or vector_message.is_cuda)
+        )
 
-        perm = torch.argsort(row)
-        scalar_message = scalar_message.index_select(0, perm)
-        if vector_message.numel():
-            vector_message = vector_message.index_select(0, perm)
-
-        with autocast_context():
-            scalar_fp32 = scalar_message.float()
-            aggregated_scalar_fp32 = torch.segment_reduce(
-                scalar_fp32,
-                reduce="sum",
-                offsets=indptr,
-                axis=0,
+        if use_cugraph:
+            aggregated_scalar = _CuGraphSimpleE2N.apply(scalar_message, row, col, dim_size)
+            if vector_message.numel():
+                vector_flat = vector_message.reshape(num_edges, -1)
+                aggregated_vector_flat = _CuGraphSimpleE2N.apply(vector_flat, row, col, dim_size)
+                aggregated_vector = aggregated_vector_flat.view(
+                    dim_size, vector_message.size(1), vector_message.size(2)
+                )
+            else:
+                aggregated_vector = vector_message.new_zeros(dim_size, 0, 3)
+        else:
+            scalar_dtype = scalar_message.dtype
+            autocast_context = (
+                (lambda: torch.amp.autocast(device_type="cuda", enabled=False))
+                if scalar_message.is_cuda
+                else contextlib.nullcontext
             )
 
-        aggregated_scalar = aggregated_scalar_fp32.to(scalar_dtype)
+            counts = torch.bincount(row, minlength=dim_size)
+            indptr = torch.zeros(dim_size + 1, device=device, dtype=torch.long)
+            indptr[1:] = counts.cumsum(0)
 
-        if vector_message.numel():
-            vector_flat = vector_message.reshape(num_edges, -1)
+            perm = torch.argsort(row)
+            scalar_message = scalar_message.index_select(0, perm)
+            if vector_message.numel():
+                vector_message = vector_message.index_select(0, perm)
+
             with autocast_context():
-                vector_fp32 = vector_flat.float()
-                aggregated_vector_flat_fp32 = torch.segment_reduce(
-                    vector_fp32,
+                scalar_fp32 = scalar_message.float()
+                aggregated_scalar_fp32 = torch.segment_reduce(
+                    scalar_fp32,
                     reduce="sum",
                     offsets=indptr,
                     axis=0,
                 )
-            aggregated_vector_flat = aggregated_vector_flat_fp32.to(vector_message.dtype)
-            aggregated_vector = aggregated_vector_flat.view(
-                dim_size, vector_message.size(1), vector_message.size(2)
-            )
-        else:
-            aggregated_vector = vector_message.new_zeros(dim_size, 0, 3)
+
+            aggregated_scalar = aggregated_scalar_fp32.to(scalar_dtype)
+
+            if vector_message.numel():
+                vector_flat = vector_message.reshape(num_edges, -1)
+                with autocast_context():
+                    vector_fp32 = vector_flat.float()
+                    aggregated_vector_flat_fp32 = torch.segment_reduce(
+                        vector_fp32,
+                        reduce="sum",
+                        offsets=indptr,
+                        axis=0,
+                    )
+                aggregated_vector_flat = aggregated_vector_flat_fp32.to(vector_message.dtype)
+                aggregated_vector = aggregated_vector_flat.view(
+                    dim_size, vector_message.size(1), vector_message.size(2)
+                )
+            else:
+                aggregated_vector = vector_message.new_zeros(dim_size, 0, 3)
 
         if node_mask is not None:
             mask = node_mask.to(aggregated_scalar.dtype).unsqueeze(-1)
