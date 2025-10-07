@@ -408,7 +408,10 @@ This repository builds upon several excellent open-source projects:
 
 - [**vector-quantize-pytorch**](https://github.com/lucidrains/vector-quantize-pytorch) – Vector quantization implementations used in our VQ-VAE architecture.
 - [**x-transformers**](https://github.com/lucidrains/x-transformers) – Transformer components integrated into our encoder and decoder modules of VQ-VAE.
-- [**ProteinWorkshop**](https://github.com/a-r-j/ProteinWorkshop) – We heavily slimmed this repository to extract and optimize only the GCPNet model, with significant enhancements to support model compilation.
+- [**ProteinWorkshop**](https://github.com/a-r-j/ProteinWorkshop) – We slimmed the original workshop down to the GCPNet core and extended it with:
+  - opt-in `torch.compile` support that now powers our training, inference, and evaluation paths (configurable in every config file).
+  - faster aggregation backends: a CSR/`torch.segment_reduce` implementation for PyTorch-only setups and an automatic switch to cuGraph-ops fused aggregators when `pylibcugraphops` is installed.
+  - multi-GPU friendly evaluation utilities that reuse the same compilation flags as training, keeping the code path consistent across scripts.
 
 
 ## 📜 Citation

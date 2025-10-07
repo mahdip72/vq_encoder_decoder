@@ -67,6 +67,9 @@ RUN pip3 install --no-cache-dir torch_tb_profiler
 RUN pip3 install --no-cache-dir tqdm
 RUN pip3 install --no-cache-dir biopython
 RUN pip3 install --no-cache-dir graphein
+RUN pip3 install --no-cache-dir cugraph-cu12 -f https://pypi.nvidia.com
+RUN pip3 install --no-cache-dir pylibcugraphops-cu12 -f https://pypi.nvidia.com
+
 
 # Optional FlashAttention-3 install for Hopper GPUs
 COPY install_flash_attention_3_hopper.sh /opt/install_flash_attention_3_hopper.sh

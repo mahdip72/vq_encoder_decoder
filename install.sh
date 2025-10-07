@@ -42,6 +42,10 @@ pip install tqdm
 pip install biopython
 pip install graphein
 
+# Graph analytics libraries from NVIDIA
+pip install cugraph-cu12 -f https://pypi.nvidia.com
+pip install pylibcugraphops-cu12 -f https://pypi.nvidia.com
+
 # Set environment variable
 export TOKENIZERS_PARALLELISM=false
 
