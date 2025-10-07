@@ -13,13 +13,16 @@
 ###########################################################################################
 
 from copy import copy
+from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 import contextlib
 
 import torch
 import torch._dynamo as dynamo
 import torch_scatter
+
+_HAS_CUGRAPH_OPS = False
 
 try:  # Optional fused message-passing dependency
     import cupy as cp  # type: ignore
@@ -31,7 +34,16 @@ except ImportError:  # pragma: no cover - fallback when cuGraph-ops is unavailab
     cp = None  # type: ignore
     make_csc = None  # type: ignore
     cgo = None  # type: ignore
-    _HAS_CUGRAPH_OPS = False
+
+
+@dataclass
+class _CuGraphCSCCache:
+    perm: torch.Tensor
+    graph: Any
+    num_edges: int
+    num_nodes: int
+    offsets_cp: Any
+    indices_cp: Any
 
 from graphein.protein.tensor.data import ProteinBatch
 from jaxtyping import Bool, Float, Int64
@@ -63,12 +75,64 @@ def _torch_to_cupy(tensor: torch.Tensor):
     return cp.asarray(tensor)
 
 
+@dynamo.disable
+def _build_cugraph_cache(
+    row: torch.Tensor, col: torch.Tensor, num_nodes: int
+) -> _CuGraphCSCCache:
+    if cp is None or make_csc is None:
+        raise RuntimeError("pylibcugraphops is required for cuGraph-ops aggregation.")
+    if row.numel() == 0:
+        empty = row.new_empty(0, dtype=torch.long, device=row.device)
+        return _CuGraphCSCCache(
+            perm=empty,
+            graph=None,
+            num_edges=0,
+            num_nodes=num_nodes,
+            offsets_cp=None,
+            indices_cp=None,
+        )
+
+    dest = row.to(torch.int64)
+    src = col.to(torch.int64)
+
+    sorted_dest, perm = torch.sort(dest)
+    src_sorted = src.index_select(0, perm)
+
+    counts = torch.bincount(sorted_dest, minlength=num_nodes)
+    offsets = torch.empty(num_nodes + 1, device=row.device, dtype=torch.int64)
+    offsets[0] = 0
+    offsets[1:] = counts.cumsum(0)
+
+    offsets_cp = _torch_to_cupy(offsets)
+    indices_cp = _torch_to_cupy(src_sorted)
+
+    max_src = int(src.max().item()) + 1 if src.numel() else 0
+    num_src_nodes = max(num_nodes, max_src)
+    graph = make_csc(offsets_cp, indices_cp, num_src_nodes)
+
+    return _CuGraphCSCCache(
+        perm=perm,
+        graph=graph,
+        num_edges=row.numel(),
+        num_nodes=num_nodes,
+        offsets_cp=offsets_cp,
+        indices_cp=indices_cp,
+    )
+
+
 class _CuGraphSimpleE2N(torch.autograd.Function):
     """Edge-to-node aggregation backed by pylibcugraphops."""
 
     @staticmethod
     @dynamo.disable
-    def forward(ctx, messages: torch.Tensor, row: torch.Tensor, col: torch.Tensor, num_nodes: int) -> torch.Tensor:
+    def forward(
+        ctx,
+        messages: torch.Tensor,
+        row: torch.Tensor,
+        col: torch.Tensor,
+        num_nodes: int,
+        cache: Optional[_CuGraphCSCCache] = None,
+    ) -> torch.Tensor:
         if cp is None or make_csc is None or cgo is None:
             raise RuntimeError("pylibcugraphops is not available but CuGraph aggregation was requested.")
         if messages.numel() == 0:
@@ -77,37 +141,32 @@ class _CuGraphSimpleE2N(torch.autograd.Function):
             ctx.num_edges = 0
             ctx.feature_dim = messages.shape[-1]
             return messages.new_zeros(num_nodes, messages.shape[-1])
+        if cache is None:
+            cache = _build_cugraph_cache(row, col, num_nodes)
 
-        # sort edges by destination (row) so that offsets are monotonic
-        dest = row.to(torch.int64)
-        src = col.to(torch.int64)
-        sorted_dest, perm = torch.sort(dest)
-        src_sorted = src.index_select(0, perm)
+        if cache.graph is None and messages.numel() != 0:
+            raise RuntimeError("Cached cuGraph graph is missing for non-empty edge set.")
+        if cache.num_edges != messages.shape[0]:
+            raise RuntimeError("Cached cuGraph graph has mismatched number of edges.")
 
+        perm = cache.perm
         messages_sorted = messages.index_select(0, perm)
         feature_dim = messages_sorted.shape[-1]
-
-        counts = torch.bincount(sorted_dest, minlength=num_nodes)
-        offsets = torch.empty(num_nodes + 1, device=messages.device, dtype=torch.int64)
-        offsets[0] = 0
-        offsets[1:] = counts.cumsum(0)
 
         # Convert to float32 for the fused CUDA kernel if necessary
         messages_comp = messages_sorted.to(torch.float32)
         output_comp = torch.zeros(num_nodes, feature_dim, device=messages.device, dtype=torch.float32)
 
-        offsets_cp = _torch_to_cupy(offsets)
-        indices_cp = _torch_to_cupy(src_sorted)
-        max_src = int(src.max().item()) + 1 if src.numel() else 0
-        num_src_nodes = max(num_nodes, max_src)
-        graph = make_csc(offsets_cp, indices_cp, num_src_nodes)
-
-        cgo.agg_simple_e2n_fwd(_torch_to_cupy(output_comp), _torch_to_cupy(messages_comp), graph)
+        cgo.agg_simple_e2n_fwd(
+            _torch_to_cupy(output_comp),
+            _torch_to_cupy(messages_comp),
+            cache.graph,
+        )
 
         output = output_comp.to(messages.dtype)
 
         ctx.save_for_backward(perm)
-        ctx.graph = graph
+        ctx.graph = cache.graph
         ctx.num_edges = messages.shape[0]
         ctx.feature_dim = feature_dim
         ctx.messages_dtype = messages.dtype
@@ -120,7 +179,7 @@ class _CuGraphSimpleE2N(torch.autograd.Function):
 
         if ctx.num_edges == 0:
             grad_messages = grad_output.new_zeros((0, grad_output.shape[-1]))
-            return grad_messages, None, None, None
+            return grad_messages, None, None, None, None
 
         grad_output_comp = grad_output.to(torch.float32)
         grad_input_comp = torch.zeros(ctx.num_edges, ctx.feature_dim, device=grad_output.device, dtype=torch.float32)
@@ -131,7 +190,7 @@ class _CuGraphSimpleE2N(torch.autograd.Function):
         grad_messages = torch.empty_like(grad_messages_sorted)
         grad_messages[perm] = grad_messages_sorted
 
-        return grad_messages, None, None, None
+        return grad_messages, None, None, None, None
 
 
 def _cfg_to_dict(cfg: Any) -> Any:
@@ -652,6 +711,7 @@ class GCPMessagePassing(nn.Module):
         self.self_message = self.conv_cfg.self_message
         self.reduce_function = reduce_function
         self.use_scalar_message_attention = use_scalar_message_attention
+        self._cugraph_cache: Dict[Tuple[int, int, int, int], _CuGraphCSCCache] = {}
 
         scalars_in_dim = 2 * self.scalar_input_dim + self.edge_scalar_dim
         vectors_in_dim = 2 * self.vector_input_dim + self.edge_vector_dim
@@ -772,6 +832,34 @@ class GCPMessagePassing(nn.Module):
 
         return ScalarVector(agg_scalar, agg_vector)
 
+    def _cugraph_cache_key(
+        self, row: torch.Tensor, col: torch.Tensor, num_nodes: int
+    ) -> Tuple[int, int, int, int]:
+        device = row.device
+        device_index = device.index if device.type == "cuda" else -1
+        return (
+            int(row.data_ptr()),
+            int(col.data_ptr()),
+            num_nodes,
+            device_index,
+        )
+
+    def _get_cugraph_cache(
+        self, row: torch.Tensor, col: torch.Tensor, num_nodes: int
+    ) -> _CuGraphCSCCache:
+        if row.numel() == 0:
+            return _build_cugraph_cache(row, col, num_nodes)
+
+        key = self._cugraph_cache_key(row, col, num_nodes)
+        cache = self._cugraph_cache.get(key)
+
+        if cache is None or cache.num_edges != row.numel():
+            cache = _build_cugraph_cache(row, col, num_nodes)
+            # Retain only the most recent CSC graph to bound memory.
+            self._cugraph_cache = {key: cache}
+
+        return cache
+
     def _sparse_reduce(
         self,
         row: torch.Tensor,
@@ -805,10 +893,15 @@ class GCPMessagePassing(nn.Module):
         )
 
         if use_cugraph:
-            aggregated_scalar = _CuGraphSimpleE2N.apply(scalar_message, row, col, dim_size)
+            cache = self._get_cugraph_cache(row, col, dim_size)
+            aggregated_scalar = _CuGraphSimpleE2N.apply(
+                scalar_message, row, col, dim_size, cache
+            )
             if vector_message.numel():
                 vector_flat = vector_message.reshape(num_edges, -1)
-                aggregated_vector_flat = _CuGraphSimpleE2N.apply(vector_flat, row, col, dim_size)
+                aggregated_vector_flat = _CuGraphSimpleE2N.apply(
+                    vector_flat, row, col, dim_size, cache
+                )
                 aggregated_vector = aggregated_vector_flat.view(
                     dim_size, vector_message.size(1), vector_message.size(2)
                 )
