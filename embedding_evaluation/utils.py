@@ -51,7 +51,7 @@ def load_embeddings_from_h5(h5_path: str) -> Dict[str, np.ndarray]:
     out = {}
     with h5py.File(h5_path, 'r') as hf:
         for key in hf.keys():
-            data = hf[key][:]
+            data = hf[key]['embedding'][:]
             out[key] = np.asarray(data)
     return out
 

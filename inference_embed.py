@@ -10,6 +10,7 @@ from tqdm import tqdm
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import broadcast_object_list
 import h5py
+import numpy as np
 
 from utils.utils import load_configs, load_checkpoints_simple, get_logging
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
@@ -33,14 +34,16 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     return encoder_configs, decoder_configs
 
 
-def record_embeddings(pids, embeddings_array, sequences, records):
-    """Append pid-embedding-sequence tuples to records list."""
+def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records):
+    """Append pid-embedding-indices-sequence tuples to records list."""
     # embeddings_array: numpy array (B, L, D)
-    for pid, emb, seq in zip(pids, embeddings_array, sequences):
+    cpu_inds = indices_tensor.detach().cpu().tolist()
+    for pid, emb, ind_list, seq in zip(pids, embeddings_array, cpu_inds, sequences):
         # Trim to sequence length
         L = len(seq)
         emb_trim = emb[:L].astype('float32')
-        records.append({'pid': pid, 'embedding': emb_trim, 'protein_sequence': seq})
+        # cleaned = [int(v) for v in ind_list if v != -1]
+        records.append({'pid': pid, 'embedding': emb_trim, 'indices': ind_list[:L], 'protein_sequence': seq})
 
 
 def main():
@@ -166,11 +169,12 @@ def main():
             # Forward pass to get embeddings from VQ layer
             output_dict = model(batch, return_vq_layer=True)
             embeddings = output_dict['embeddings']
+            indices = output_dict['indices']
             pids = batch['pid']
             sequences = batch['seq']
 
             emb_np = embeddings.detach().cpu().numpy()
-            record_embeddings(pids, emb_np, sequences, embeddings_records)
+            record_embeddings(pids, emb_np, indices, sequences, embeddings_records)
 
             progress_bar.update(1)
 
@@ -187,8 +191,11 @@ def main():
             for rec in embeddings_records:
                 pid = rec['pid']
                 emb = rec['embedding']
-                # create dataset per pid
-                hf.create_dataset(pid, data=emb, compression='gzip')
+                inds = rec['indices']
+                # create group per pid
+                group = hf.create_group(pid)
+                group.create_dataset('embedding', data=emb, compression='gzip')
+                group.create_dataset('indices', data=np.array(inds, dtype=np.int32), compression='gzip')
         logger.info(f"Saved embeddings HDF5: {h5_path}")
 
     accelerator.wait_for_everyone()
