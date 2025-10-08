@@ -5,6 +5,7 @@ import datetime
 import argparse
 import torch
 import h5py
+import numpy as np
 from box import Box
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import broadcast_object_list
@@ -159,8 +160,10 @@ def main(config_path: str):
 
     with h5py.File(h5_path, 'w') as hf:
         hf.create_dataset('codebook', data=codebook_np, compression='gzip')
+        indices = np.arange(codebook_np.shape[0], dtype=np.int32)
+        hf.create_dataset('indices', data=indices, compression='gzip')
 
-    logger.info(f"Saved codebook embeddings ({codebook_np.shape[0]} x {codebook_np.shape[1]}) to {h5_path}")
+    logger.info(f"Saved codebook embeddings ({codebook_np.shape[0]} x {codebook_np.shape[1]}) and indices to {h5_path}")
     accelerator.wait_for_everyone()
     accelerator.free_memory()
     accelerator.end_training()
