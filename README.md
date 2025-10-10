@@ -19,6 +19,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 ## News
 - 🗓️ **25 Sept 2025** — 🎉 Our paper was accepted to the NeurIPS 2025 AI4Science workshop!
 - 🗓️ **3 Oct 2025** — Our preprint has been published in [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v1).
+- 🗓️ **10 Oct 2025** — 🚀 Pretrained checkpoints and evaluation datasets are now available for download!
 
 
 
@@ -69,6 +70,16 @@ docker build --build-arg FA3=1 -t vqvae3d-fa3 .
 ```
 
 ## Data
+
+### Evaluation Datasets
+
+| Dataset | Description | Download Link |
+|---------|-------------|---------------|
+| CAMEO2024 | CAMEO 2024 evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/ErhhREP9bH5AoBBOe5IshCUBix3KAvYvZpAS7f1FS3pB_g?e=gQPDWl) |
+| CASP14 | CASP 14 evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/EgMgJtM0fdNHpU46opUf0OgBZxhlJiV8Xu8N1Ke2lgw0mg?e=0d46eL) |
+| CASP15 | CASP 15 evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/EgMgJtM0fdNHpU46opUf0OgBZxhlJiV8Xu8N1Ke2lgw0mg?e=0d46eL) |
+| CASP16 | CASP 16 evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/EgMgJtM0fdNHpU46opUf0OgBZxhlJiV8Xu8N1Ke2lgw0mg?e=0d46eL) |
+| Zero-Shot | Zero-shot evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/EiPEh9RGgypEi_LRWlNhLi0BSlbFsr9VryhKT1v8MYLj7Q?e=Uhr3bF) |
 
 ### Download PDBs with Foldcomp (recommended)
 We provide a helper script to fetch a Foldcomp-formatted database and extract structures to uncompressed `.pdb` files. See the official docs for more details: [Foldcomp README](https://github.com/steineggerlab/foldcomp) and the [Foldcomp download server](https://foldcomp.steineggerlab.workers.dev/).
@@ -209,6 +220,19 @@ accelerate launch train.py --config_path configs/config_vqvae.yaml
 See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index) for more options and configurations.
 
 ### Inference
+
+### Pretrained Models
+
+| Model | Description | Download Link |
+|-------|-------------|---------------|
+| Large | Full GCP-VQVAE model with best performance | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EaxLj74pK5BArOpPkF9MkDgBHxlfaDpAElPRiwH9BsIedA?e=34ida8) |
+| Lite | Lightweight version for faster inference | Coming soon |
+
+**Setup Instructions:**
+1. Download the zip file of the checkpoint
+2. Extract the checkpoint folder
+3. Set the `trained_model_dir` path in your config file (following ones) to point to the right checkpoint.
+
 
 Multi‑GPU with Hugging Face Accelerate:
 - The following scripts support multi‑GPU via Accelerate: `inference_encode.py`, `inference_embed.py`, `inference_decode.py`, and `evaluation.py`.
