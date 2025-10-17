@@ -20,6 +20,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 - 🗓️ **25 Sept 2025** — 🎉 Our paper was accepted to the NeurIPS 2025 AI4Science workshop!
 - 🗓️ **3 Oct 2025** — Our preprint has been published in [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v1).
 - 🗓️ **10 Oct 2025** — 🚀 Pretrained checkpoints and evaluation datasets are now available for download!
+- 🗓️ **17 Oct 2025** - Release a lite version of GCP-VQVAE with half the parameters.
 
 
 
@@ -223,10 +224,10 @@ See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index)
 
 ### Pretrained Models
 
-| Model | Description | Download Link |
-|-------|-------------|---------------|
+| Model | Description | Download Link                                                                                                                                |
+|-------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | Large | Full GCP-VQVAE model with best performance | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EaxLj74pK5BArOpPkF9MkDgBHxlfaDpAElPRiwH9BsIedA?e=34ida8) |
-| Lite | Lightweight version for faster inference | Coming soon |
+| Lite | Lightweight version for faster inference | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EUXZF_Is2X9IrjLeIWk7T5gBNb3yliRwVOAWi2rHyyympg?e=VAveKw) |                                                                                                                                |
 
 **Setup Instructions:**
 1. Download the zip file of the checkpoint
@@ -329,6 +330,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <th style="text-align:right;">Dataset</th>
       <th style="text-align:left;">Metric</th>
       <th><strong>GCP-VQVAE (Ours)</strong></th>
+      <th>GCP-VQVAE Lite</th>
       <th>FoldToken 4 (Gao et al., 2024c)</th>
       <th>ESM-3 VQVAE (Hayes et al., 2025)</th>
       <th>(Gaujac et al., 2024)</th>
@@ -339,6 +341,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td style="text-align:right;" rowspan="2">CASP14</td>
       <td>TM-score</td>
       <td><strong>0.9890</strong></td>
+      <td>0.9751</td>
       <td>0.5410</td>
       <td>0.5042</td>
       <td>0.3624</td>
@@ -346,6 +349,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td>RMSD</td>
       <td><strong>0.5431</strong></td>
+      <td>0.8435</td>
       <td>8.9838</td>
       <td>10.4611</td>
       <td>10.5344</td>
@@ -354,6 +358,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td style="text-align:right;" rowspan="2">CASP15</td>
       <td>TM-score</td>
       <td><strong>0.9884</strong></td>
+      <td>0.9665</td>
       <td>0.3289</td>
       <td>0.3206</td>
       <td>0.2329</td>
@@ -361,6 +366,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td>RMSD</td>
       <td><strong>0.5293</strong></td>
+      <td>0.9219</td>
       <td>14.6702</td>
       <td>13.1877</td>
       <td>14.8956</td>
@@ -369,6 +375,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td style="text-align:right;" rowspan="2">CASP16</td>
       <td>TM-score</td>
       <td><strong>0.9857</strong></td>
+      <td>0.9757</td>
       <td>0.8055</td>
       <td>0.7685</td>
       <td>0.6058</td>
@@ -376,6 +383,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td>RMSD</td>
       <td><strong>0.7567</strong></td>
+      <td>1.0614</td>
       <td>5.5094</td>
       <td>8.2640</td>
       <td>8.7106</td>
@@ -384,6 +392,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td style="text-align:right;" rowspan="2">CAMEO2024</td>
       <td>TM-score</td>
       <td><strong>0.9918</strong></td>
+      <td>0.9794</td>
       <td>0.4784</td>
       <td>0.4633</td>
       <td>0.3575</td>
@@ -391,6 +400,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td>RMSD</td>
       <td><strong>0.4377</strong></td>
+      <td>0.7401</td>
       <td>12.1089</td>
       <td>12.1138</td>
       <td>13.5360</td>
@@ -399,6 +409,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <td style="text-align:right;" rowspan="2">Zero-Shot</td>
       <td>TM-score</td>
       <td><strong>0.9673</strong></td>
+      <td>0.9466</td>
       <td>0.3324</td>
       <td>0.3131</td>
       <td>-</td>
@@ -406,6 +417,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
     <tr>
       <td>RMSD</td>
       <td><strong>0.8193</strong></td>
+      <td>1.1152</td>
       <td>17.4449</td>
       <td>18.9335</td>
       <td>-</td>
