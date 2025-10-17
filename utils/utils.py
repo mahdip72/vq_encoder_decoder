@@ -205,9 +205,14 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
         unwrapped = getattr(kwargs['net'], "module", kwargs['net'])
     base_model = getattr(unwrapped, "_orig_mod", unwrapped)
 
+    raw_state = base_model.state_dict()
+    clean_state = OrderedDict(
+        (k.replace('_orig_mod.', ''), v) for k, v in raw_state.items()
+    )
+
     torch.save({
         'epoch': epoch,
-        'model_state_dict': base_model.state_dict(),
+        'model_state_dict': clean_state,
         'optimizer_state_dict': kwargs['optimizer'].state_dict(),
         'scheduler_state_dict': kwargs['scheduler'].state_dict() if kwargs.get('scheduler') is not None else None,
     }, model_path)
@@ -216,6 +221,11 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
 def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False):
     model_checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     pretrained_state_dict = model_checkpoint['model_state_dict']
+
+    # Torch-compiled checkpoints wrap submodules in `_orig_mod`; strip for compatibility.
+    pretrained_state_dict = {
+        k.replace('_orig_mod.', ''): v for k, v in pretrained_state_dict.items()
+    }
 
     pretrained_state_dict = _remap_gcp_encoder_keys(pretrained_state_dict, net, logger)
 
