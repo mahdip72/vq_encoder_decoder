@@ -449,6 +449,9 @@ This repository builds upon several excellent open-source projects:
   - faster aggregation backends: a CSR/`torch.segment_reduce` implementation for PyTorch-only setups and an automatic switch to cuGraph-ops fused aggregators when `pylibcugraphops` is installed.
   - multi-GPU friendly evaluation utilities that reuse the same compilation flags as training, keeping the code path consistent across scripts.
 
+We gratefully acknowledge **NVIDIA** for providing computational resources via their dedicated server that made 
+this project feasible, enabling us to train and evaluate our models at scale.
+
 
 ## 📜 Citation
 
