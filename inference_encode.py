@@ -185,7 +185,8 @@ def main():
             # Update progress bar manually
             progress_bar.update(1)
 
-    logger.info(f"Inference encoding completed. Results are saved in {result_dir}")
+    # end progress_bar
+    progress_bar.close()
 
     # Ensure all processes have completed before saving results
     accelerator.wait_for_everyone()
@@ -208,7 +209,9 @@ def main():
                 if not isinstance(inds, (list, tuple)):
                     inds = [inds]
                 writer.writerow([pid, ' '.join(map(str, inds)), seq])
-                
+
+    logger.info(f"Inference encoding completed. Results are saved in {result_dir}")
+
     # Ensure all processes have completed before exiting
     accelerator.wait_for_everyone()
     accelerator.free_memory()

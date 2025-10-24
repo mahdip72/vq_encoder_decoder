@@ -315,7 +315,8 @@ def main():
             # Update progress bar manually
             progress_bar.update(1)
 
-    logger.info(f"Evaluation completed. Results are saved in {result_dir}")
+    # end progress_bar
+    progress_bar.close()
 
     # Ensure all processes have completed before saving results
     accelerator.wait_for_everyone()
@@ -341,6 +342,8 @@ def main():
 
         # Evaluate structures using TM-score and RMSD
         evaluate_structures(pdb_dir, original_pdb_dir, result_dir, logger)
+
+    logger.info(f"Evaluation completed. Results are saved in {result_dir}")
 
     accelerator.wait_for_everyone()
     accelerator.free_memory()

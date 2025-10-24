@@ -178,7 +178,8 @@ def main():
 
             progress_bar.update(1)
 
-    logger.info(f"Embedding extraction completed. Saving to HDF5 in {result_dir}")
+    # end progress_bar
+    progress_bar.close()
 
     accelerator.wait_for_everyone()
 
@@ -197,6 +198,8 @@ def main():
                 group.create_dataset('embedding', data=emb, compression='gzip')
                 group.create_dataset('indices', data=np.array(inds, dtype=np.int32), compression='gzip')
         logger.info(f"Saved embeddings HDF5: {h5_path}")
+
+    logger.info(f"Embedding extraction completed. Saving to HDF5 in {result_dir}")
 
     accelerator.wait_for_everyone()
     accelerator.free_memory()

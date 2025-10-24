@@ -198,6 +198,9 @@ def main():
             # Update progress bar manually
             progress_bar.update(1)
 
+    # end progress_bar
+    progress_bar.close()
+
     logger.info(f"Inference decoding completed. Results are saved in {result_dir}")
 
     accelerator.wait_for_everyone()
