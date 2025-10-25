@@ -330,7 +330,7 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
       <th style="text-align:right;">Dataset</th>
       <th style="text-align:left;">Metric</th>
       <th><strong>GCP-VQVAE (Ours)</strong></th>
-      <th>GCP-VQVAE Lite</th>
+      <th>GCP-VQVAE Lite (Ours)</th>
       <th>FoldToken 4 (Gao et al., 2024c)</th>
       <th>ESM-3 VQVAE (Hayes et al., 2025)</th>
       <th>(Gaujac et al., 2024)</th>
