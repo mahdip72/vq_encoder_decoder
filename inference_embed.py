@@ -41,9 +41,14 @@ def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records
     for pid, emb, ind_list, seq in zip(pids, embeddings_array, cpu_inds, sequences):
         # Trim to sequence length
         L = len(seq)
-        emb_trim = emb[:L].astype('float32')
-        # cleaned = [int(v) for v in ind_list if v != -1]
-        records.append({'pid': pid, 'embedding': emb_trim, 'indices': ind_list[:L], 'protein_sequence': seq})
+        emb_trim = emb[:L]
+        ind_trim = ind_list[:L]
+        cleaned = [int(v) for v in ind_trim if v != -1]
+        if len(cleaned) != len(ind_trim):
+            keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
+            emb_trim = emb_trim[keep_positions]
+        ind_trim = cleaned
+        records.append({'pid': pid, 'embedding': emb_trim.astype('float32', copy=False), 'indices': ind_trim, 'protein_sequence': seq})
 
 
 def main():
