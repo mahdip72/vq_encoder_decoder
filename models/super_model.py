@@ -30,6 +30,9 @@ class SuperModel(nn.Module):
         Args:
             batch (dict): Input batch containing 'graph'.
             return_vq_layer (bool, optional): If True, skip the decoder and return the VQ layer outputs (quantized embeddings, indices, vq loss) instead of decoded outputs.
+            sample_codebook_temp (float, optional): Runtime override for the VQ sampling temperature;
+                forwarded to the VQVAE block so different decoding schedules can be tested without
+                mutating module state.
             **kwargs: Additional arguments passed to VQVAETransformer.
 
         Returns:
@@ -53,6 +56,8 @@ class SuperModel(nn.Module):
         else:
             x = batch['indices']
 
+        sample_codebook_temp = kwargs.pop('sample_codebook_temp', None)
+
         # give kwargs to vqvae
         (
             x,
@@ -63,7 +68,7 @@ class SuperModel(nn.Module):
             tik_tok_padding_logits,
             tik_tok_padding_targets,
             sequence_lengths,
-        ) = self.vqvae(x, mask, nan_mask, **kwargs)
+        ) = self.vqvae(x, mask, nan_mask, sample_codebook_temp=sample_codebook_temp, **kwargs)
 
         output_dict["indices"] = indices
         output_dict["vq_loss"] = vq_loss

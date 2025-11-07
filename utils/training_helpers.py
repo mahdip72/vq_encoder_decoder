@@ -143,6 +143,32 @@ def compute_metrics(metrics: Dict[str, Any]) -> Dict[str, float]:
     return out
 
 
+def compute_cosine_sample_temp(configs, optimizer) -> Optional[float]:
+    """Return the cosine-scaled sampling temperature if the feature is enabled."""
+    vq_cfg = getattr(configs.model.vqvae, 'vector_quantization', None)
+    if vq_cfg is None or not getattr(vq_cfg, 'cosine_sample_codebook_temp', False):
+        return None
+
+    base_temp = getattr(vq_cfg, 'sample_codebook_temp', None)
+    if base_temp is None:
+        return None
+
+    if optimizer is None or not optimizer.param_groups:
+        return None
+
+    current_lr = optimizer.param_groups[0].get('lr')
+    if current_lr is None:
+        return None
+
+    max_lr = float(getattr(configs.optimizer, 'lr', 0.0))
+    min_lr = float(getattr(configs.optimizer.decay, 'min_lr', 0.0))
+    denom = max(max_lr - min_lr, 1e-12)
+    scale = (float(current_lr) - min_lr) / denom
+    scale = max(0.0, min(scale, 1.0))
+
+    return float(base_temp * scale)
+
+
 def init_accumulator(accum_iter: int) -> Dict[str, Any]:
     """Create a running accumulator dict for losses and codebook activation.
 

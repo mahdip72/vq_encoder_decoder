@@ -228,6 +228,7 @@ class VQVAETransformer(nn.Module):
             valid_mask: torch.Tensor,
             latent_mask_bool: Optional[torch.Tensor],
             active_tokens: Optional[torch.Tensor],
+            sample_codebook_temp: Optional[float],
     ) -> Tuple[
         torch.Tensor,
         torch.Tensor,
@@ -248,6 +249,8 @@ class VQVAETransformer(nn.Module):
                 disabled and the entire sequence should be quantized in one pass.
             active_tokens: Per-sample residue counts prior to compression, used to
                 supervise the padding classifier.
+            sample_codebook_temp: Optional runtime temperature override passed to the
+                quantizer to modulate stochastic sampling.
 
         Returns:
             Tuple containing the decoder input (quantized embeddings), flattened codebook
@@ -261,6 +264,9 @@ class VQVAETransformer(nn.Module):
         latent_counts: Optional[torch.Tensor] = None
 
         valid_mask = valid_mask.to(torch.bool)
+        vq_kwargs = {}
+        if sample_codebook_temp is not None:
+            vq_kwargs['sample_codebook_temp'] = sample_codebook_temp
 
         if self.tik_tok_enabled and self.latent_token_count > 0:
             latent_tokens = quantizer_input[:, self.max_length:, :]
@@ -270,6 +276,7 @@ class VQVAETransformer(nn.Module):
             decoder_input, indices, vq_loss = self.vector_quantizer(
                 latent_tokens,
                 mask=latent_mask_bool,
+                **vq_kwargs,
             )
             unflatten_indices = indices
             if self.use_residual_vq:
@@ -284,7 +291,7 @@ class VQVAETransformer(nn.Module):
                 )
 
         else:
-            decoder_input, indices, vq_loss = self.vector_quantizer(quantizer_input, mask=valid_mask)
+            decoder_input, indices, vq_loss = self.vector_quantizer(quantizer_input, mask=valid_mask, **vq_kwargs)
 
         return (
             decoder_input,
@@ -396,7 +403,17 @@ class VQVAETransformer(nn.Module):
 
         return ntp_logits
 
-    def forward(self, x, mask, nan_mask, **kwargs):
+    def forward(self, x, mask, nan_mask, sample_codebook_temp=None, **kwargs):
+        """Encode inputs, quantize with the VQ layer, and decode to backbone coordinates.
+
+        Args:
+            x (torch.Tensor): Encoder embeddings or indices (decoder-only mode).
+            mask (torch.Tensor): (B, L) bool tensor of valid residues.
+            nan_mask (torch.Tensor): (B, L) bool mask removing NaN positions.
+            sample_codebook_temp (float, optional): Per-forward override for the vector
+                quantizer temperature. When ``None`` the layer uses its configured default.
+            **kwargs: Additional options such as ``return_vq_layer``.
+        """
         # mask, nan_mask are (B, N) bool; keep passing the key-padding mask as (B, N)
         mask_bool = mask.to(torch.bool)
         nan_mask_bool = nan_mask.to(torch.bool)
@@ -441,7 +458,13 @@ class VQVAETransformer(nn.Module):
                     tik_tok_padding_targets,
                     unflatten_indices,
                     latent_counts,
-                ) = self._apply_vector_quantization(quantizer_input, valid, latent_mask_bool, active_tokens)
+                ) = self._apply_vector_quantization(
+                    quantizer_input,
+                    valid,
+                    latent_mask_bool,
+                    active_tokens,
+                    sample_codebook_temp,
+                )
 
                 if kwargs.get('return_vq_layer', False):
                     return (

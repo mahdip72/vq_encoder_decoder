@@ -38,6 +38,7 @@ from utils.training_helpers import (
     compute_activation,
     progress_postfix,
     log_tensorboard_epoch,
+    compute_cosine_sample_temp,
 )
 
 
@@ -79,7 +80,12 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
             masks = torch.logical_and(data['masks'], data['nan_masks'])
 
             optimizer.zero_grad()
-            output_dict = net(data)
+            scaled_sample_temp = compute_cosine_sample_temp(configs, optimizer)
+            forward_kwargs = {}
+            if scaled_sample_temp is not None:
+                forward_kwargs['sample_codebook_temp'] = scaled_sample_temp
+
+            output_dict = net(data, **forward_kwargs)
 
             # Compute the loss components (function unwraps tensors internally)
             loss_dict, trans_pred_coords, trans_true_coords = calculate_decoder_loss(
@@ -141,6 +147,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
 
                 if accelerator.is_main_process and configs.tensorboard_log:
                     writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step)
+                    if scaled_sample_temp is not None:
+                        writer.add_scalar('vq/sample_codebook_temp', scaled_sample_temp, global_step)
 
                 avgs = average_losses(acc)
                 progress_bar.set_description(f"epoch {epoch} "

@@ -41,11 +41,12 @@ model:
       threshold_ema_dead_code: 2
       kmeans_init: True
       kmeans_iters: 10
-      stochastic_sample_codes: False # Doesn't work well with rotation trick
+      stochastic_sample_codes: True # Doesn't work well with rotation trick
       sample_codebook_temp: 0.1
+      cosine_sample_codebook_temp: True
       alpha: 1.0
       tik_tok:
-        enabled: True
+        enabled: False
         compression_factor: 8
         residual_depth: 1
         classifier_weight: 0.1
