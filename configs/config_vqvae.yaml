@@ -11,7 +11,7 @@ split_batches: False
 
 resume:
   enabled: False
-  resume_path: results/dgx/vqvae/2025-07-02__01-28-28/checkpoints/epoch_8.pth
+  resume_path: path/to/checkpoint.pth
   restart_optimizer: True
   discard_decoder_weights: False
 
