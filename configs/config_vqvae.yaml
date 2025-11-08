@@ -41,9 +41,9 @@ model:
       threshold_ema_dead_code: 2
       kmeans_init: True
       kmeans_iters: 10
-      stochastic_sample_codes: True # Doesn't work well with rotation trick
+      stochastic_sample_codes: False # Doesn't work well with rotation trick
       sample_codebook_temp: 0.1
-      cosine_sample_codebook_temp: True
+      cosine_sample_codebook_temp: False
       alpha: 1.0
       tik_tok:
         enabled: False
@@ -124,11 +124,16 @@ train_settings:
       enabled: False
       weight: 0.01
       adaptive_coefficient: True
+    inverse_folding:
+      enabled: False
+      weight: 1.0
+      adaptive_coefficient: True
+      num_classes: 21
     next_token_prediction:
-      enabled: True
+      enabled: False
       weight: 0.001
       adaptive_coefficient: True
-      blocks: 0  # Number of transformer blocks, 0 means a linear layer only
+      blocks: 2  # Number of transformer blocks, 0 means a linear layer only
     vq:
       adaptive_coefficient: True
 

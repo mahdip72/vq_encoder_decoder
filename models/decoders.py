@@ -106,6 +106,14 @@ class GeometricDecoder(nn.Module):
             predict_torsion_angles=False,
         )
 
+        inverse_folding_cfg = getattr(configs.train_settings.losses, "inverse_folding", None)
+        self.enable_inverse_folding = bool(
+            inverse_folding_cfg and getattr(inverse_folding_cfg, "enabled", False)
+        )
+        self.inverse_folding_classes = (
+            getattr(inverse_folding_cfg, "num_classes", 21) if self.enable_inverse_folding else 0
+        )
+
         if self.enable_pairwise_losses:
             self.pairwise_bins = [
                 64,  # distogram
@@ -121,6 +129,12 @@ class GeometricDecoder(nn.Module):
         else:
             self.pairwise_bins = []
             self.pairwise_classification_head = None
+
+        self.inverse_folding_head = (
+            nn.Linear(self.decoder_channels, self.inverse_folding_classes)
+            if self.enable_inverse_folding
+            else None
+        )
 
     def create_causal_mask(self, seq_len, device):
         """
@@ -167,6 +181,10 @@ class GeometricDecoder(nn.Module):
         if self.tik_tok_enabled:
             x = x[:, :self.max_length, :]
 
+        seq_logits = None
+        if self.inverse_folding_head is not None:
+            seq_logits = self.inverse_folding_head(x)
+
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
         )
@@ -181,7 +199,12 @@ class GeometricDecoder(nn.Module):
                 for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
             ]
 
-        return bb_pred.flatten(-2)*self.decoder_output_scaling_factor, dir_loss_logits, dist_loss_logits
+        return (
+            bb_pred.flatten(-2) * self.decoder_output_scaling_factor,
+            dir_loss_logits,
+            dist_loss_logits,
+            seq_logits,
+        )
 
     def _build_decoder_tik_tok_stream(
         self,

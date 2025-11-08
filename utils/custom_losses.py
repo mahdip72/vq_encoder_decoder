@@ -136,6 +136,8 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
     tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
+    inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
+
     vq_adaptive = configs.train_settings.losses.vq.adaptive_coefficient
 
     # Adjust each coefficient based on its global grad norm only if adaptive is enabled for that loss
@@ -178,6 +180,11 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     if 'tik_tok_padding' in global_grad_norms and tik_tok_adaptive:
         adaptive_loss_coeffs['tik_tok_padding'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('tik_tok_padding', 1.0), global_grad_norms['tik_tok_padding']
+        )
+
+    if 'inverse_folding' in global_grad_norms and inverse_folding_adaptive:
+        adaptive_loss_coeffs['inverse_folding'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('inverse_folding', 1.0), global_grad_norms['inverse_folding']
         )
 
     return adaptive_loss_coeffs
@@ -256,6 +263,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
     tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
+    inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
 
     if configs.train_settings.losses.mse.enabled and mse_adaptive:
         local_grad_norms['mse'] = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
@@ -292,6 +300,11 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         tik_tok_loss = loss_dict.get('tik_tok_padding_loss', None)
         if isinstance(tik_tok_loss, torch.Tensor) and tik_tok_loss.requires_grad:
             local_grad_norms['tik_tok_padding'] = compute_grad_norm(tik_tok_loss, net.parameters())
+
+    if configs.train_settings.losses.inverse_folding.enabled and inverse_folding_adaptive:
+        inv_loss = loss_dict.get('inverse_folding_loss', None)
+        if isinstance(inv_loss, torch.Tensor) and inv_loss.requires_grad:
+            local_grad_norms['inverse_folding'] = compute_grad_norm(inv_loss, net.parameters())
 
     zero = torch.tensor(0.0, device=loss_dict['rec_loss'].device)
     total_loss_unscaled = (
@@ -679,7 +692,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'target_coords': (B, L, 9) or (B, L, 3, 3) target coordinates.
         'masks': (B, L) residue-validity mask.
         'nan_masks': (B, L) mask removing positions with NaNs.
-        Optional: 'inverse_folding_labels' (not used here, reserved for extensions).
+        Optional: 'inverse_folding_labels' for inverse folding supervision.
 
     - configs: Global configuration object (Hydra/OmegaConf-like) providing:
         configs.train_settings.losses.* enable flags, weights, and adaptive toggles.
@@ -720,6 +733,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     dir_loss_logits = output_dict.get('dir_loss_logits', None)
     dist_loss_logits = output_dict.get('dist_loss_logits', None)
     ntp_logits = output_dict.get('ntp_logits', None)
+    seq_logits = output_dict.get('seq_logits', None)
     vq_loss = output_dict.get('vq_loss', torch.tensor(0.0, device=outputs.device))
     indices = output_dict.get('indices', None)
     ntp_mask = output_dict.get('ntp_mask', None)
@@ -741,6 +755,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'ntp': 1.0,
         'vq': 1.0,
         'tik_tok_padding': 1.0,
+        'inverse_folding': 1.0,
     }
 
     # Prepare loss dict with weighted (scaled) and unscaled components
@@ -819,6 +834,29 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['unscaled_ntp_loss'] = zero
         loss_dict['ntp_loss'] = zero
 
+    if configs.train_settings.losses.inverse_folding.enabled:
+        w = configs.train_settings.losses.inverse_folding.weight
+        inverse_coeff = adaptive.get('inverse_folding', 1.0)
+        labels_seq = data.get('inverse_folding_labels', None)
+        if seq_logits is not None and labels_seq is not None:
+            labels_seq = labels_seq.to(device)
+            valid_mask = masks.to(torch.bool)
+            ignore_index = -100
+            labels_masked = labels_seq.masked_fill(~valid_mask, ignore_index)
+            inv_unscaled = F.cross_entropy(
+                seq_logits.reshape(-1, seq_logits.size(-1)),
+                labels_masked.reshape(-1),
+                ignore_index=ignore_index,
+            )
+        else:
+            inv_unscaled = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_inverse_folding_loss'] = inv_unscaled
+        loss_dict['inverse_folding_loss'] = inv_unscaled * w * inverse_coeff
+    else:
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_inverse_folding_loss'] = zero
+        loss_dict['inverse_folding_loss'] = zero
+
     tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', False)
     if tik_tok_cfg and getattr(tik_tok_cfg, 'enabled', False) and tik_tok_padding_logits is not None and tik_tok_padding_targets is not None and tik_tok_padding_targets.numel() > 0:
         tik_tok_weight = float(tik_tok_cfg.classifier_weight)
@@ -846,6 +884,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'unscaled_binned_direction_classification_loss',
         'unscaled_binned_distance_classification_loss',
         'unscaled_tik_tok_padding_loss',
+        'unscaled_inverse_folding_loss',
     ]
     unscaled_vals = [loss_dict[k] for k in unscaled_keys if k in loss_dict and not torch.isnan(loss_dict[k])]
     if not unscaled_vals:

@@ -285,21 +285,25 @@ def _rbf(d, d_min=0., d_max=20., d_count=16, device='cpu'):
     return RBF
 
 
-def amino_acid_to_tensor(sequence, max_length):
+def amino_acid_to_tensor(sequence, max_length, letter_to_num=None):
     """
     Converts a single amino acid sequence to a categorical PyTorch tensor with padding or trimming.
 
     Args:
         sequence (str): The amino acid sequence (e.g., "ACDEFGHIKLMNPQRSTVWY").
         max_length (int): The desired fixed length for the sequence.
+        letter_to_num (dict, optional): Mapping from residue letters to class indices.
 
     Returns:
-        torch.Tensor: A tensor of shape (1, max_length) representing the sequence.
+        torch.Tensor: A tensor of shape (max_length,) representing the sequence.
     """
-    # Define the amino acid vocabulary (20 standard + 4 non-standard types)
-    amino_acids = "ACDEFGHIKLMNPQRSTVWYBZJX"  # B, Z, J, X are non-standard
-    aa_to_index = {aa: i + 1 for i, aa in enumerate(amino_acids)}  # Map each AA to a unique index
-    pad_index = 0  # padding index (0 for padding)
+    if letter_to_num is None:
+        amino_acids = "ARNDCQEGHILKMFPSTWYVX"
+        aa_to_index = {aa: i for i, aa in enumerate(amino_acids)}
+    else:
+        aa_to_index = dict(letter_to_num)
+
+    pad_index = aa_to_index.get('X', 0)
 
     # Convert the sequence to indices
     encoded = [aa_to_index.get(aa, pad_index) for aa in sequence]
@@ -783,8 +787,6 @@ class GCPNetDataset(Dataset):
         sample_dict = {'name': pid,
                        'coords': coords_list,
                        'seq': raw_sequence}
-        inverse_folding_labels = amino_acid_to_tensor(raw_sequence, self.max_length)
-
         feature = self._featurize_as_graph(sample_dict)
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
@@ -811,6 +813,8 @@ class GCPNetDataset(Dataset):
         # Calculate sample weight based on sequence length
         sequence_length = len(raw_sequence)
         sample_weight = self._calculate_sample_weight(sequence_length)
+
+        inverse_folding_labels = amino_acid_to_tensor(raw_sequence, self.max_length, self.letter_to_num)
 
         return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels, nan_mask, sample_weight]
 

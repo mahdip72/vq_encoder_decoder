@@ -81,10 +81,18 @@ class SuperModel(nn.Module):
         if kwargs.get('return_vq_layer', False):
             output_dict["embeddings"] = x
         else:
-            outputs, dir_loss_logits, dist_loss_logits = x
+            seq_logits = None
+            if isinstance(x, (tuple, list)):
+                if len(x) == 4:
+                    outputs, dir_loss_logits, dist_loss_logits, seq_logits = x
+                else:
+                    outputs, dir_loss_logits, dist_loss_logits = x
+            else:
+                outputs, dir_loss_logits, dist_loss_logits = x
             output_dict["outputs"] = outputs
             output_dict["dir_loss_logits"] = dir_loss_logits
             output_dict["dist_loss_logits"] = dist_loss_logits
+            output_dict["seq_logits"] = seq_logits
 
 
         return output_dict
