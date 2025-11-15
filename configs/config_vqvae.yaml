@@ -33,8 +33,8 @@ model:
       dim: 128
       decay: 0.99
       codebook_size: 4096
-      commitment_weight: 0.25
-      orthogonal_reg_weight: 10
+      commitment_weight: 0.5
+      orthogonal_reg_weight: 0
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
       rotation_trick: True
@@ -79,8 +79,8 @@ train_settings:
     threshold_length: 384
   shuffle: True
   mixed_precision: bf16 # no, fp16, bf16, fp8
-  save_pdb_every: 8
-  batch_size: 32
+  save_pdb_every: 16
+  batch_size: 16
   num_workers: 8
   grad_accumulation: 1
   max_task_samples: 100000
@@ -106,7 +106,7 @@ train_settings:
     alignment_strategy: kabsch # kabsch, no
     mse:
       enabled: True
-      weight: 0.001
+      weight: 0.005
       adaptive_coefficient: True
     backbone_distance:
       enabled: True
@@ -126,8 +126,9 @@ train_settings:
       adaptive_coefficient: True
     inverse_folding:
       enabled: False
-      weight: 1.0
-      adaptive_coefficient: True
+      pre_decoder: True
+      weight: 0.01
+      adaptive_coefficient: False
       num_classes: 21
     next_token_prediction:
       enabled: False
@@ -155,7 +156,7 @@ optimizer:
   use_8bit_adam: True
   grad_clip_norm: 1.0
   decay:
-    warmup: 4096
-    min_lr: 1e-6
+    warmup: 512
+    min_lr: 1e-5
     gamma: 0.2
     num_restarts: 1

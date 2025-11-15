@@ -113,6 +113,15 @@ class GeometricDecoder(nn.Module):
         self.inverse_folding_classes = (
             getattr(inverse_folding_cfg, "num_classes", 21) if self.enable_inverse_folding else 0
         )
+        self.inverse_folding_pre_decoder = False
+        if self.enable_inverse_folding:
+            self.inverse_folding_pre_decoder = bool(
+                getattr(inverse_folding_cfg, "pre_decoder", False)
+            )
+            if self.inverse_folding_pre_decoder and self.tik_tok_enabled:
+                raise ValueError(
+                    "Inverse folding head cannot run before the decoder when TikTok latents are enabled."
+                )
 
         if self.enable_pairwise_losses:
             self.pairwise_bins = [
@@ -176,13 +185,16 @@ class GeometricDecoder(nn.Module):
             seq_len = x.size(1)
             decoder_attn_mask = self.create_causal_mask(seq_len, device=x.device)
 
+        seq_logits = None
+        if self.inverse_folding_head is not None and self.inverse_folding_pre_decoder:
+            seq_logits = self.inverse_folding_head(x)
+
         x = self.decoder_stack(x, mask=decoder_mask_bool, attn_mask=decoder_attn_mask)
 
         if self.tik_tok_enabled:
             x = x[:, :self.max_length, :]
 
-        seq_logits = None
-        if self.inverse_folding_head is not None:
+        if self.inverse_folding_head is not None and not self.inverse_folding_pre_decoder:
             seq_logits = self.inverse_folding_head(x)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
