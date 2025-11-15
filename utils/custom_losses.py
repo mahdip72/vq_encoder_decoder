@@ -137,6 +137,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
     tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
     inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
+    plddt_adaptive = configs.train_settings.losses.plddt.adaptive_coefficient
 
     vq_adaptive = configs.train_settings.losses.vq.adaptive_coefficient
 
@@ -185,6 +186,11 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     if 'inverse_folding' in global_grad_norms and inverse_folding_adaptive:
         adaptive_loss_coeffs['inverse_folding'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('inverse_folding', 1.0), global_grad_norms['inverse_folding']
+        )
+
+    if 'plddt' in global_grad_norms and plddt_adaptive:
+        adaptive_loss_coeffs['plddt'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('plddt', 1.0), global_grad_norms['plddt']
         )
 
     return adaptive_loss_coeffs
@@ -255,56 +261,49 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     # Compute local gradient norms for each enabled loss with adaptive coefficients
     local_grad_norms = {}
 
-    # Get individual adaptive coefficient settings for each loss
-    mse_adaptive = configs.train_settings.losses.mse.adaptive_coefficient
-    backbone_distance_adaptive = configs.train_settings.losses.backbone_distance.adaptive_coefficient
-    backbone_direction_adaptive = configs.train_settings.losses.backbone_direction.adaptive_coefficient
-    binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
-    binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
-    ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
-    tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
-    inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
-
-    if configs.train_settings.losses.mse.enabled and mse_adaptive:
+    if configs.train_settings.losses.mse.enabled:
         local_grad_norms['mse'] = compute_grad_norm(loss_dict['mse_loss'], net.parameters())
 
-    if configs.train_settings.losses.backbone_distance.enabled and backbone_distance_adaptive:
+    if configs.train_settings.losses.backbone_distance.enabled:
         local_grad_norms['backbone_distance'] = compute_grad_norm(
             loss_dict['backbone_distance_loss'], net.parameters()
         )
 
-    if configs.train_settings.losses.backbone_direction.enabled and backbone_direction_adaptive:
+    if configs.train_settings.losses.backbone_direction.enabled:
         local_grad_norms['backbone_direction'] = compute_grad_norm(
             loss_dict['backbone_direction_loss'], net.parameters()
         )
 
-    if configs.train_settings.losses.binned_direction_classification.enabled and binned_direction_adaptive:
+    if configs.train_settings.losses.binned_direction_classification.enabled:
         local_grad_norms['binned_direction_classification'] = compute_grad_norm(
             loss_dict['binned_direction_classification_loss'], net.parameters()
         )
 
-    if configs.train_settings.losses.binned_distance_classification.enabled and binned_distance_adaptive:
+    if configs.train_settings.losses.binned_distance_classification.enabled:
         local_grad_norms['binned_distance_classification'] = compute_grad_norm(
             loss_dict['binned_distance_classification_loss'], net.parameters()
         )
 
-    if getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
-            configs.train_settings.losses.next_token_prediction.enabled and \
-            ntp_adaptive and ('ntp_loss' in loss_dict):
+    if configs.train_settings.losses.next_token_prediction.enabled:
         local_grad_norms['ntp'] = compute_grad_norm(loss_dict['ntp_loss'], net.parameters())
 
     if configs.model.vqvae.vector_quantization.enabled:
         local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq_loss', torch.tensor(0.0)), net.parameters())
 
-    if configs.model.vqvae.vector_quantization.tik_tok.enabled and tik_tok_adaptive:
+    if configs.model.vqvae.vector_quantization.tik_tok.enabled:
         tik_tok_loss = loss_dict.get('tik_tok_padding_loss', None)
         if isinstance(tik_tok_loss, torch.Tensor) and tik_tok_loss.requires_grad:
             local_grad_norms['tik_tok_padding'] = compute_grad_norm(tik_tok_loss, net.parameters())
 
-    if configs.train_settings.losses.inverse_folding.enabled and inverse_folding_adaptive:
+    if configs.train_settings.losses.inverse_folding.enabled:
         inv_loss = loss_dict.get('inverse_folding_loss', None)
         if isinstance(inv_loss, torch.Tensor) and inv_loss.requires_grad:
             local_grad_norms['inverse_folding'] = compute_grad_norm(inv_loss, net.parameters())
+
+    if configs.train_settings.losses.plddt.enabled:
+        plddt_loss = loss_dict.get('plddt_loss', None)
+        if isinstance(plddt_loss, torch.Tensor) and plddt_loss.requires_grad:
+            local_grad_norms['plddt'] = compute_grad_norm(plddt_loss, net.parameters())
 
     zero = torch.tensor(0.0, device=loss_dict['rec_loss'].device)
     total_loss_unscaled = (
@@ -734,6 +733,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     dist_loss_logits = output_dict.get('dist_loss_logits', None)
     ntp_logits = output_dict.get('ntp_logits', None)
     seq_logits = output_dict.get('seq_logits', None)
+    plddt_logits = output_dict.get('plddt_logits', None)
     vq_loss = output_dict.get('vq_loss', torch.tensor(0.0, device=outputs.device))
     indices = output_dict.get('indices', None)
     ntp_mask = output_dict.get('ntp_mask', None)
@@ -756,6 +756,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'vq': 1.0,
         'tik_tok_padding': 1.0,
         'inverse_folding': 1.0,
+        'plddt': 1.0,
     }
 
     # Prepare loss dict with weighted (scaled) and unscaled components
@@ -834,6 +835,32 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['unscaled_ntp_loss'] = zero
         loss_dict['ntp_loss'] = zero
 
+    if configs.train_settings.losses.plddt.enabled:
+        w = configs.train_settings.losses.plddt.weight
+        plddt_coeff = adaptive.get('plddt', 1.0)
+        plddt_targets = data.get('plddt', None)
+        if plddt_logits is not None and plddt_targets is not None:
+            preds = plddt_logits.squeeze(-1)
+            targets = plddt_targets.to(device=device, dtype=preds.dtype)
+            valid_mask = masks.to(torch.bool)
+            valid_mask = valid_mask & (~torch.isnan(targets))
+            if valid_mask.any():
+                plddt_unscaled = F.l1_loss(
+                    preds[valid_mask],
+                    targets[valid_mask],
+                    reduction='mean',
+                )
+            else:
+                plddt_unscaled = torch.tensor(0.0, device=device)
+        else:
+            plddt_unscaled = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_plddt_loss'] = plddt_unscaled
+        loss_dict['plddt_loss'] = plddt_unscaled * w * plddt_coeff
+    else:
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_plddt_loss'] = zero
+        loss_dict['plddt_loss'] = zero
+
     if configs.train_settings.losses.inverse_folding.enabled:
         w = configs.train_settings.losses.inverse_folding.weight
         inverse_coeff = adaptive.get('inverse_folding', 1.0)
@@ -885,6 +912,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'unscaled_binned_distance_classification_loss',
         'unscaled_tik_tok_padding_loss',
         'unscaled_inverse_folding_loss',
+        'unscaled_plddt_loss',
     ]
     unscaled_vals = [loss_dict[k] for k in unscaled_keys if k in loss_dict and not torch.isnan(loss_dict[k])]
     if not unscaled_vals:

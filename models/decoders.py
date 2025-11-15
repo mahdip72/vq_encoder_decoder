@@ -123,6 +123,20 @@ class GeometricDecoder(nn.Module):
                     "Inverse folding head cannot run before the decoder when TikTok latents are enabled."
                 )
 
+        plddt_cfg = getattr(configs.train_settings.losses, "plddt", None)
+        self.enable_plddt = bool(
+            plddt_cfg and getattr(plddt_cfg, "enabled", False)
+        )
+        self.plddt_pre_decoder = False
+        if self.enable_plddt:
+            self.plddt_pre_decoder = bool(
+                getattr(plddt_cfg, "pre_decoder", True)
+            )
+            if self.plddt_pre_decoder and self.tik_tok_enabled:
+                raise ValueError(
+                    "pLDDT head cannot run before the decoder when TikTok latents are enabled."
+                )
+
         if self.enable_pairwise_losses:
             self.pairwise_bins = [
                 64,  # distogram
@@ -143,6 +157,9 @@ class GeometricDecoder(nn.Module):
             nn.Linear(self.decoder_channels, self.inverse_folding_classes)
             if self.enable_inverse_folding
             else None
+        )
+        self.plddt_head = (
+            nn.Linear(self.decoder_channels, 1) if self.enable_plddt else None
         )
 
     def create_causal_mask(self, seq_len, device):
@@ -189,6 +206,10 @@ class GeometricDecoder(nn.Module):
         if self.inverse_folding_head is not None and self.inverse_folding_pre_decoder:
             seq_logits = self.inverse_folding_head(x)
 
+        plddt_logits = None
+        if self.plddt_head is not None and self.plddt_pre_decoder:
+            plddt_logits = self.plddt_head(x)
+
         x = self.decoder_stack(x, mask=decoder_mask_bool, attn_mask=decoder_attn_mask)
 
         if self.tik_tok_enabled:
@@ -196,6 +217,8 @@ class GeometricDecoder(nn.Module):
 
         if self.inverse_folding_head is not None and not self.inverse_folding_pre_decoder:
             seq_logits = self.inverse_folding_head(x)
+        if self.plddt_head is not None and not self.plddt_pre_decoder:
+            plddt_logits = self.plddt_head(x)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
@@ -216,6 +239,7 @@ class GeometricDecoder(nn.Module):
             dir_loss_logits,
             dist_loss_logits,
             seq_logits,
+            plddt_logits,
         )
 
     def _build_decoder_tik_tok_stream(

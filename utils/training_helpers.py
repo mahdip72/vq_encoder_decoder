@@ -214,6 +214,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_ntp_loss': 0.0,
         'train_tik_tok_padding_loss': 0.0,
         'train_inverse_folding_loss': 0.0,
+        'train_plddt_loss': 0.0,
         # unscaled per-accumulation running values
         'train_unscaled_step_loss': 0.0,
         'train_unscaled_rec_loss': 0.0,
@@ -221,6 +222,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_unscaled_ntp_loss': 0.0,
         'train_unscaled_tik_tok_padding_loss': 0.0,
         'train_unscaled_inverse_folding_loss': 0.0,
+        'train_unscaled_plddt_loss': 0.0,
         # totals across finalized steps
         'total_step_loss': 0.0,
         'total_rec_loss': 0.0,
@@ -228,6 +230,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'total_ntp_loss': 0.0,
         'total_tik_tok_padding_loss': 0.0,
         'total_inverse_folding_loss': 0.0,
+        'total_plddt_loss': 0.0,
         # unscaled totals across finalized steps
         'total_unscaled_step_loss': 0.0,
         'total_unscaled_rec_loss': 0.0,
@@ -235,6 +238,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'total_unscaled_ntp_loss': 0.0,
         'total_unscaled_tik_tok_padding_loss': 0.0,
         'total_unscaled_inverse_folding_loss': 0.0,
+        'total_unscaled_plddt_loss': 0.0,
         'counter': 0,
         'accum_iter': accum_iter,
         'unique_indices': set(),
@@ -303,6 +307,12 @@ def accumulate_losses(acc: Dict[str, Any],
             loss_dict['inverse_folding_loss'],
             repeat=bs,
         ).item() / acc['accum_iter']
+    if 'plddt_loss' in loss_dict and loss_dict['plddt_loss'] is not None:
+        acc['train_plddt_loss'] += _gather_mean(
+            accelerator,
+            loss_dict['plddt_loss'],
+            repeat=bs,
+        ).item() / acc['accum_iter']
 
     # Unscaled contributions
     if 'unscaled_step_loss' in loss_dict:
@@ -327,6 +337,12 @@ def accumulate_losses(acc: Dict[str, Any],
             loss_dict['unscaled_inverse_folding_loss'],
             repeat=bs,
         ).item() / acc['accum_iter']
+    if 'unscaled_plddt_loss' in loss_dict and loss_dict['unscaled_plddt_loss'] is not None:
+        acc['train_unscaled_plddt_loss'] += _gather_mean(
+            accelerator,
+            loss_dict['unscaled_plddt_loss'],
+            repeat=bs,
+        ).item() / acc['accum_iter']
 
 
 def finalize_step(acc: Dict[str, Any]) -> None:
@@ -341,6 +357,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_ntp_loss'] += acc['train_ntp_loss']
     acc['total_tik_tok_padding_loss'] += acc['train_tik_tok_padding_loss']
     acc['total_inverse_folding_loss'] += acc['train_inverse_folding_loss']
+    acc['total_plddt_loss'] += acc['train_plddt_loss']
 
     acc['total_unscaled_step_loss'] += acc['train_unscaled_step_loss']
     acc['total_unscaled_rec_loss'] += acc['train_unscaled_rec_loss']
@@ -348,6 +365,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_unscaled_ntp_loss'] += acc['train_unscaled_ntp_loss']
     acc['total_unscaled_tik_tok_padding_loss'] += acc['train_unscaled_tik_tok_padding_loss']
     acc['total_unscaled_inverse_folding_loss'] += acc['train_unscaled_inverse_folding_loss']
+    acc['total_unscaled_plddt_loss'] += acc['train_unscaled_plddt_loss']
 
     acc['train_step_loss'] = 0.0
     acc['train_rec_loss'] = 0.0
@@ -355,6 +373,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['train_ntp_loss'] = 0.0
     acc['train_tik_tok_padding_loss'] = 0.0
     acc['train_inverse_folding_loss'] = 0.0
+    acc['train_plddt_loss'] = 0.0
 
     acc['train_unscaled_step_loss'] = 0.0
     acc['train_unscaled_rec_loss'] = 0.0
@@ -362,6 +381,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['train_unscaled_ntp_loss'] = 0.0
     acc['train_unscaled_tik_tok_padding_loss'] = 0.0
     acc['train_unscaled_inverse_folding_loss'] = 0.0
+    acc['train_unscaled_plddt_loss'] = 0.0
 
     acc['counter'] += 1
 
@@ -384,12 +404,14 @@ def average_losses(acc: Dict[str, Any]) -> Dict[str, float]:
         'avg_ntp_loss': acc['total_ntp_loss'] / denom,
         'avg_tik_tok_padding_loss': acc['total_tik_tok_padding_loss'] / denom,
         'avg_inverse_folding_loss': acc['total_inverse_folding_loss'] / denom,
+        'avg_plddt_loss': acc['total_plddt_loss'] / denom,
         'avg_unscaled_step_loss': acc['total_unscaled_step_loss'] / denom,
         'avg_unscaled_rec_loss': acc['total_unscaled_rec_loss'] / denom,
         'avg_unscaled_vq_loss': acc['total_unscaled_vq_loss'] / denom,
         'avg_unscaled_ntp_loss': acc['total_unscaled_ntp_loss'] / denom,
         'avg_unscaled_tik_tok_padding_loss': acc['total_unscaled_tik_tok_padding_loss'] / denom,
         'avg_unscaled_inverse_folding_loss': acc['total_unscaled_inverse_folding_loss'] / denom,
+        'avg_unscaled_plddt_loss': acc['total_unscaled_plddt_loss'] / denom,
     }
 
 
@@ -473,6 +495,8 @@ def log_tensorboard_epoch(writer,
         writer.add_scalar('loss/tik_tok_padding', avgs['avg_tik_tok_padding_loss'], epoch)
     if 'avg_inverse_folding_loss' in avgs:
         writer.add_scalar('loss/inverse_folding', avgs['avg_inverse_folding_loss'], epoch)
+    if 'avg_plddt_loss' in avgs:
+        writer.add_scalar('loss/plddt', avgs['avg_plddt_loss'], epoch)
     if include_ntp:
         writer.add_scalar('loss/ntp', avgs['avg_ntp_loss'], epoch)
 
@@ -487,6 +511,8 @@ def log_tensorboard_epoch(writer,
         writer.add_scalar('unscaled_loss/tik_tok_padding', avgs['avg_unscaled_tik_tok_padding_loss'], epoch)
     if 'avg_unscaled_inverse_folding_loss' in avgs:
         writer.add_scalar('unscaled_loss/inverse_folding', avgs['avg_unscaled_inverse_folding_loss'], epoch)
+    if 'avg_unscaled_plddt_loss' in avgs:
+        writer.add_scalar('unscaled_loss/plddt', avgs['avg_unscaled_plddt_loss'], epoch)
     if include_ntp and 'avg_unscaled_ntp_loss' in avgs:
         writer.add_scalar('unscaled_loss/ntp', avgs['avg_unscaled_ntp_loss'], epoch)
 

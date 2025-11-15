@@ -130,6 +130,11 @@ train_settings:
       weight: 0.01
       adaptive_coefficient: False
       num_classes: 21
+    plddt:
+      enabled: False
+      pre_decoder: True
+      weight: 1.0
+      adaptive_coefficient: False
     next_token_prediction:
       enabled: False
       weight: 0.001

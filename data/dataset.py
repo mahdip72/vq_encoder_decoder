@@ -214,7 +214,7 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
     nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
     sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
 
-    plddt_scores = torch.cat(plddt_scores, dim=0)
+    plddt_scores = torch.stack(plddt_scores, dim=0)
     one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
                  'target_coords': coords, 'masks': masks, "nan_masks": nan_mask,
                  "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels,
@@ -790,6 +790,11 @@ class GCPNetDataset(Dataset):
         feature = self._featurize_as_graph(sample_dict)
         plddt_scores = sample[2]
         plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
+        plddt_scores = plddt_scores[: self.max_length]
+        if plddt_scores.shape[0] < self.max_length:
+            pad_len = self.max_length - plddt_scores.shape[0]
+            pad = torch.full((pad_len,), float("nan"), dtype=plddt_scores.dtype)
+            plddt_scores = torch.cat([plddt_scores, pad], dim=0)
         raw_seqs = raw_sequence
         coords_list = sample_dict['coords']
         coords_tensor = torch.Tensor(coords_list)

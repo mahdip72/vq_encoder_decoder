@@ -195,6 +195,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "padding_accuracy": metrics_values.get('tik_tok_padding_accuracy', float('nan')),
         "inverse_folding_loss": avgs.get('avg_inverse_folding_loss', float('nan')),
         "inverse_folding_accuracy": metrics_values.get('inverse_folding_accuracy', float('nan')),
+        "plddt_loss": avgs.get('avg_plddt_loss', float('nan')),
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
         "global_step": global_step,
@@ -298,6 +299,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "padding_accuracy": metrics_values.get('tik_tok_padding_accuracy', float('nan')),
         "inverse_folding_loss": avgs.get('avg_inverse_folding_loss', float('nan')),
         "inverse_folding_accuracy": metrics_values.get('inverse_folding_accuracy', float('nan')),
+        "plddt_loss": avgs.get('avg_plddt_loss', float('nan')),
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
     }
@@ -421,6 +423,7 @@ def main(dict_config, config_file_path):
         'ntp': 1.0,
         'tik_tok_padding': 1.0,
         'inverse_folding': 1.0,
+        'plddt': 1.0,
     }
 
     best_valid_metrics = {
@@ -464,6 +467,7 @@ def main(dict_config, config_file_path):
             f'padding acc {training_loop_reports.get("padding_accuracy", float("nan")):.4f}, '
             f'inverse loss {training_loop_reports.get("inverse_folding_loss", float("nan")):.4f}, '
             f'inverse acc {training_loop_reports.get("inverse_folding_accuracy", float("nan")):.4f}, '
+            f'plddt loss {training_loop_reports.get("plddt_loss", float("nan")):.4f}, '
             f'vq loss {training_loop_reports["vq_loss"]:.4f}, '
             f'activation {training_loop_reports["activation"]:.1f}')
 
@@ -511,6 +515,7 @@ def main(dict_config, config_file_path):
                 f'padding acc {valid_loop_reports.get("padding_accuracy", float("nan")):.4f}, '
                 f'inverse loss {valid_loop_reports.get("inverse_folding_loss", float("nan")):.4f}, '
                 f'inverse acc {valid_loop_reports.get("inverse_folding_accuracy", float("nan")):.4f}, '
+                f'plddt loss {valid_loop_reports.get("plddt_loss", float("nan")):.4f}, '
                 f'vq loss {valid_loop_reports["vq_loss"]:.4f}, '
                 f'activation {valid_loop_reports["activation"]:.1f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
