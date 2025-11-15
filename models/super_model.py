@@ -68,7 +68,6 @@ class SuperModel(nn.Module):
             tik_tok_padding_logits,
             tik_tok_padding_targets,
             sequence_lengths,
-            plddt_logits
         ) = self.vqvae(x, mask, nan_mask, sample_codebook_temp=sample_codebook_temp, **kwargs)
 
         output_dict["indices"] = indices
