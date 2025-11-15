@@ -106,7 +106,7 @@ train_settings:
     alignment_strategy: kabsch # kabsch, no
     mse:
       enabled: True
-      weight: 0.005
+      weight: 0.002
       adaptive_coefficient: True
     backbone_distance:
       enabled: True
@@ -133,7 +133,7 @@ train_settings:
     plddt:
       enabled: False
       pre_decoder: True
-      weight: 1.0
+      weight: 0.1
       adaptive_coefficient: False
     next_token_prediction:
       enabled: False
@@ -141,7 +141,7 @@ train_settings:
       adaptive_coefficient: True
       blocks: 2  # Number of transformer blocks, 0 means a linear layer only
     vq:
-      adaptive_coefficient: True
+      adaptive_coefficient: False
 
 valid_settings:
   data_path: ../../datasets/vqvae/whole_validation_2048_h5/
