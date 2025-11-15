@@ -35,7 +35,7 @@ def compute_grad_norm(loss, parameters, norm_type=2):
 
 
 def adjust_coeff_by_grad(coeff, grad_norm, decrease_factor=0.98, increase_factor=1.02,
-                         upper_thresh=5.0, lower_thresh=0.2):
+                         upper_thresh=5.0, lower_thresh=0.05):
     """
     Adjust a coefficient based on gradient norm magnitude with hard bounds.
 
