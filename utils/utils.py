@@ -46,7 +46,7 @@ def load_all_configs():
     return cfg
 
 
-def get_nb_trainable_parameters(model):
+def get_nb_trainable_parameters(model, *, count_buffers=False):
     r"""
     Returns the number of trainable parameters and number of all parameters in the models.
     """
@@ -68,16 +68,35 @@ def get_nb_trainable_parameters(model):
         if param.requires_grad:
             trainable_params += num_params
 
-    return trainable_params, all_param
+    buffer_params = 0
+    if count_buffers:
+        for _, buffer in model.named_buffers():
+            buffer_params += buffer.numel()
+
+    return trainable_params, all_param, buffer_params
 
 
-def print_trainable_parameters(model, logging, description=""):
+def print_trainable_parameters(model, logging, description="", *, include_buffers=False):
     """
     Prints the number of trainable parameters in the models.
     """
-    trainable_params, all_param = get_nb_trainable_parameters(model)
+    trainable_params, all_param, buffer_params = get_nb_trainable_parameters(
+        model, count_buffers=include_buffers
+    )
+    total_params = all_param + (buffer_params if include_buffers else 0)
+
+    if total_params == 0:
+        logging.info(
+            f"{description} trainable params: {trainable_params: ,} || all params: {total_params: ,} || trainable%: N/A (no parameters)"
+        )
+        return
+
+    buffer_details = ""
+    if include_buffers and buffer_params > 0:
+        buffer_details = f" (buffers: {buffer_params: ,})"
+
     logging.info(
-        f"{description} trainable params: {trainable_params: ,} || all params: {all_param: ,} || trainable%: {100 * trainable_params / all_param}"
+        f"{description} trainable params: {trainable_params: ,} || all params: {total_params: ,}{buffer_details} || trainable%: {100 * trainable_params / total_params}"
     )
 
 

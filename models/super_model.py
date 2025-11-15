@@ -149,7 +149,7 @@ def prepare_model(configs, logger, *, log_details=False, **kwargs):
         if not kwargs.get("decoder_only", False):
             print_trainable_parameters(nn.ModuleList([vqvae.encoder_tail, vqvae.encoder_blocks, vqvae.encoder_head]), logger, 'VQVAE Encoder')
         if vqvae.vqvae_enabled:
-            print_trainable_parameters(vqvae.vector_quantizer, logger, 'VQ Layer')
+            print_trainable_parameters(vqvae.vector_quantizer, logger, 'VQ Layer', include_buffers=True)
 
         print_trainable_parameters(vqvae.decoder, logger, 'VQVAE Decoder')
 
