@@ -93,7 +93,7 @@ def print_trainable_parameters(model, logging, description="", *, include_buffer
 
     buffer_details = ""
     if include_buffers and buffer_params > 0:
-        buffer_details = f" (buffers: {buffer_params: ,})"
+        buffer_details = f" (buffers with EMA: {buffer_params: ,})"
 
     logging.info(
         f"{description} trainable params: {trainable_params: ,} || all params: {total_params: ,}{buffer_details} || trainable%: {100 * trainable_params / total_params}"
