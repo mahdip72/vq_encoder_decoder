@@ -60,7 +60,7 @@ class SuperModel(nn.Module):
 
         # give kwargs to vqvae
         (
-            x,
+            decoder_outputs,
             indices,
             vq_loss,
             ntp_logits,
@@ -78,15 +78,7 @@ class SuperModel(nn.Module):
         output_dict["tik_tok_padding_targets"] = tik_tok_padding_targets
         output_dict["sequence_lengths"] = sequence_lengths
 
-        if kwargs.get('return_vq_layer', False):
-            output_dict["embeddings"] = x
-        else:
-            outputs, dir_loss_logits, dist_loss_logits, seq_logits, plddt_logits  = x
-            output_dict["outputs"] = outputs
-            output_dict["dir_loss_logits"] = dir_loss_logits
-            output_dict["dist_loss_logits"] = dist_loss_logits
-            output_dict["seq_logits"] = seq_logits
-            output_dict["plddt_logits"] = plddt_logits
+        output_dict.update(decoder_outputs)
 
 
         return output_dict

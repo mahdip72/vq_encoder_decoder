@@ -234,13 +234,14 @@ class GeometricDecoder(nn.Module):
                 for o in pairwise_logits.split(self.pairwise_bins, dim=-1)
             ]
 
-        return (
-            bb_pred.flatten(-2) * self.decoder_output_scaling_factor,
-            dir_loss_logits,
-            dist_loss_logits,
-            seq_logits,
-            plddt_logits,
-        )
+        return {
+            "outputs": bb_pred.flatten(-2) * self.decoder_output_scaling_factor,
+            "dir_loss_logits": dir_loss_logits,
+            "dist_loss_logits": dist_loss_logits,
+            "seq_logits": seq_logits,
+            "plddt_logits": plddt_logits,
+            "embeddings": x,
+        }
 
     def _build_decoder_tik_tok_stream(
         self,

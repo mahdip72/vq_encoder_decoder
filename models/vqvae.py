@@ -468,7 +468,7 @@ class VQVAETransformer(nn.Module):
 
                 if kwargs.get('return_vq_layer', False):
                     return (
-                        decoder_input, indices, vq_loss, ntp_logits, ntp_valid_mask, tik_tok_padding_logits,
+                        {"embeddings": decoder_input}, indices, vq_loss, ntp_logits, ntp_valid_mask, tik_tok_padding_logits,
                         tik_tok_padding_targets,
                         sequence_lengths,
                     )
