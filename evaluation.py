@@ -237,7 +237,7 @@ def main():
     model = prepare_model(
         configs,
         logger,
-        log_details=configs.model.get('log_details', True),
+        log_details=True,
         encoder_configs=encoder_configs,
         decoder_configs=decoder_configs,
     )

@@ -358,7 +358,8 @@ def main(dict_config, config_file_path):
     net = prepare_model(
         configs, logging,
         encoder_configs=encoder_configs,
-        decoder_configs=decoder_configs
+        decoder_configs=decoder_configs,
+        log_details=True
     )
     logging.info('preparing models is done')
 

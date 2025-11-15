@@ -98,9 +98,7 @@ class SuperModel(nn.Module):
         return output_dict
 
 
-def prepare_model(configs, logger, *, log_details=None, **kwargs):
-    if log_details is None:
-        log_details = configs.model.get('log_details', True)
+def prepare_model(configs, logger, *, log_details=False, **kwargs):
 
     if not kwargs.get("decoder_only", False):
         if configs.model.encoder.name == "gcpnet":
