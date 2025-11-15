@@ -21,8 +21,8 @@ RUN pip3 install --no-cache-dir --upgrade pip
 # Graph and geometric deep learning libraries
 # -----------------------------
 RUN pip3 install --no-cache-dir torch_geometric
-RUN pip3 install --no-cache-dir torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
-RUN pip3 install --no-cache-dir torch-cluster -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
+RUN pip3 install --no-cache-dir --no-build-isolation torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
+RUN pip3 install --no-cache-dir --no-build-isolation torch-cluster -f https://data.pyg.org/whl/torch-2.8.0+cu129.html
 
 # -----------------------------
 # Additional PyTorch-related packages
@@ -76,7 +76,7 @@ COPY install_flash_attention_3_hopper.sh /opt/install_flash_attention_3_hopper.s
 RUN chmod +x /opt/install_flash_attention_3_hopper.sh
 RUN if [ "$FA3" = "1" ]; then \
       /opt/install_flash_attention_3_hopper.sh; \
-    fi \
+    fi
 
 # Environment variables
 ENV TOKENIZERS_PARALLELISM=false
