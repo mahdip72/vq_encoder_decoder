@@ -438,6 +438,28 @@ Notes:
 - Included an optional next-token prediction head, drawing on the autoregressive regularization ideas from *“When Worse is Better: Navigating the Compression-Generation Tradeoff in Visual Tokenization”*, to encourage codebooks that are friendlier to autoregressive modeling.
 - Enabled adaptive loss coefficients driven by gradient norms: each active loss (MSE, distance/direction, VQ, NTP) tracks its synchronized gradient magnitude and scales its weight toward the 0.2–5.0 norm “comfort zone.” Coefficients shrink when a loss overpowers the rest and grow when its gradients fade, keeping the multi-objective training balanced without constant manual re-tuning.
 
+## Codebook Usage Statistics
+
+Enable `model.vqvae.vector_quantization.log_codebook_usage_statistics: true` to log the following statistics to TensorBoard under `codebook_usage_statistics/*` during validation:
+
+| Metric | TensorBoard tag | Range |
+| --- | --- | --- |
+| Unigram entropy (bits) | `codebook_usage_statistics/entropy_unigram_bits` | 0 → log₂(K) (12 bits for K=4096) |
+| Unigram perplexity | `codebook_usage_statistics/perplexity_unigram` | 1 → K |
+| Bigram conditional entropy H₂\|₁ | `codebook_usage_statistics/entropy_bigram_cond_bits` | 0 → log₂(K) |
+| Bigram perplexity | `codebook_usage_statistics/perplexity_bigram` | 1 → K |
+| Trigram conditional entropy H₃\|₂₁ | `codebook_usage_statistics/entropy_trigram_cond_bits` | 0 → log₂(K) |
+| Trigram perplexity | `codebook_usage_statistics/perplexity_trigram` | 1 → K |
+| ΔH₁ = H₁ − H₂\|₁ | `codebook_usage_statistics/delta_entropy_h1_h2` | 0 → H₁ |
+| ΔH₂ = H₁ − H₃\|₂₁ | `codebook_usage_statistics/delta_entropy_h1_h3` | 0 → H₁ |
+| Extra conditional gain H₂\|₁ − H₃\|₂₁ | `codebook_usage_statistics/delta_entropy_conditional` | 0 → H₂\|₁ |
+| Mutual information (lag d) | `codebook_usage_statistics/mutual_info_lag{d}` | ≥0, typically ≤2 bits |
+| Zipf slope | `codebook_usage_statistics/zipf_slope` | negative (≈−0.5 to −1.2) |
+| Zipf R² | `codebook_usage_statistics/zipf_r2` | 0 → 1 |
+| Active codes | `codebook_usage_statistics/active_codes` | 0 → K |
+| Effective usage ratio (PPL₁/active) | `codebook_usage_statistics/effective_usage_ratio` | 0 → 1 |
+
+
 ## Acknowledgments
 
 This repository builds upon several excellent open-source projects:
