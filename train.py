@@ -232,6 +232,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             output_dict = net(data)
             output_dict['inverse_folding_labels'] = data.get('inverse_folding_labels')
 
+            codebook_metric = metrics.get('codebook_usage')
+            if codebook_metric is not None:
+                gathered_indices = accelerator.gather_for_metrics(output_dict['indices'].detach())
+                if accelerator.is_main_process:
+                    codebook_metric.update(gathered_indices)
+
             update_unique_indices(acc, output_dict["indices"], accelerator)
 
             # Compute the loss components using dict-style outputs like train loop
@@ -269,6 +275,12 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     avgs = average_losses(acc)
     avg_activation = compute_activation(acc, codebook_size)
     metrics_values = compute_metrics(metrics)
+    codebook_stats = None
+    if accelerator.is_main_process and metrics.get('codebook_usage') is not None:
+        codebook_stats = metrics['codebook_usage'].compute()
+        if codebook_stats and configs.tensorboard_log and writer is not None:
+            for name, value in codebook_stats.items():
+                writer.add_scalar(f'codebook_usage_statistics/{name}', value, epoch)
 
     # Log metrics to TensorBoard
     if accelerator.is_main_process and configs.tensorboard_log:
@@ -303,6 +315,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
     }
+    if codebook_stats:
+        return_dict['codebook_usage_statistics'] = codebook_stats
     return return_dict
 
 

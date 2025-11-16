@@ -44,6 +44,7 @@ model:
       stochastic_sample_codes: False # Doesn't work well with rotation trick
       sample_codebook_temp: 0.1
       cosine_sample_codebook_temp: False
+      log_codebook_usage_statistics: True
       alpha: 1.0
       tik_tok:
         enabled: False

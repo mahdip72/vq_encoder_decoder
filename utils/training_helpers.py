@@ -2,6 +2,9 @@ import torch
 import torchmetrics
 from typing import Dict, Any, Optional, cast
 from utils.metrics import GDTTS, TMScore, update_perplexity_from_ntp
+from utils.codebook_usage import CodebookUsageStats
+
+CODEBOOK_USAGE_MI_LAGS = (1, 2, 4)
 
 
 def init_metrics(configs, accelerator) -> Dict[str, Any]:
@@ -25,6 +28,7 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
         'perplexity': None,
         'tik_tok_padding_accuracy': None,
         'inverse_folding_accuracy': None,
+        'codebook_usage': None,
     }
 
     if getattr(configs.train_settings, 'losses', None) and \
@@ -54,6 +58,13 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
             ),
         )
 
+    vq_cfg = getattr(configs.model.vqvae, 'vector_quantization', None)
+    if vq_cfg is not None and getattr(vq_cfg, 'log_codebook_usage_statistics', False):
+        metrics['codebook_usage'] = CodebookUsageStats(
+            codebook_size=getattr(vq_cfg, 'codebook_size', None),
+            mi_lags=CODEBOOK_USAGE_MI_LAGS,
+        )
+
     return metrics
 
 
@@ -73,6 +84,8 @@ def reset_metrics(metrics: Dict[str, Any]) -> None:
         metrics['tik_tok_padding_accuracy'].reset()
     if metrics.get('inverse_folding_accuracy') is not None:
         metrics['inverse_folding_accuracy'].reset()
+    if metrics.get('codebook_usage') is not None:
+        metrics['codebook_usage'].reset()
 
 
 def update_metrics(metrics: Dict[str, Any],
