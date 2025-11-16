@@ -450,6 +450,7 @@ def main(dict_config, config_file_path):
         'perplexity': 1000.0,
         'padding_accuracy': 0.0,
         'inverse_folding_accuracy': 0.0,
+        'codebook_usage_statistics': dict(),
     }
     for epoch in range(1, configs.train_settings.num_epochs + 1):
         start_time = time.time()
@@ -545,6 +546,7 @@ def main(dict_config, config_file_path):
                 best_valid_metrics['perplexity'] = valid_loop_reports.get("perplexity", float("nan"))
                 best_valid_metrics['padding_accuracy'] = valid_loop_reports.get("padding_accuracy", float("nan"))
                 best_valid_metrics['inverse_folding_accuracy'] = valid_loop_reports.get("inverse_folding_accuracy", float("nan"))
+                best_valid_metrics['codebook_usage_statistics'] = valid_loop_reports.get("codebook_usage_statistics", dict())
 
                 tools = dict()
                 tools['net'] = net
@@ -571,6 +573,10 @@ def main(dict_config, config_file_path):
     logging.info(f"best valid padding accuracy: {best_valid_metrics['padding_accuracy']:.4f}")
     logging.info(f"best valid inverse folding accuracy: {best_valid_metrics['inverse_folding_accuracy']:.4f}")
     logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
+    if best_valid_metrics['codebook_usage_statistics']:
+        logging.info("best valid codebook usage statistics:")
+        for name, value in best_valid_metrics['codebook_usage_statistics'].items():
+            logging.info(f"\t{name}: {value:.6f}")
 
     if accelerator.is_main_process:
         train_writer.close()
