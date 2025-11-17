@@ -37,10 +37,8 @@ class SuperModel(nn.Module):
             self.protein_encoder.eval()
             for param in self.protein_encoder.parameters():
                 param.requires_grad = False
-            if hasattr(self.vqvae, 'decoder') and hasattr(self.vqvae.decoder, 'configure_esm_head'):
-                self.vqvae.decoder.configure_esm_head(self.protein_encoder.protein_encoder_dim)
-            else:
-                raise RuntimeError("Decoder must expose configure_esm_head when esm loss is enabled.")
+
+            self.vqvae.decoder.configure_esm_head(self.protein_encoder.protein_encoder_dim)
         else:
             self.protein_encoder = None
 

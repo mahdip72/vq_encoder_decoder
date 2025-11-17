@@ -99,6 +99,8 @@ class GeometricDecoder(nn.Module):
             )
         )
 
+        self._esm_attn_flash = decoder_configs.attn_flash
+
         self.affine_output_projection = Dim6RotStructureHead(
             self.decoder_channels,
             # trans_scale_factor=configs.model.struct_encoder.pos_scale_factor,
@@ -161,8 +163,10 @@ class GeometricDecoder(nn.Module):
         self.plddt_head = (
             nn.Linear(self.decoder_channels, 1) if self.enable_plddt else None
         )
-        self.esm_head = None
         self.esm_pre_decoder = False
+        self.esm_head_enabled = False
+        self.esm_projector = None
+        self.esm_transformer = None
 
     def create_causal_mask(self, seq_len, device):
         """
@@ -213,8 +217,8 @@ class GeometricDecoder(nn.Module):
             plddt_logits = self.plddt_head(x)
 
         esm_logits = None
-        if self.esm_head is not None and self.esm_pre_decoder:
-            esm_logits = self.esm_head(x)
+        if self.esm_head_enabled and self.esm_pre_decoder:
+            esm_logits = self._forward_esm_block(x, decoder_mask_bool)
 
         x = self.decoder_stack(x, mask=decoder_mask_bool, attn_mask=decoder_attn_mask)
 
@@ -227,8 +231,8 @@ class GeometricDecoder(nn.Module):
         if self.plddt_head is not None and not self.plddt_pre_decoder:
             plddt_logits = self.plddt_head(x)
 
-        if self.esm_head is not None and not self.esm_pre_decoder:
-            esm_logits = self.esm_head(x)
+        if self.esm_head_enabled is not None and not self.esm_pre_decoder:
+            esm_logits = self._forward_esm_block(x, decoder_mask_bool)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
@@ -262,8 +266,29 @@ class GeometricDecoder(nn.Module):
             raise ValueError(
                 "ESM head cannot run before the decoder when TikTok latents are enabled."
             )
-        self.esm_head = nn.Linear(self.decoder_channels, embedding_dim)
         self.esm_pre_decoder = bool(pre_decoder)
+        self.esm_projector = nn.Linear(self.decoder_channels, embedding_dim, bias=False)
+        self.esm_transformer = ContinuousTransformerWrapper(
+            dim_in=embedding_dim,
+            dim_out=embedding_dim,
+            max_seq_len=self.max_length,
+            attn_layers=Encoder(
+                dim=embedding_dim,
+                depth=2,
+                heads=4,
+                ff_mult=4,
+                ff_glu=True,
+                ff_swish=True,
+                ff_no_bias=True,
+                rotary_pos_emb=True,
+                attn_flash=self._esm_attn_flash,
+                attn_kv_heads=2,
+                attn_qk_norm=True,
+                pre_norm=True,
+                residual_attn=False,
+            ),
+        )
+        self.esm_head_enabled = True
 
     def _build_decoder_tik_tok_stream(
         self,
@@ -311,3 +336,8 @@ class GeometricDecoder(nn.Module):
         decoder_input = torch.cat([mask_tokens, latent_tokens], dim=1)
 
         return decoder_input, decoder_mask_bool
+
+    def _forward_esm_block(self, hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Project into ESM space and run the lightweight transformer block."""
+        projected = self.esm_projector(hidden)
+        return self.esm_transformer(projected, mask=mask)
