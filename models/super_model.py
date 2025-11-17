@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from models.vqvae import VQVAETransformer
 from models.decoders import GeometricDecoder
+from models.protein_encoder import ProteinEncoder
 from models.gcpnet.models.base import (
     instantiate_encoder,
     load_pretrained_encoder,
@@ -13,7 +14,7 @@ from models.utils import merge_features, separate_features
 
 
 class SuperModel(nn.Module):
-    def __init__(self, encoder, vqvae, configs, decoder_only=False):
+    def __init__(self, encoder, vqvae, configs, decoder_only=False, logger=None):
         super(SuperModel, self).__init__()
         self.decoder_only = decoder_only
         if not self.decoder_only:
@@ -22,6 +23,26 @@ class SuperModel(nn.Module):
 
         self.configs = configs
         self.max_length = int(configs.model.max_length)
+        self.logger = logger
+
+        esm_cfg = getattr(self.configs.train_settings.losses, 'esm', None)
+        self.enable_esm_loss = bool(esm_cfg and getattr(esm_cfg, 'enabled', False))
+        if self.enable_esm_loss:
+            self.protein_encoder = ProteinEncoder(
+                logger,
+                model_name='facebook/esm2_t12_35M_UR50D',
+                model_type='esm_v2',
+                quantization_4_bit=False,
+            )
+            self.protein_encoder.eval()
+            for param in self.protein_encoder.parameters():
+                param.requires_grad = False
+            if hasattr(self.vqvae, 'decoder') and hasattr(self.vqvae.decoder, 'configure_esm_head'):
+                self.vqvae.decoder.configure_esm_head(self.protein_encoder.protein_encoder_dim)
+            else:
+                raise RuntimeError("Decoder must expose configure_esm_head when esm loss is enabled.")
+        else:
+            self.protein_encoder = None
 
     def forward(self, batch, **kwargs):
         """
@@ -42,6 +63,20 @@ class SuperModel(nn.Module):
         output_dict = {}
         nan_mask = batch['nan_masks']
         mask = batch['masks']
+
+        esm_targets = None
+        if self.enable_esm_loss:
+            esm_input_ids = batch['esm_input_ids']
+            esm_attention_mask = batch['esm_attention_mask']
+            if esm_input_ids is None or esm_attention_mask is None:
+                raise RuntimeError("ESM inputs are missing from the batch while esm loss is enabled.")
+            encoder_device = next(self.protein_encoder.parameters()).device
+            with torch.no_grad():
+                esm_features = self.protein_encoder({
+                    'input_ids': esm_input_ids.to(encoder_device),
+                    'attention_mask': esm_attention_mask.to(encoder_device),
+                })
+            esm_targets = esm_features.to(mask.device).detach()
 
         if not self.decoder_only:
             batch_index = batch['graph'].batch
@@ -79,6 +114,8 @@ class SuperModel(nn.Module):
         output_dict["sequence_lengths"] = sequence_lengths
 
         output_dict.update(decoder_outputs)
+        if esm_targets is not None:
+            output_dict['esm_targets'] = esm_targets
 
 
         return output_dict
@@ -141,7 +178,7 @@ def prepare_model(configs, logger, *, log_details=False, **kwargs):
 
         print_trainable_parameters(vqvae, logger, 'VQVAE')
 
-    vqvae = SuperModel(encoder, vqvae, configs, decoder_only=kwargs.get("decoder_only", False))
+    vqvae = SuperModel(encoder, vqvae, configs, decoder_only=kwargs.get("decoder_only", False), logger=logger)
 
     if log_details:
         print_trainable_parameters(vqvae, logger, 'SuperVQVAE')

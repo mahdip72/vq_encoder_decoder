@@ -196,6 +196,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "inverse_folding_loss": avgs.get('avg_inverse_folding_loss', float('nan')),
         "inverse_folding_accuracy": metrics_values.get('inverse_folding_accuracy', float('nan')),
         "plddt_loss": avgs.get('avg_plddt_loss', float('nan')),
+        "esm_loss": avgs.get('avg_esm_loss', float('nan')),
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
         "global_step": global_step,
@@ -312,6 +313,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "inverse_folding_loss": avgs.get('avg_inverse_folding_loss', float('nan')),
         "inverse_folding_accuracy": metrics_values.get('inverse_folding_accuracy', float('nan')),
         "plddt_loss": avgs.get('avg_plddt_loss', float('nan')),
+        "esm_loss": avgs.get('avg_esm_loss', float('nan')),
         "activation": np.round(avg_activation * 100, 1),
         "counter": acc['counter'],
     }
@@ -438,6 +440,7 @@ def main(dict_config, config_file_path):
         'tik_tok_padding': 1.0,
         'inverse_folding': 1.0,
         'plddt': 1.0,
+        'esm': 1.0,
     }
 
     best_valid_metrics = {
@@ -450,6 +453,7 @@ def main(dict_config, config_file_path):
         'perplexity': 1000.0,
         'padding_accuracy': 0.0,
         'inverse_folding_accuracy': 0.0,
+        'esm_loss': float('nan'),
         'codebook_usage_statistics': dict(),
     }
     for epoch in range(1, configs.train_settings.num_epochs + 1):
@@ -483,6 +487,7 @@ def main(dict_config, config_file_path):
             f'inverse loss {training_loop_reports.get("inverse_folding_loss", float("nan")):.4f}, '
             f'inverse acc {training_loop_reports.get("inverse_folding_accuracy", float("nan")):.4f}, '
             f'plddt loss {training_loop_reports.get("plddt_loss", float("nan")):.4f}, '
+            f'esm loss {training_loop_reports.get("esm_loss", float("nan")):.4f}, '
             f'vq loss {training_loop_reports["vq_loss"]:.4f}, '
             f'activation {training_loop_reports["activation"]:.1f}')
 
@@ -531,6 +536,7 @@ def main(dict_config, config_file_path):
                 f'inverse loss {valid_loop_reports.get("inverse_folding_loss", float("nan")):.4f}, '
                 f'inverse acc {valid_loop_reports.get("inverse_folding_accuracy", float("nan")):.4f}, '
                 f'plddt loss {valid_loop_reports.get("plddt_loss", float("nan")):.4f}, '
+                f'esm loss {valid_loop_reports.get("esm_loss", float("nan")):.4f}, '
                 f'vq loss {valid_loop_reports["vq_loss"]:.4f}, '
                 f'activation {valid_loop_reports["activation"]:.1f}'
                 # f'lddt {valid_loop_reports["lddt"]:.4f}'
@@ -546,6 +552,7 @@ def main(dict_config, config_file_path):
                 best_valid_metrics['perplexity'] = valid_loop_reports.get("perplexity", float("nan"))
                 best_valid_metrics['padding_accuracy'] = valid_loop_reports.get("padding_accuracy", float("nan"))
                 best_valid_metrics['inverse_folding_accuracy'] = valid_loop_reports.get("inverse_folding_accuracy", float("nan"))
+                best_valid_metrics['esm_loss'] = valid_loop_reports.get("esm_loss", float("nan"))
                 best_valid_metrics['codebook_usage_statistics'] = valid_loop_reports.get("codebook_usage_statistics", dict())
 
                 tools = dict()
@@ -573,6 +580,7 @@ def main(dict_config, config_file_path):
     logging.info(f"best valid padding accuracy: {best_valid_metrics['padding_accuracy']:.4f}")
     logging.info(f"best valid inverse folding accuracy: {best_valid_metrics['inverse_folding_accuracy']:.4f}")
     logging.info(f"best valid loss: {best_valid_metrics['loss']:.4f}")
+    logging.info(f"best valid esm loss: {best_valid_metrics['esm_loss']:.4f}")
     if best_valid_metrics['codebook_usage_statistics']:
         logging.info("best valid codebook usage statistics:")
         for name, value in best_valid_metrics['codebook_usage_statistics'].items():

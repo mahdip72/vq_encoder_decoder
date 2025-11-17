@@ -161,6 +161,8 @@ class GeometricDecoder(nn.Module):
         self.plddt_head = (
             nn.Linear(self.decoder_channels, 1) if self.enable_plddt else None
         )
+        self.esm_head = None
+        self.esm_pre_decoder = False
 
     def create_causal_mask(self, seq_len, device):
         """
@@ -210,6 +212,10 @@ class GeometricDecoder(nn.Module):
         if self.plddt_head is not None and self.plddt_pre_decoder:
             plddt_logits = self.plddt_head(x)
 
+        esm_logits = None
+        if self.esm_head is not None and self.esm_pre_decoder:
+            esm_logits = self.esm_head(x)
+
         x = self.decoder_stack(x, mask=decoder_mask_bool, attn_mask=decoder_attn_mask)
 
         if self.tik_tok_enabled:
@@ -217,8 +223,12 @@ class GeometricDecoder(nn.Module):
 
         if self.inverse_folding_head is not None and not self.inverse_folding_pre_decoder:
             seq_logits = self.inverse_folding_head(x)
+
         if self.plddt_head is not None and not self.plddt_pre_decoder:
             plddt_logits = self.plddt_head(x)
+
+        if self.esm_head is not None and not self.esm_pre_decoder:
+            esm_logits = self.esm_head(x)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
             x, affine=None, affine_mask=torch.zeros_like(mask)
@@ -241,7 +251,19 @@ class GeometricDecoder(nn.Module):
             "seq_logits": seq_logits,
             "plddt_logits": plddt_logits,
             "embeddings": x,
+            "esm_logits": esm_logits,
         }
+
+    def configure_esm_head(self, embedding_dim: int, pre_decoder: bool = False) -> None:
+        """Configure the optional ESM regression head once the encoder is known."""
+        if embedding_dim <= 0:
+            raise ValueError("ESM embedding dimension must be positive.")
+        if pre_decoder and self.tik_tok_enabled:
+            raise ValueError(
+                "ESM head cannot run before the decoder when TikTok latents are enabled."
+            )
+        self.esm_head = nn.Linear(self.decoder_channels, embedding_dim)
+        self.esm_pre_decoder = bool(pre_decoder)
 
     def _build_decoder_tik_tok_stream(
         self,

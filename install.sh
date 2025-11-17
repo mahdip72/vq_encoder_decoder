@@ -41,6 +41,7 @@ pip install torch_tb_profiler
 pip install tqdm
 pip install biopython
 pip install graphein
+pip install esm
 
 # Graph analytics libraries from NVIDIA
 pip install cugraph-cu12 -f https://pypi.nvidia.com

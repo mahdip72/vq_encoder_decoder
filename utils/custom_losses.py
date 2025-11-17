@@ -138,6 +138,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
     inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
     plddt_adaptive = configs.train_settings.losses.plddt.adaptive_coefficient
+    esm_adaptive = configs.train_settings.losses.esm.adaptive_coefficient
 
     vq_adaptive = configs.train_settings.losses.vq.adaptive_coefficient
 
@@ -191,6 +192,11 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     if 'plddt' in global_grad_norms and plddt_adaptive:
         adaptive_loss_coeffs['plddt'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('plddt', 1.0), global_grad_norms['plddt']
+        )
+
+    if 'esm' in global_grad_norms and esm_adaptive:
+        adaptive_loss_coeffs['esm'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('esm', 1.0), global_grad_norms['esm']
         )
 
     return adaptive_loss_coeffs
@@ -304,6 +310,11 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         plddt_loss = loss_dict.get('plddt_loss', None)
         if isinstance(plddt_loss, torch.Tensor) and plddt_loss.requires_grad:
             local_grad_norms['plddt'] = compute_grad_norm(plddt_loss, net.parameters())
+
+    if configs.train_settings.losses.esm.enabled:
+        esm_loss = loss_dict.get('esm_loss', None)
+        if isinstance(esm_loss, torch.Tensor) and esm_loss.requires_grad:
+            local_grad_norms['esm'] = compute_grad_norm(esm_loss, net.parameters())
 
     zero = torch.tensor(0.0, device=loss_dict['rec_loss'].device)
     total_loss_unscaled = (
@@ -757,6 +768,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'tik_tok_padding': 1.0,
         'inverse_folding': 1.0,
         'plddt': 1.0,
+        'esm': 1.0,
     }
 
     # Prepare loss dict with weighted (scaled) and unscaled components
@@ -861,6 +873,30 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['unscaled_plddt_loss'] = zero
         loss_dict['plddt_loss'] = zero
 
+    if configs.train_settings.losses.esm.enabled:
+        w = configs.train_settings.losses.esm.weight
+        esm_coeff = adaptive.get('esm', 1.0)
+        esm_logits = output_dict.get('esm_logits', None)
+        esm_targets = output_dict.get('esm_targets', None)
+        if esm_logits is None or esm_targets is None:
+            raise RuntimeError("ESM logits or targets missing while esm loss is enabled.")
+        targets = esm_targets.to(device=esm_logits.device, dtype=esm_logits.dtype)
+        mask_full = masks.to(torch.bool).unsqueeze(-1).expand_as(targets)
+        if mask_full.any():
+            esm_unscaled = F.mse_loss(
+                esm_logits[mask_full],
+                targets[mask_full],
+                reduction='mean',
+            )
+        else:
+            esm_unscaled = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_esm_loss'] = esm_unscaled
+        loss_dict['esm_loss'] = esm_unscaled * w * esm_coeff
+    else:
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_esm_loss'] = zero
+        loss_dict['esm_loss'] = zero
+
     if configs.train_settings.losses.inverse_folding.enabled:
         w = configs.train_settings.losses.inverse_folding.weight
         inverse_coeff = adaptive.get('inverse_folding', 1.0)
@@ -913,6 +949,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'unscaled_tik_tok_padding_loss',
         'unscaled_inverse_folding_loss',
         'unscaled_plddt_loss',
+        'unscaled_esm_loss',
     ]
     unscaled_vals = [loss_dict[k] for k in unscaled_keys if k in loss_dict and not torch.isnan(loss_dict[k])]
     if not unscaled_vals:

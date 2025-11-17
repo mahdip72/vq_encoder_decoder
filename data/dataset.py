@@ -13,6 +13,7 @@ from models.gcpnet.models.base import instantiate_module, load_encoder_config
 from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
 from torch_geometric.data import Batch
 from typing import Mapping, Tuple
+from transformers import AutoTokenizer
 
 # ideal bond lengths in Å
 BOND_LENGTHS = {
@@ -213,12 +214,21 @@ def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=Non
 
     nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
     sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
+    esm_input_ids_list = [item[10] for item in one_batch]
+    esm_attention_mask_list = [item[11] for item in one_batch]
 
     plddt_scores = torch.stack(plddt_scores, dim=0)
     one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
                  'target_coords': coords, 'masks': masks, "nan_masks": nan_mask,
                  "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels,
                  "sample_weights": sample_weights}
+
+    if esm_input_ids_list[0] is not None:
+        one_batch['esm_input_ids'] = torch.stack(esm_input_ids_list, dim=0)
+        one_batch['esm_attention_mask'] = torch.stack(esm_attention_mask_list, dim=0)
+    else:
+        one_batch['esm_input_ids'] = None
+        one_batch['esm_attention_mask'] = None
 
     # build input graph one_batch to be featurized
     device = one_batch["graph"].x.device
@@ -382,6 +392,10 @@ class GCPNetDataset(Dataset):
             if isinstance(task_cfg, Mapping)
             else None
         )
+
+        self.esm_tokenizer = kwargs.get('esm_tokenizer', None)
+        esm_cfg = getattr(self.configs.train_settings.losses, 'esm', None)
+        self.use_esm_loss = bool(esm_cfg and getattr(esm_cfg, 'enabled', False))
 
     @staticmethod
     def handle_nan_coordinates(coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -759,6 +773,32 @@ class GCPNetDataset(Dataset):
 
         return min(weight, max_weight)
 
+    def _getitem_esm_v2(self, protein_sequence):
+        """
+        Tokenizes a protein sequence for ESM-v2 model.
+
+        Args:
+            protein_sequence (str): The protein amino acid sequence.
+
+        Returns:
+            dict: A dictionary containing tokenized 'input_ids' and 'attention_mask'.
+        """
+        if self.esm_tokenizer is None:
+            raise RuntimeError("ESM tokenizer is not initialized while esm loss is enabled.")
+
+        encoded_protein_sequence = self.esm_tokenizer(
+            protein_sequence,
+            max_length=self.max_length,
+            add_special_tokens=False,
+            padding='max_length',
+            truncation=True,
+            return_tensors="pt"
+        )
+
+        encoded_protein_sequence['input_ids'] = torch.squeeze(encoded_protein_sequence['input_ids'])
+        encoded_protein_sequence['attention_mask'] = torch.squeeze(encoded_protein_sequence['attention_mask'])
+        return encoded_protein_sequence
+
     def __getitem__(self, i):
         sample_path = self.h5_samples[i]
         sample = load_h5_file(sample_path)
@@ -821,7 +861,17 @@ class GCPNetDataset(Dataset):
 
         inverse_folding_labels = amino_acid_to_tensor(raw_sequence, self.max_length, self.letter_to_num)
 
-        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates, inverse_folding_labels, nan_mask, sample_weight]
+        esm_input_ids = None
+        esm_attention_mask = None
+        if self.use_esm_loss:
+            if self.esm_tokenizer is None:
+                raise RuntimeError("ESM tokenizer must be provided when esm loss is enabled.")
+            esm_tokens = self._getitem_esm_v2(raw_sequence)
+            esm_input_ids = esm_tokens['input_ids']
+            esm_attention_mask = esm_tokens['attention_mask']
+
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates,
+                inverse_folding_labels, nan_mask, sample_weight, esm_input_ids, esm_attention_mask]
 
     def _featurize_as_graph(self, protein):
         from torch_geometric.data import Data
@@ -931,11 +981,18 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
             f"Data path {configs.valid_settings.data_path} does not exist"
         )
 
+    esm_tokenizer = None
+    if configs.train_settings.losses.esm.enabled:
+        # Load the ESM model tokenizer
+        esm_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t12_35M_UR50D")
+        logging.info("Loaded ESM tokenizer for loss computation")
+
     train_dataset = GCPNetDataset(
         configs.train_settings.data_path,
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs,
+        esm_tokenizer=esm_tokenizer,
         mode="train",
     )
 
@@ -944,6 +1001,7 @@ def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
         top_k=kwargs["encoder_configs"].top_k,
         num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
         configs=configs,
+        esm_tokenizer=esm_tokenizer,
         mode="evaluation",
     )
 

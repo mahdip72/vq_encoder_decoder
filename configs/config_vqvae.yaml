@@ -37,7 +37,7 @@ model:
       orthogonal_reg_weight: 0
       orthogonal_reg_max_codes: 512
       orthogonal_reg_active_codes_only: True
-      rotation_trick: True
+      rotation_trick: False
       threshold_ema_dead_code: 2
       kmeans_init: True
       kmeans_iters: 10
@@ -133,6 +133,11 @@ train_settings:
       num_classes: 21
     plddt:
       enabled: False
+      pre_decoder: True
+      weight: 0.1
+      adaptive_coefficient: False
+    esm:
+      enabled: True
       pre_decoder: True
       weight: 0.1
       adaptive_coefficient: False
