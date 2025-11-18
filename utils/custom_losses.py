@@ -116,7 +116,7 @@ def broadcast_coefficients(adaptive_loss_coeffs, accelerator):
     return adaptive_loss_coeffs
 
 
-def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, configs):
+def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, configs, global_step):
     """
     Adjust adaptive loss coefficients based on global gradient norms.
 
@@ -124,6 +124,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
         adaptive_loss_coeffs (dict): Current adaptive coefficients.
         global_grad_norms (dict): Global gradient norms for each loss component.
         configs: Configuration object containing adaptive coefficient settings.
+        global_step (int): Current global training step.
 
     Returns:
         dict: Updated adaptive coefficients.
@@ -174,7 +175,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
             adaptive_loss_coeffs['vq'], global_grad_norms['vq']
         )
 
-    if 'ntp' in global_grad_norms and ntp_adaptive:
+    if 'ntp' in global_grad_norms and ntp_adaptive and global_step > 8 * configs.optimizer.decay.warmup:
         adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
         )
@@ -335,7 +336,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             len(local_grad_norms) > 0):  # Only proceed if we have any losses with adaptive coefficients
 
         adaptive_loss_coeffs = adjust_adaptive_coefficients(
-            adaptive_loss_coeffs, global_grad_norms, configs
+            adaptive_loss_coeffs, global_grad_norms, configs, global_step
         )
 
     if accelerator.is_main_process:
