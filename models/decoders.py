@@ -231,7 +231,7 @@ class GeometricDecoder(nn.Module):
         if self.plddt_head is not None and not self.plddt_pre_decoder:
             plddt_logits = self.plddt_head(x)
 
-        if self.esm_head_enabled is not None and not self.esm_pre_decoder:
+        if self.esm_head_enabled and not self.esm_pre_decoder:
             esm_logits = self._forward_esm_block(x, decoder_mask_bool)
 
         tensor7_affine, bb_pred = self.affine_output_projection(
