@@ -225,6 +225,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_rec_loss': 0.0,
         'train_vq_loss': 0.0,
         'train_ntp_loss': 0.0,
+        'train_markov_gap_loss': 0.0,
         'train_tik_tok_padding_loss': 0.0,
         'train_inverse_folding_loss': 0.0,
         'train_plddt_loss': 0.0,
@@ -234,6 +235,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_unscaled_rec_loss': 0.0,
         'train_unscaled_vq_loss': 0.0,
         'train_unscaled_ntp_loss': 0.0,
+        'train_unscaled_markov_gap_loss': 0.0,
         'train_unscaled_tik_tok_padding_loss': 0.0,
         'train_unscaled_inverse_folding_loss': 0.0,
         'train_unscaled_plddt_loss': 0.0,
@@ -243,6 +245,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'total_rec_loss': 0.0,
         'total_vq_loss': 0.0,
         'total_ntp_loss': 0.0,
+        'total_markov_gap_loss': 0.0,
         'total_tik_tok_padding_loss': 0.0,
         'total_inverse_folding_loss': 0.0,
         'total_plddt_loss': 0.0,
@@ -252,6 +255,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'total_unscaled_rec_loss': 0.0,
         'total_unscaled_vq_loss': 0.0,
         'total_unscaled_ntp_loss': 0.0,
+        'total_unscaled_markov_gap_loss': 0.0,
         'total_unscaled_tik_tok_padding_loss': 0.0,
         'total_unscaled_inverse_folding_loss': 0.0,
         'total_unscaled_plddt_loss': 0.0,
@@ -312,6 +316,12 @@ def accumulate_losses(acc: Dict[str, Any],
     # ntp loss may be missing; default to zero
     if 'ntp_loss' in loss_dict and loss_dict['ntp_loss'] is not None:
         acc['train_ntp_loss'] += _gather_mean(accelerator, loss_dict['ntp_loss'], repeat=bs).item() / acc['accum_iter']
+    if 'markov_gap_loss' in loss_dict and loss_dict['markov_gap_loss'] is not None:
+        acc['train_markov_gap_loss'] += _gather_mean(
+            accelerator,
+            loss_dict['markov_gap_loss'],
+            repeat=bs,
+        ).item() / acc['accum_iter']
     if 'tik_tok_padding_loss' in loss_dict and loss_dict['tik_tok_padding_loss'] is not None:
         acc['train_tik_tok_padding_loss'] += _gather_mean(
             accelerator,
@@ -348,6 +358,12 @@ def accumulate_losses(acc: Dict[str, Any],
         acc['train_unscaled_vq_loss'] += _gather_mean(accelerator, unscaled_vq_src, repeat=bs).item() / acc['accum_iter']
     if 'unscaled_ntp_loss' in loss_dict and loss_dict['unscaled_ntp_loss'] is not None:
         acc['train_unscaled_ntp_loss'] += _gather_mean(accelerator, loss_dict['unscaled_ntp_loss'], repeat=bs).item() / acc['accum_iter']
+    if 'unscaled_markov_gap_loss' in loss_dict and loss_dict['unscaled_markov_gap_loss'] is not None:
+        acc['train_unscaled_markov_gap_loss'] += _gather_mean(
+            accelerator,
+            loss_dict['unscaled_markov_gap_loss'],
+            repeat=bs,
+        ).item() / acc['accum_iter']
     if 'unscaled_tik_tok_padding_loss' in loss_dict and loss_dict['unscaled_tik_tok_padding_loss'] is not None:
         acc['train_unscaled_tik_tok_padding_loss'] += _gather_mean(
             accelerator,
@@ -384,6 +400,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_rec_loss'] += acc['train_rec_loss']
     acc['total_vq_loss'] += acc['train_vq_loss']
     acc['total_ntp_loss'] += acc['train_ntp_loss']
+    acc['total_markov_gap_loss'] += acc['train_markov_gap_loss']
     acc['total_tik_tok_padding_loss'] += acc['train_tik_tok_padding_loss']
     acc['total_inverse_folding_loss'] += acc['train_inverse_folding_loss']
     acc['total_plddt_loss'] += acc['train_plddt_loss']
@@ -393,6 +410,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_unscaled_rec_loss'] += acc['train_unscaled_rec_loss']
     acc['total_unscaled_vq_loss'] += acc['train_unscaled_vq_loss']
     acc['total_unscaled_ntp_loss'] += acc['train_unscaled_ntp_loss']
+    acc['total_unscaled_markov_gap_loss'] += acc['train_unscaled_markov_gap_loss']
     acc['total_unscaled_tik_tok_padding_loss'] += acc['train_unscaled_tik_tok_padding_loss']
     acc['total_unscaled_inverse_folding_loss'] += acc['train_unscaled_inverse_folding_loss']
     acc['total_unscaled_plddt_loss'] += acc['train_unscaled_plddt_loss']
@@ -402,6 +420,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['train_rec_loss'] = 0.0
     acc['train_vq_loss'] = 0.0
     acc['train_ntp_loss'] = 0.0
+    acc['train_markov_gap_loss'] = 0.0
     acc['train_tik_tok_padding_loss'] = 0.0
     acc['train_inverse_folding_loss'] = 0.0
     acc['train_plddt_loss'] = 0.0
@@ -411,6 +430,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['train_unscaled_rec_loss'] = 0.0
     acc['train_unscaled_vq_loss'] = 0.0
     acc['train_unscaled_ntp_loss'] = 0.0
+    acc['train_unscaled_markov_gap_loss'] = 0.0
     acc['train_unscaled_tik_tok_padding_loss'] = 0.0
     acc['train_unscaled_inverse_folding_loss'] = 0.0
     acc['train_unscaled_plddt_loss'] = 0.0
@@ -435,6 +455,7 @@ def average_losses(acc: Dict[str, Any]) -> Dict[str, float]:
         'avg_rec_loss': acc['total_rec_loss'] / denom,
         'avg_vq_loss': acc['total_vq_loss'] / denom,
         'avg_ntp_loss': acc['total_ntp_loss'] / denom,
+        'avg_markov_gap_loss': acc['total_markov_gap_loss'] / denom,
         'avg_tik_tok_padding_loss': acc['total_tik_tok_padding_loss'] / denom,
         'avg_inverse_folding_loss': acc['total_inverse_folding_loss'] / denom,
         'avg_plddt_loss': acc['total_plddt_loss'] / denom,
@@ -443,6 +464,7 @@ def average_losses(acc: Dict[str, Any]) -> Dict[str, float]:
         'avg_unscaled_rec_loss': acc['total_unscaled_rec_loss'] / denom,
         'avg_unscaled_vq_loss': acc['total_unscaled_vq_loss'] / denom,
         'avg_unscaled_ntp_loss': acc['total_unscaled_ntp_loss'] / denom,
+        'avg_unscaled_markov_gap_loss': acc['total_unscaled_markov_gap_loss'] / denom,
         'avg_unscaled_tik_tok_padding_loss': acc['total_unscaled_tik_tok_padding_loss'] / denom,
         'avg_unscaled_inverse_folding_loss': acc['total_unscaled_inverse_folding_loss'] / denom,
         'avg_unscaled_plddt_loss': acc['total_unscaled_plddt_loss'] / denom,
@@ -503,7 +525,8 @@ def log_tensorboard_epoch(writer,
                           metrics_values: Dict[str, float],
                           epoch: int,
                           activation_percent: float,
-                          include_ntp: bool = False) -> None:
+                          include_ntp: bool = False,
+                          include_markov: bool = False) -> None:
     """Log epoch-level losses and metrics to TensorBoard.
 
     Args:
@@ -514,6 +537,7 @@ def log_tensorboard_epoch(writer,
         epoch: Epoch index used as the TensorBoard step.
         activation_percent: Codebook activation ratio (%).
         include_ntp: Whether to log the NTP loss scalars.
+        include_markov: Whether to log the Markov-gap loss scalars.
 
     Notes:
         Logs the standard loss/metric suite; optional scalars (NTP loss,
@@ -536,6 +560,8 @@ def log_tensorboard_epoch(writer,
         writer.add_scalar('loss/esm', avgs['avg_esm_loss'], epoch)
     if include_ntp:
         writer.add_scalar('loss/ntp', avgs['avg_ntp_loss'], epoch)
+    if include_markov and 'avg_markov_gap_loss' in avgs:
+        writer.add_scalar('loss/markov_gap', avgs['avg_markov_gap_loss'], epoch)
 
     # Unscaled epoch logs (if present)
     if 'avg_unscaled_step_loss' in avgs:
@@ -554,6 +580,8 @@ def log_tensorboard_epoch(writer,
         writer.add_scalar('unscaled_loss/esm', avgs['avg_unscaled_esm_loss'], epoch)
     if include_ntp and 'avg_unscaled_ntp_loss' in avgs:
         writer.add_scalar('unscaled_loss/ntp', avgs['avg_unscaled_ntp_loss'], epoch)
+    if include_markov and 'avg_unscaled_markov_gap_loss' in avgs:
+        writer.add_scalar('unscaled_loss/markov_gap', avgs['avg_unscaled_markov_gap_loss'], epoch)
 
     writer.add_scalar('metric/mae', metrics_values['mae'], epoch)
     writer.add_scalar('metric/rmsd', metrics_values['rmsd'], epoch)

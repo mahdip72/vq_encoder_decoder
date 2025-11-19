@@ -170,6 +170,8 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
     if accelerator.is_main_process and configs.tensorboard_log:
         include_ntp = getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
                       configs.train_settings.losses.next_token_prediction.enabled
+        markov_cfg = getattr(configs.train_settings.losses, 'markov_gap', None)
+        include_markov = bool(markov_cfg and getattr(markov_cfg, 'enabled', False))
         log_tensorboard_epoch(
             writer,
             avgs,
@@ -177,6 +179,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
             epoch,
             activation_percent=np.round(avg_activation * 100, 1),
             include_ntp=include_ntp,
+            include_markov=include_markov,
         )
 
     # Reset the metrics for the next epoch
@@ -186,6 +189,7 @@ def train_loop(net, train_loader, epoch, adaptive_loss_coeffs, **kwargs):
         "loss": avgs['avg_unscaled_step_loss'],
         "rec_loss": avgs['avg_unscaled_rec_loss'],
         "ntp_loss": avgs['avg_unscaled_ntp_loss'],
+        "markov_gap_loss": avgs['avg_unscaled_markov_gap_loss'],
         "vq_loss": avgs['avg_unscaled_vq_loss'],
         "mae": metrics_values['mae'],
         "rmsd": metrics_values['rmsd'],
@@ -287,6 +291,8 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
     if accelerator.is_main_process and configs.tensorboard_log:
         include_ntp = getattr(configs.train_settings.losses, 'next_token_prediction', None) and \
                       configs.train_settings.losses.next_token_prediction.enabled
+        markov_cfg = getattr(configs.train_settings.losses, 'markov_gap', None)
+        include_markov = bool(markov_cfg and getattr(markov_cfg, 'enabled', False))
         log_tensorboard_epoch(
             writer,
             avgs,
@@ -294,6 +300,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
             epoch,
             activation_percent=np.round(avg_activation * 100, 1),
             include_ntp=include_ntp,
+            include_markov=include_markov,
         )
 
     # Reset metrics for the next epoch
@@ -304,6 +311,7 @@ def valid_loop(net, valid_loader, epoch, **kwargs):
         "rec_loss": avgs['avg_unscaled_rec_loss'],
         "vq_loss": avgs['avg_unscaled_vq_loss'],
         "ntp_loss": avgs['avg_unscaled_ntp_loss'],
+        "markov_gap_loss": avgs['avg_unscaled_markov_gap_loss'],
         "mae": metrics_values['mae'],
         "rmsd": metrics_values['rmsd'],
         "gdtts": metrics_values['gdtts'],
@@ -437,6 +445,7 @@ def main(dict_config, config_file_path):
         'binned_distance_classification': 1.0,
         'vq': 1.0,
         'ntp': 1.0,
+        'markov_gap': 1.0,
         'tik_tok_padding': 1.0,
         'inverse_folding': 1.0,
         'plddt': 1.0,
@@ -482,6 +491,7 @@ def main(dict_config, config_file_path):
             f'gdtts {training_loop_reports["gdtts"]:.4f}, '
             f'tm_score {training_loop_reports["tm_score"]:.4f}, '
             f'ntp loss {training_loop_reports["ntp_loss"]:.4f}, '
+            f'markov loss {training_loop_reports["markov_gap_loss"]:.4f}, '
             f'perplexity {training_loop_reports.get("perplexity", float("nan")):.2f}, '
             f'padding acc {training_loop_reports.get("padding_accuracy", float("nan")):.4f}, '
             f'inverse loss {training_loop_reports.get("inverse_folding_loss", float("nan")):.4f}, '
@@ -531,6 +541,7 @@ def main(dict_config, config_file_path):
                 f'gdtts {valid_loop_reports["gdtts"]:.4f}, '
                 f'tm_score {valid_loop_reports["tm_score"]:.4f}, '
                 f'ntp loss {valid_loop_reports["ntp_loss"]:.4f}, '
+                f'markov loss {valid_loop_reports["markov_gap_loss"]:.4f}, '
                 f'perplexity {valid_loop_reports.get("perplexity", float("nan")):.2f}, '
                 f'padding acc {valid_loop_reports.get("padding_accuracy", float("nan")):.4f}, '
                 f'inverse loss {valid_loop_reports.get("inverse_folding_loss", float("nan")):.4f}, '

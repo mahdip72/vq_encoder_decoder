@@ -49,6 +49,17 @@ class VQVAETransformer(nn.Module):
         else:
             self.ntp_enabled = False
 
+        markov_cfg = getattr(configs.train_settings.losses, "markov_gap", None)
+        self.markov_gap_enabled = bool(markov_cfg and getattr(markov_cfg, "enabled", False))
+        self.markov_margin_bits = float(getattr(markov_cfg, "margin_bits", 0.3)) if self.markov_gap_enabled else 0.0
+        if self.markov_gap_enabled:
+            self.markov_short_head = nn.Linear(self.vqvae_dim, self.codebook_size)
+            self.markov_long_head = nn.Sequential(
+                nn.Linear(self.vqvae_dim * 2, self.vqvae_dim),
+                nn.SiLU(),
+                nn.Linear(self.vqvae_dim, self.codebook_size),
+            )
+
         # input_shape = configs.model.struct_encoder.model_cfg.h_hidden_dim
         input_shape = 128
 
@@ -338,6 +349,21 @@ class VQVAETransformer(nn.Module):
 
         return ntp_input, ntp_valid_mask
 
+    def _markov_forward(self, ntp_input: torch.Tensor, valid_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Produce logits for 1-step and 2-step auxiliary heads."""
+        if ntp_input is None or valid_mask is None:
+            raise RuntimeError("Markov gap head requires valid NTP inputs and masks.")
+
+        prev_tokens = torch.roll(ntp_input, shifts=1, dims=1)
+        prev_tokens[:, 0, :] = 0
+        prev_valid = torch.roll(valid_mask, shifts=1, dims=1)
+        prev_valid[:, 0] = False
+        prev_tokens = prev_tokens * prev_valid.unsqueeze(-1).to(ntp_input.dtype)
+
+        short_logits = self.markov_short_head(ntp_input)
+        long_logits = self.markov_long_head(torch.cat([ntp_input, prev_tokens], dim=-1))
+        return short_logits, long_logits
+
     def _decode_from_indices(
         self,
         indices: torch.Tensor,
@@ -420,6 +446,8 @@ class VQVAETransformer(nn.Module):
         valid = torch.logical_and(mask_bool, nan_mask_bool)
         ntp_logits = None
         ntp_valid_mask = valid
+        markov_short_logits: Optional[torch.Tensor] = None
+        markov_long_logits: Optional[torch.Tensor] = None
         tik_tok_padding_logits = None
         tik_tok_padding_targets = None
         sequence_lengths: Optional[torch.Tensor] = None
@@ -472,10 +500,22 @@ class VQVAETransformer(nn.Module):
                         tik_tok_padding_targets,
                         sequence_lengths,
                     )
+                shared_ntp_input = None
+                shared_ntp_mask = ntp_valid_mask
+                if (self.ntp_enabled or self.markov_gap_enabled) and decoder_input is not None:
+                    shared_ntp_input, shared_ntp_mask = self._prepare_ntp_inputs(
+                        decoder_input,
+                        latent_mask_bool,
+                        unflatten_indices,
+                        valid,
+                    )
+                    ntp_valid_mask = shared_ntp_mask
+
                 if self.ntp_enabled:
-                    ntp_input, ntp_valid_mask = self._prepare_ntp_inputs(decoder_input, latent_mask_bool,
-                        unflatten_indices, valid)
-                    ntp_logits = self.ntp_forward(ntp_input, valid=ntp_valid_mask)
+                    ntp_logits = self.ntp_forward(shared_ntp_input, valid=shared_ntp_mask)
+
+                if self.markov_gap_enabled:
+                    markov_short_logits, markov_long_logits = self._markov_forward(shared_ntp_input, shared_ntp_mask)
 
                 if self.tik_tok_enabled and self.tik_tok_padding_classifier is not None:
                     predicted_remainder = tik_tok_padding_logits.argmax(dim=-1)
@@ -504,7 +544,6 @@ class VQVAETransformer(nn.Module):
                 tik_tok_padding_targets,
             ) = self._decode_from_indices(indices, valid, mask.device)
 
-
         decoder_true_lengths = sequence_lengths if self.tik_tok_enabled else None
 
         x = self.decoder(decoder_input, valid, true_lengths=decoder_true_lengths)
@@ -518,6 +557,8 @@ class VQVAETransformer(nn.Module):
             tik_tok_padding_logits,
             tik_tok_padding_targets,
             sequence_lengths,
+            markov_short_logits,
+            markov_long_logits,
         )
 
     def _append_tik_tok_latents(self, x: torch.Tensor, valid_mask: torch.Tensor, encoder_mask_bool: torch.Tensor):

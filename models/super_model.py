@@ -101,12 +101,16 @@ class SuperModel(nn.Module):
             tik_tok_padding_logits,
             tik_tok_padding_targets,
             sequence_lengths,
+            markov_short_logits,
+            markov_long_logits,
         ) = self.vqvae(x, mask, nan_mask, sample_codebook_temp=sample_codebook_temp, **kwargs)
 
         output_dict["indices"] = indices
         output_dict["vq_loss"] = vq_loss
         output_dict["ntp_logits"] = ntp_logits
         output_dict["ntp_mask"] = ntp_mask
+        output_dict["markov_short_logits"] = markov_short_logits
+        output_dict["markov_long_logits"] = markov_long_logits
         output_dict["tik_tok_padding_logits"] = tik_tok_padding_logits
         output_dict["tik_tok_padding_targets"] = tik_tok_padding_targets
         output_dict["sequence_lengths"] = sequence_lengths

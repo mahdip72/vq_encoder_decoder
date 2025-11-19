@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn.functional as F
 from utils.alignment import kabsch
@@ -136,6 +137,7 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     binned_direction_adaptive = configs.train_settings.losses.binned_direction_classification.adaptive_coefficient
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
+    markov_adaptive = configs.train_settings.losses.markov_gap.adaptive_coefficient
     tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
     inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
     plddt_adaptive = configs.train_settings.losses.plddt.adaptive_coefficient
@@ -179,6 +181,15 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
         adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
             adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
         )
+    elif 'ntp' in global_grad_norms and ntp_adaptive and global_step < 8 * configs.optimizer.decay.warmup:
+        adaptive_loss_coeffs['ntp'] = 0.00001
+
+    if 'markov_gap' in global_grad_norms and markov_adaptive and global_step > 8 * configs.optimizer.decay.warmup:
+        adaptive_loss_coeffs['markov_gap'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('markov_gap', 1.0), global_grad_norms['markov_gap']
+        )
+    elif 'markov_gap' in global_grad_norms and markov_adaptive and global_step < 8 * configs.optimizer.decay.warmup:
+        adaptive_loss_coeffs['markov_gap'] = 0.00001
 
     if 'tik_tok_padding' in global_grad_norms and tik_tok_adaptive:
         adaptive_loss_coeffs['tik_tok_padding'] = adjust_coeff_by_grad(
@@ -294,6 +305,9 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     if configs.train_settings.losses.next_token_prediction.enabled:
         local_grad_norms['ntp'] = compute_grad_norm(loss_dict['ntp_loss'], net.parameters())
 
+    if configs.train_settings.losses.markov_gap.enabled:
+        local_grad_norms['markov_gap'] = compute_grad_norm(loss_dict["markov_gap_loss"], net.parameters())
+
     if configs.model.vqvae.vector_quantization.enabled:
         local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq_loss', torch.tensor(0.0)), net.parameters())
 
@@ -322,6 +336,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         loss_dict['rec_loss']
         + loss_dict.get('vq_loss', zero)
         + loss_dict.get('ntp_loss', zero)
+        + loss_dict.get('markov_gap_loss', zero)
         + loss_dict.get('tik_tok_padding_loss', zero)
     )
     local_grad_norms['total_unscaled'] = compute_grad_norm(total_loss_unscaled, net.parameters())
@@ -765,6 +780,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'binned_direction_classification': 1.0,
         'binned_distance_classification': 1.0,
         'ntp': 1.0,
+        'markov_gap': 1.0,
         'vq': 1.0,
         'tik_tok_padding': 1.0,
         'inverse_folding': 1.0,
@@ -836,6 +852,9 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['unscaled_binned_distance_classification_loss'] = zero
         loss_dict['binned_distance_classification_loss'] = zero
 
+    markov_cfg = getattr(configs.train_settings.losses, 'markov_gap', None)
+    markov_enabled = bool(markov_cfg and getattr(markov_cfg, 'enabled', False))
+
     if configs.train_settings.losses.next_token_prediction.enabled:
         w = configs.train_settings.losses.next_token_prediction.weight
         ntp_coeff = adaptive.get('ntp', 1.0)
@@ -847,6 +866,27 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         zero = torch.tensor(0.0, device=device)
         loss_dict['unscaled_ntp_loss'] = zero
         loss_dict['ntp_loss'] = zero
+
+    if markov_enabled:
+        w = markov_cfg.weight
+        margin_bits = float(getattr(markov_cfg, 'margin_bits', 0.3))
+        markov_coeff = adaptive.get('markov_gap', 1.0)
+        short_logits = output_dict.get('markov_short_logits', None)
+        long_logits = output_dict.get('markov_long_logits', None)
+        if short_logits is None or long_logits is None:
+            raise RuntimeError("Markov gap loss enabled but logits are missing in the output dict.")
+        short_per_sample = calculate_ntp_loss(short_logits, indices, ntp_mask)
+        long_per_sample = calculate_ntp_loss(long_logits, indices, ntp_mask)
+        margin = math.log(2.0) * margin_bits
+        margin_tensor = short_per_sample.new_full(short_per_sample.shape, margin)
+        gap_per_sample = torch.relu(short_per_sample - long_per_sample - margin_tensor)
+        markov_unscaled = gap_per_sample.mean()
+        loss_dict['unscaled_markov_gap_loss'] = markov_unscaled
+        loss_dict['markov_gap_loss'] = markov_unscaled * w * markov_coeff
+    else:
+        zero = torch.tensor(0.0, device=device)
+        loss_dict['unscaled_markov_gap_loss'] = zero
+        loss_dict['markov_gap_loss'] = zero
 
     if configs.train_settings.losses.plddt.enabled:
         w = configs.train_settings.losses.plddt.weight
@@ -934,7 +974,14 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['tik_tok_padding_loss'] = zero
 
     # Sum reconstruction components
-    valid_losses = [v for k, v in loss_dict.items() if 'loss' in k and not torch.isnan(v) and k not in ('ntp_loss', 'vq_loss', 'step_loss') and not k.startswith('unscaled_')]
+    valid_losses = [
+        v
+        for k, v in loss_dict.items()
+        if 'loss' in k
+        and not torch.isnan(v)
+        and k not in ('ntp_loss', 'markov_gap_loss', 'vq_loss', 'step_loss')
+        and not k.startswith('unscaled_')
+    ]
     if not valid_losses:
         loss_dict['rec_loss'] = torch.tensor(0.0, device=device)
     else:
@@ -962,6 +1009,16 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     loss_dict['unscaled_vq_loss'] = vq_loss
     loss_dict['vq_loss'] = vq_loss * alpha * vq_coeff
 
-    loss_dict['step_loss'] = loss_dict['rec_loss'] + loss_dict['vq_loss'] + loss_dict['ntp_loss']
-    loss_dict['unscaled_step_loss'] = loss_dict['unscaled_rec_loss'] + loss_dict['unscaled_vq_loss'] + loss_dict['unscaled_ntp_loss']
+    loss_dict['step_loss'] = (
+        loss_dict['rec_loss']
+        + loss_dict['vq_loss']
+        + loss_dict['ntp_loss']
+        + loss_dict['markov_gap_loss']
+    )
+    loss_dict['unscaled_step_loss'] = (
+        loss_dict['unscaled_rec_loss']
+        + loss_dict['unscaled_vq_loss']
+        + loss_dict['unscaled_ntp_loss']
+        + loss_dict['unscaled_markov_gap_loss']
+    )
     return loss_dict, x_pred_aligned, x_true_aligned
