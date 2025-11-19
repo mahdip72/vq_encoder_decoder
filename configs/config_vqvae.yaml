@@ -137,15 +137,20 @@ train_settings:
       weight: 0.1
       adaptive_coefficient: False
     esm:
-      enabled: True
+      enabled: False
       pre_decoder: True
-      weight: 0.1
+      weight: 1.0
       adaptive_coefficient: False
     next_token_prediction:
       enabled: False
       weight: 0.001
       adaptive_coefficient: True
-      blocks: 2  # Number of transformer blocks, 0 means a linear layer only
+      blocks: 1  # Number of transformer blocks, 0 means a linear layer only
+    markov_gap:
+      enabled: False
+      weight: 1.0
+      adaptive_coefficient: True
+      margin_bits: 0.3
     vq:
       adaptive_coefficient: False
 
