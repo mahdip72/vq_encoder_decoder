@@ -927,8 +927,18 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         long_per_sample = calculate_ntp_loss(long_logits, indices, ntp_mask)
         margin = math.log(2.0) * margin_bits
         margin_tensor = short_per_sample.new_full(short_per_sample.shape, margin)
-        gap_per_sample = torch.relu(short_per_sample - long_per_sample - margin_tensor)
-        markov_unscaled = gap_per_sample.mean()
+
+        # Stop gradients on the 'long' term within the gap calculation to prevent the model
+        # from minimizing the gap by making the long-context predictor *worse*.
+        gap_per_sample = torch.relu(short_per_sample - long_per_sample.detach() - margin_tensor)
+        
+        # Add a small auxiliary training signal to ensure the heads actually learn to predict.
+        # Without this, they remain random initialized, errors match, and gap is trivially 0.
+        # We weight this small (e.g. 0.1 relative to the gap weight implied by the context).
+        aux_head_loss = 0.1 * (short_per_sample + long_per_sample)
+        
+        # Combine: Encoder sees (Gap + Aux), Heads see (Aux).
+        markov_unscaled = gap_per_sample.mean() + aux_head_loss.mean()
         loss_dict['unscaled_markov_gap_loss'] = markov_unscaled
         loss_dict['markov_gap_loss'] = markov_unscaled * w * markov_coeff
     else:
