@@ -143,14 +143,16 @@ train_settings:
       adaptive_coefficient: False
     next_token_prediction:
       enabled: False
-      weight: 0.001
-      adaptive_coefficient: True
-      blocks: 1  # Number of transformer blocks, 0 means a linear layer only
-    markov_gap:
-      enabled: False
       weight: 1.0
       adaptive_coefficient: True
+      blocks: 1  # Number of transformer blocks, 0 means a linear layer only
+      delay_steps: 25000
+    markov_gap:
+      enabled: False
+      weight: 10.0
+      adaptive_coefficient: True
       margin_bits: 0.3
+      delay_steps: 25000
     vq:
       adaptive_coefficient: False
 

@@ -80,6 +80,37 @@ def adjust_coeff_by_grad(coeff, grad_norm, decrease_factor=0.98, increase_factor
     return new_coeff
 
 
+def compute_autoregressive_delay_coeff(global_step: int, delay_steps: int) -> float:
+    """
+    Piecewise-linear schedule for autoregressive auxiliary losses (NTP / Markov-gap)
+    based on a per-loss ``delay_steps`` budget.
+
+    - From step 0 up to ``0.9 * delay_steps`` the coefficient is 0.0.
+    - Over the final 10% of ``delay_steps`` it ramps linearly from 0.0 → 1.0.
+    - After ``delay_steps`` it stays at 1.0 and regular adaptive logic takes over.
+
+    Args:
+        global_step: Current global training step.
+        delay_steps: Total delay horizon configured for the loss.
+
+    Returns:
+        float in [0.0, 1.0] representing the scheduled coefficient.
+    """
+    if delay_steps <= 0:
+        return 1.0
+
+    delay_steps_float = float(delay_steps)
+    ramp_start = 0.9 * delay_steps_float
+
+    if global_step <= ramp_start:
+        return 0.0
+    if global_step >= delay_steps_float:
+        return 1.0
+
+    ramp_span = max(1.0, delay_steps_float - ramp_start)
+    return float(global_step - ramp_start) / ramp_span
+
+
 def aggregate_grad_norms(local_grad_norms, accelerator):
     """
     Aggregate gradient norms across all ranks for global signal.
@@ -177,19 +208,19 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
             adaptive_loss_coeffs['vq'], global_grad_norms['vq']
         )
 
-    if 'ntp' in global_grad_norms and ntp_adaptive and global_step > 8 * configs.optimizer.decay.warmup:
-        adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
-            adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
-        )
-    elif 'ntp' in global_grad_norms and ntp_adaptive and global_step < 8 * configs.optimizer.decay.warmup:
-        adaptive_loss_coeffs['ntp'] = 0.00001
+    if 'ntp' in global_grad_norms and ntp_adaptive:
+        ntp_delay_steps = int(configs.train_settings.losses.next_token_prediction.delay_steps)
+        if global_step > ntp_delay_steps:
+            adaptive_loss_coeffs['ntp'] = adjust_coeff_by_grad(
+                adaptive_loss_coeffs.get('ntp', 1.0), global_grad_norms['ntp']
+            )
 
-    if 'markov_gap' in global_grad_norms and markov_adaptive and global_step > 8 * configs.optimizer.decay.warmup:
-        adaptive_loss_coeffs['markov_gap'] = adjust_coeff_by_grad(
-            adaptive_loss_coeffs.get('markov_gap', 1.0), global_grad_norms['markov_gap']
-        )
-    elif 'markov_gap' in global_grad_norms and markov_adaptive and global_step < 8 * configs.optimizer.decay.warmup:
-        adaptive_loss_coeffs['markov_gap'] = 0.00001
+    if 'markov_gap' in global_grad_norms and markov_adaptive:
+        markov_delay_steps = int(configs.train_settings.losses.markov_gap.delay_steps)
+        if global_step > markov_delay_steps:
+            adaptive_loss_coeffs['markov_gap'] = adjust_coeff_by_grad(
+                adaptive_loss_coeffs.get('markov_gap', 1.0), global_grad_norms['markov_gap']
+            )
 
     if 'tik_tok_padding' in global_grad_norms and tik_tok_adaptive:
         adaptive_loss_coeffs['tik_tok_padding'] = adjust_coeff_by_grad(
@@ -344,9 +375,26 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     # Aggregate across ranks for global signal
     global_grad_norms = aggregate_grad_norms(local_grad_norms, accelerator)
 
+    warmup_steps = int(configs.optimizer.decay.warmup)
+
+    # Schedule autoregressive auxiliary coefficients (NTP / Markov-gap) using
+    # per-loss delay_steps budgets. Each loss stays at 0 for the first 90% of
+    # its delay horizon, then ramps linearly from 0 → 1 over the final 10%.
+    if configs.train_settings.adaptive_loss_coefficient:
+        ntp_cfg = configs.train_settings.losses.next_token_prediction
+        markov_cfg = configs.train_settings.losses.markov_gap
+
+        ntp_delay_steps = int(ntp_cfg.delay_steps)
+        if ntp_cfg.enabled and ntp_cfg.adaptive_coefficient and ntp_delay_steps > 0 and global_step <= ntp_delay_steps:
+            adaptive_loss_coeffs['ntp'] = compute_autoregressive_delay_coeff(global_step, ntp_delay_steps)
+
+        markov_delay_steps = int(markov_cfg.delay_steps)
+        if markov_cfg.enabled and markov_cfg.adaptive_coefficient and markov_delay_steps > 0 and global_step <= markov_delay_steps:
+            adaptive_loss_coeffs['markov_gap'] = compute_autoregressive_delay_coeff(global_step, markov_delay_steps)
+
     # Adjust coefficients and broadcast (only after warmup and if any adaptive coefficients are enabled)
     if (accelerator.is_main_process and
-            global_step > configs.optimizer.decay.warmup and
+            global_step > warmup_steps and
             configs.train_settings.adaptive_loss_coefficient and
             len(local_grad_norms) > 0):  # Only proceed if we have any losses with adaptive coefficients
 
@@ -360,7 +408,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
             log_gradient_norms_and_coeffs(writer, global_grad_norms, adaptive_loss_coeffs, global_step)
             log_per_loss_components(writer, loss_dict, global_step)
 
-    if (global_step > configs.optimizer.decay.warmup and
+    if (global_step > warmup_steps and
             len(local_grad_norms) > 0):  # Only broadcast if we have any losses with adaptive coefficients
         adaptive_loss_coeffs = broadcast_coefficients(adaptive_loss_coeffs, accelerator)
 
