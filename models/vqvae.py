@@ -499,10 +499,12 @@ class VQVAETransformer(nn.Module):
                         {"embeddings": decoder_input}, indices, vq_loss, ntp_logits, ntp_valid_mask, tik_tok_padding_logits,
                         tik_tok_padding_targets,
                         sequence_lengths,
+                        markov_short_logits,
+                        markov_long_logits,
                     )
                 shared_ntp_input = None
                 shared_ntp_mask = ntp_valid_mask
-                if (self.ntp_enabled or self.markov_gap_enabled) and decoder_input is not None:
+                if self.ntp_enabled or self.markov_gap_enabled:
                     shared_ntp_input, shared_ntp_mask = self._prepare_ntp_inputs(
                         decoder_input,
                         latent_mask_bool,
