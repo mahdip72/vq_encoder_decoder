@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from embedding_evaluation.utils import find_h5_file_in_dir, load_embeddings_from_h5
+from codebook_evaluation.utils import find_h5_file_in_dir, load_embeddings_from_h5
 
 
 def compute_consecutive_metrics(emb):

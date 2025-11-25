@@ -16,7 +16,7 @@ import sys
 from datetime import datetime
 
 # ========= Configure this =========
-CSV_PATH = "path/to/vq_indices.csv"
+CSV_PATH = "inference_embed_results/2025-11-24__18-39-50/vq_indices.csv"
 SKIP_TOKENS = {-1}            # e.g., {-1} to ignore mask/padding
 CODEBOOK_SIZE = 4096          # set to None to skip bound check
 MI_LAGS = [1, 2, 4]           # lags for MI computation
