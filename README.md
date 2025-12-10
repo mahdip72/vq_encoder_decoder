@@ -318,7 +318,7 @@ We evaluated additional VQ-VAE backbones alongside GCP-VQVAE:
 - FoldToken-4 (forked repo: [mahdip72/FoldToken_open](https://github.com/mahdip72/FoldToken_open)) – we rewrote `foldtoken/pdb_to_token.py` and `foldtoken/token_to_pdb.py` for better performance and efficiency with negligible increase in error.
 - Structure Tokenizer ([instadeepai/protein-structure-tokenizer](https://github.com/instadeepai/protein-structure-tokenizer)) – results reproduced with the official implementation.
 
-We welcome independent validation of our ESM3 and FoldToken-4 conversion scripts to further confirm their correctness.
+Let us know if you need the scripts of more baseline tokenizers evaluated in the recent update of the manuscript.
 
 ## Results
 
@@ -331,8 +331,6 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
 Notes:
 - FoldToken 4 uses a 256-size vocabulary; others use 4096.
 - The Structure Tokenizer of Gaujac et al. (2024) only supports sequences of length 50–512; out-of-range samples are excluded for that column only.
-- Zero-shot results for Gaujac et al. (2024) are omitted due to limited coverage.
-- Evaluation scripts for baselines were reproduced where public tooling was incomplete; see repository docs for details.
 
 ## Experimental Features
 
