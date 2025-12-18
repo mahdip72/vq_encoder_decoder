@@ -328,10 +328,6 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
   <img src="src/results.png" alt="Benchmark results across datasets" width="1000">
 </p>
 
-Notes:
-- FoldToken 4 uses a 256-size vocabulary; others use 4096.
-- The Structure Tokenizer of Gaujac et al. (2024) only supports sequences of length 50–512; out-of-range samples are excluded for that column only.
-
 ## Experimental Features
 
 - Added an experimental option to compress token sequences using latent codebooks inspired by [ByteDance’s 1D tokenizer](https://github.com/bytedance/1d-tokenizer) (TikTok); this enables configurable compression factors within our VQ pipeline.
