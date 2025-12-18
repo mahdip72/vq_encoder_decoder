@@ -1,7 +1,7 @@
 # GCP-VQVAE: A Geometry-Complete Language for Protein 3D Structure
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![bioRxiv Preprint](https://img.shields.io/badge/bioRxiv-10.1101/2025.10.01.679833v1-brightgreen)](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v1)
+[![bioRxiv Preprint](https://img.shields.io/badge/bioRxiv-10.1101/2025.10.01.679833v1-brightgreen)](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v2)
 
 <p align="center">
   <img src="src/logo.png" alt="GCP-VQVAE" width="600" />
@@ -18,7 +18,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 
 ## News
 - 🗓️ **25 Sept 2025** — 🎉 Our paper was accepted to the NeurIPS 2025 AI4Science workshop!
-- 🗓️ **3 Oct 2025** — Our preprint has been published in [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v1).
+- 🗓️ **3 Oct 2025** — Our preprint has been published in [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v2).
 - 🗓️ **10 Oct 2025** — 🚀 Pretrained checkpoints and evaluation datasets are now available for download!
 - 🗓️ **17 Oct 2025** - Release a lite version of GCP-VQVAE with half the parameters.
 
