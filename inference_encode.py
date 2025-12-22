@@ -101,12 +101,19 @@ def main():
     )
 
     # Prepare dataset and dataloader
+    esm_tokenizer = None
+    esm_cfg = getattr(configs.train_settings.losses, 'esm', None)
+    if esm_cfg and getattr(esm_cfg, 'enabled', False):
+        from transformers import AutoTokenizer
+        esm_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t12_35M_UR50D")
+
     dataset = GCPNetDataset(
         infer_cfg.data_path,
         top_k=encoder_configs.top_k,
         num_positional_embeddings=encoder_configs.num_positional_embeddings,
         configs=configs,
-        mode='evaluation'
+        mode='evaluation',
+        esm_tokenizer=esm_tokenizer,
     )
     collate_fn = functools.partial(
         custom_collate_pretrained_gcp,
