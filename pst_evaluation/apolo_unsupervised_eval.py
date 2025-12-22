@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import argparse
 import logging
 import math
@@ -132,7 +133,7 @@ def parse_args():
     )
     p.add_argument(
         "--data-root",
-        default="/mnt/hdd8/farzaneh/projects/PST/struct_token_bench_release_data/data/sensitivity",
+        default=os.path.join(os.path.dirname(__file__), "struct_token_bench_release_data", "data", "sensitivity"),
         help="Root containing conformational/processed_structured_* files",
     )
     p.add_argument(

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import argparse
 import copy
 import logging
@@ -164,7 +165,7 @@ def parse_args():
     )
     p.add_argument(
         "--data-root",
-        default="/home/fe5vb/project/PST/struct_token_bench_release_data/data/functional/local/",
+        default=os.path.join(os.path.dirname(__file__), "struct_token_bench_release_data", "data", "functional", "local"),
         help="Root containing proteinshake_bindingsite/processed_structured_* files",
     )
     p.add_argument("--epochs", type=int, default=128)
