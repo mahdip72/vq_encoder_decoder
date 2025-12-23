@@ -122,6 +122,7 @@ def main():
 
     # Override task-specific settings
     configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
+    configs.model.encoder.pretrained.enabled = False
 
     # Load decoder config from saved results
     decoder_configs = load_saved_decoder_config(decoder_cfg_path)

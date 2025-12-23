@@ -201,6 +201,7 @@ def main():
     # Override task-specific settings
     configs.train_settings.max_task_samples = infer_cfg.get('max_task_samples', configs.train_settings.max_task_samples)
     configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
+    configs.model.encoder.pretrained.enabled = False
 
     # Load encoder/decoder configs from saved results instead of default utils
     encoder_configs, decoder_configs = load_saved_encoder_decoder_configs(
