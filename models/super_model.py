@@ -126,6 +126,8 @@ class SuperModel(nn.Module):
 def prepare_model(configs, logger, *, log_details=False, **kwargs):
 
     if not kwargs.get("decoder_only", False):
+        if getattr(configs.resume, "enabled", False):
+            configs.model.encoder.pretrained.enabled = False
         if configs.model.encoder.name == "gcpnet":
             encoder_config_path = os.path.join("configs", "config_gcpnet_encoder.yaml")
 
