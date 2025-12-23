@@ -17,6 +17,12 @@ Optional shorthand:
 export EMB_DIR=./inference_embed_results/.../embeddings
 ```
 
+## Datasets
+- StructTokenBench evaluation data (labels/splits used by eval scripts via `--data-root`): download and extract into `./pst_evaluation/struct_token_bench_release_data/`
+  - [link](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/IQDppFECYFI4Rbo9WnqYODhcAcpo6SCLLInO2vJ_m8jcy9A?e=9PKz9r)
+- PST raw CIF/H5 structures (used to generate embeddings): download and extract into, then run `inference_embed.py` (repo root) to produce H5 embeddings for the eval scripts (`--h5`)
+  - [link](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/IQDRerYYUdb1Ra73OmACyIILAfrlSyUV_aqFNMHk-3GH8UA?e=DjtgC7)
+
 ## BioLIP2 binding (lite)
 ```bash
 python pst_evaluation/biolip2_binding_eval.py \
