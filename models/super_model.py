@@ -56,7 +56,7 @@ class SuperModel(nn.Module):
 
         Returns:
             dict containing VQ outputs, decoder predictions, and optional
-            auxiliary tensors (NTP, TikTok padding classifier, masks).
+            auxiliary tensors (NTP, TiTok padding classifier, masks).
         """
         output_dict = {}
         nan_mask = batch['nan_masks']
@@ -98,8 +98,8 @@ class SuperModel(nn.Module):
             vq_loss,
             ntp_logits,
             ntp_mask,
-            tik_tok_padding_logits,
-            tik_tok_padding_targets,
+            ti_tok_padding_logits,
+            ti_tok_padding_targets,
             sequence_lengths,
             markov_short_logits,
             markov_long_logits,
@@ -111,8 +111,8 @@ class SuperModel(nn.Module):
         output_dict["ntp_mask"] = ntp_mask
         output_dict["markov_short_logits"] = markov_short_logits
         output_dict["markov_long_logits"] = markov_long_logits
-        output_dict["tik_tok_padding_logits"] = tik_tok_padding_logits
-        output_dict["tik_tok_padding_targets"] = tik_tok_padding_targets
+        output_dict["ti_tok_padding_logits"] = ti_tok_padding_logits
+        output_dict["ti_tok_padding_targets"] = ti_tok_padding_targets
         output_dict["sequence_lengths"] = sequence_lengths
 
         output_dict.update(decoder_outputs)
@@ -253,7 +253,7 @@ def compile_non_gcp_and_exclude_vq(net: nn.Module, mode: str | None, backend: st
     extra_attrs = (
         'encoder_tail', 'encoder_blocks', 'encoder_head',
         'ntp_blocks', 'ntp_projector_head', 'decoder',
-        'tik_tok_latent_tokens', 'tik_tok_padding_classifier'
+        'ti_tok_latent_tokens', 'ti_tok_padding_classifier'
     )
     for attr in extra_attrs:
         if attr in compiled_names:

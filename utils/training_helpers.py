@@ -11,14 +11,14 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
     """Initialize metric objects used in training/validation.
 
     Args:
-        configs: Hydrated config object with loss toggles (NTP, TikTok).
+        configs: Hydrated config object with loss toggles (NTP, TiTok).
         accelerator: ``accelerate.Accelerator`` whose device hosts the metrics.
 
     Returns:
         Dict[str, Any]: A dictionary of metric instances keyed by name. Always
         includes ``mae``, ``rmsd``, ``gdtts`` and ``tm_score``; optionally
         includes ``perplexity`` (when next-token prediction is enabled) and
-        ``tik_tok_padding_accuracy`` (when the TikTok classifier is enabled).
+        ``ti_tok_padding_accuracy`` (when the TiTok classifier is enabled).
     """
     metrics: Dict[str, Any] = {
         'mae': torchmetrics.MeanAbsoluteError().to(accelerator.device),
@@ -26,7 +26,7 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
         'gdtts': GDTTS().to(accelerator.device),
         'tm_score': TMScore().to(accelerator.device),
         'perplexity': None,
-        'tik_tok_padding_accuracy': None,
+        'ti_tok_padding_accuracy': None,
         'inverse_folding_accuracy': None,
         'codebook_usage': None,
     }
@@ -38,15 +38,19 @@ def init_metrics(configs, accelerator) -> Dict[str, Any]:
         # cast to Any to satisfy type checkers that try to unify dict value types
         metrics['perplexity'] = cast(Any, Perplexity(ignore_index=-100).to(accelerator.device))
 
-    tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', None)
-    compression_factor = getattr(configs.model.vqvae.vector_quantization.tik_tok, 'compression_factor', 1)
-    if tik_tok_cfg is not None and getattr(tik_tok_cfg, 'enabled', False) and compression_factor > 1:
-        from torchmetrics.classification import MulticlassAccuracy
-        num_classes = int(getattr(tik_tok_cfg, 'compression_factor', 1))
-        metrics['tik_tok_padding_accuracy'] = cast(
-            Any,
-            MulticlassAccuracy(num_classes=num_classes, average='macro').to(accelerator.device),
-        )
+    ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "ti_tok", None)
+    if ti_tok_cfg is None:
+        ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "tik_tok", None)
+        
+    if ti_tok_cfg is not None:
+        compression_factor = getattr(ti_tok_cfg, "compression_factor", 1)
+        if getattr(ti_tok_cfg, "enabled", False) and compression_factor > 1:
+            from torchmetrics.classification import MulticlassAccuracy
+            num_classes = int(getattr(ti_tok_cfg, "compression_factor", 1))
+            metrics["ti_tok_padding_accuracy"] = cast(
+                Any,
+                MulticlassAccuracy(num_classes=num_classes, average="macro").to(accelerator.device),
+            )
 
     inverse_folding_cfg = getattr(configs.train_settings.losses, 'inverse_folding', None)
     if inverse_folding_cfg is not None and getattr(inverse_folding_cfg, 'enabled', False):
@@ -80,8 +84,8 @@ def reset_metrics(metrics: Dict[str, Any]) -> None:
     metrics['tm_score'].reset()
     if metrics.get('perplexity') is not None:
         metrics['perplexity'].reset()
-    if metrics.get('tik_tok_padding_accuracy') is not None:
-        metrics['tik_tok_padding_accuracy'].reset()
+    if metrics.get('ti_tok_padding_accuracy') is not None:
+        metrics['ti_tok_padding_accuracy'].reset()
     if metrics.get('inverse_folding_accuracy') is not None:
         metrics['inverse_folding_accuracy'].reset()
     if metrics.get('codebook_usage') is not None:
@@ -102,13 +106,13 @@ def update_metrics(metrics: Dict[str, Any],
         trans_true_coords: Ground-truth coordinates with the same shape.
         masks: Boolean/float mask ``(B, L)`` of valid residues.
         output_dict: Model outputs; may contain NTP logits/indices/masks and
-            TikTok classifier logits/targets.
+            TiTok classifier logits/targets.
         ignore_index: Index ignored when computing perplexity.
 
     Notes:
         - Always updates MAE/RMSD/GDTTS/TM-score.
         - Updates perplexity when the metric exists and NTP outputs are present.
-        - Updates padding-accuracy when the TikTok metric exists and logits / targets are available.
+        - Updates padding-accuracy when the TiTok metric exists and logits / targets are available.
     """
     # Coordinate-based metrics (MAE/RMSD/GDTTS)
     if masks.any():
@@ -135,12 +139,12 @@ def update_metrics(metrics: Dict[str, Any],
             ignore_index=ignore_index,
         )
 
-    tik_tok_metric = metrics.get('tik_tok_padding_accuracy', None)
-    if tik_tok_metric is not None:
-        logits = output_dict.get('tik_tok_padding_logits', None)
-        targets = output_dict.get('tik_tok_padding_targets', None)
+    ti_tok_metric = metrics.get('ti_tok_padding_accuracy', None)
+    if ti_tok_metric is not None:
+        logits = output_dict.get('ti_tok_padding_logits', None)
+        targets = output_dict.get('ti_tok_padding_targets', None)
         if logits is not None and targets is not None and targets.numel() > 0:
-            tik_tok_metric.update(logits.detach(), targets.detach())
+            ti_tok_metric.update(logits.detach(), targets.detach())
 
     inverse_metric = metrics.get('inverse_folding_accuracy', None)
     if inverse_metric is not None:
@@ -162,7 +166,7 @@ def compute_metrics(metrics: Dict[str, Any]) -> Dict[str, float]:
 
     Returns:
         Dict[str, float]: Contains ``mae``, ``rmsd``, ``gdtts``, ``tm_score`` and
-        optionally ``perplexity`` / ``tik_tok_padding_accuracy``. Metrics that
+        optionally ``perplexity`` / ``ti_tok_padding_accuracy``. Metrics that
         were not enabled are reported as ``NaN``.
     """
     out = {
@@ -171,13 +175,13 @@ def compute_metrics(metrics: Dict[str, Any]) -> Dict[str, float]:
         'gdtts': metrics['gdtts'].compute().cpu().item(),
         'tm_score': metrics['tm_score'].compute().cpu().item(),
         'perplexity': float('nan'),
-        'tik_tok_padding_accuracy': float('nan'),
+        'ti_tok_padding_accuracy': float('nan'),
         'inverse_folding_accuracy': float('nan'),
     }
     if metrics.get('perplexity') is not None:
         out['perplexity'] = metrics['perplexity'].compute().cpu().item()
-    if metrics.get('tik_tok_padding_accuracy') is not None:
-        out['tik_tok_padding_accuracy'] = metrics['tik_tok_padding_accuracy'].compute().cpu().item()
+    if metrics.get('ti_tok_padding_accuracy') is not None:
+        out['ti_tok_padding_accuracy'] = metrics['ti_tok_padding_accuracy'].compute().cpu().item()
     if metrics.get('inverse_folding_accuracy') is not None:
         out['inverse_folding_accuracy'] = metrics['inverse_folding_accuracy'].compute().cpu().item()
     return out
@@ -226,7 +230,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_vq_loss': 0.0,
         'train_ntp_loss': 0.0,
         'train_markov_gap_loss': 0.0,
-        'train_tik_tok_padding_loss': 0.0,
+        'train_ti_tok_padding_loss': 0.0,
         'train_inverse_folding_loss': 0.0,
         'train_plddt_loss': 0.0,
         'train_esm_loss': 0.0,
@@ -236,7 +240,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'train_unscaled_vq_loss': 0.0,
         'train_unscaled_ntp_loss': 0.0,
         'train_unscaled_markov_gap_loss': 0.0,
-        'train_unscaled_tik_tok_padding_loss': 0.0,
+        'train_unscaled_ti_tok_padding_loss': 0.0,
         'train_unscaled_inverse_folding_loss': 0.0,
         'train_unscaled_plddt_loss': 0.0,
         'train_unscaled_esm_loss': 0.0,
@@ -246,7 +250,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'total_vq_loss': 0.0,
         'total_ntp_loss': 0.0,
         'total_markov_gap_loss': 0.0,
-        'total_tik_tok_padding_loss': 0.0,
+        'total_ti_tok_padding_loss': 0.0,
         'total_inverse_folding_loss': 0.0,
         'total_plddt_loss': 0.0,
         'total_esm_loss': 0.0,
@@ -256,7 +260,7 @@ def init_accumulator(accum_iter: int) -> Dict[str, Any]:
         'total_unscaled_vq_loss': 0.0,
         'total_unscaled_ntp_loss': 0.0,
         'total_unscaled_markov_gap_loss': 0.0,
-        'total_unscaled_tik_tok_padding_loss': 0.0,
+        'total_unscaled_ti_tok_padding_loss': 0.0,
         'total_unscaled_inverse_folding_loss': 0.0,
         'total_unscaled_plddt_loss': 0.0,
         'total_unscaled_esm_loss': 0.0,
@@ -322,10 +326,10 @@ def accumulate_losses(acc: Dict[str, Any],
             loss_dict['markov_gap_loss'],
             repeat=bs,
         ).item() / acc['accum_iter']
-    if 'tik_tok_padding_loss' in loss_dict and loss_dict['tik_tok_padding_loss'] is not None:
-        acc['train_tik_tok_padding_loss'] += _gather_mean(
+    if 'ti_tok_padding_loss' in loss_dict and loss_dict['ti_tok_padding_loss'] is not None:
+        acc['train_ti_tok_padding_loss'] += _gather_mean(
             accelerator,
-            loss_dict['tik_tok_padding_loss'],
+            loss_dict['ti_tok_padding_loss'],
             repeat=bs,
         ).item() / acc['accum_iter']
     if 'inverse_folding_loss' in loss_dict and loss_dict['inverse_folding_loss'] is not None:
@@ -364,10 +368,10 @@ def accumulate_losses(acc: Dict[str, Any],
             loss_dict['unscaled_markov_gap_loss'],
             repeat=bs,
         ).item() / acc['accum_iter']
-    if 'unscaled_tik_tok_padding_loss' in loss_dict and loss_dict['unscaled_tik_tok_padding_loss'] is not None:
-        acc['train_unscaled_tik_tok_padding_loss'] += _gather_mean(
+    if 'unscaled_ti_tok_padding_loss' in loss_dict and loss_dict['unscaled_ti_tok_padding_loss'] is not None:
+        acc['train_unscaled_ti_tok_padding_loss'] += _gather_mean(
             accelerator,
-            loss_dict['unscaled_tik_tok_padding_loss'],
+            loss_dict['unscaled_ti_tok_padding_loss'],
             repeat=bs,
         ).item() / acc['accum_iter']
     if 'unscaled_inverse_folding_loss' in loss_dict and loss_dict['unscaled_inverse_folding_loss'] is not None:
@@ -401,7 +405,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_vq_loss'] += acc['train_vq_loss']
     acc['total_ntp_loss'] += acc['train_ntp_loss']
     acc['total_markov_gap_loss'] += acc['train_markov_gap_loss']
-    acc['total_tik_tok_padding_loss'] += acc['train_tik_tok_padding_loss']
+    acc['total_ti_tok_padding_loss'] += acc['train_ti_tok_padding_loss']
     acc['total_inverse_folding_loss'] += acc['train_inverse_folding_loss']
     acc['total_plddt_loss'] += acc['train_plddt_loss']
     acc['total_esm_loss'] += acc['train_esm_loss']
@@ -411,7 +415,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['total_unscaled_vq_loss'] += acc['train_unscaled_vq_loss']
     acc['total_unscaled_ntp_loss'] += acc['train_unscaled_ntp_loss']
     acc['total_unscaled_markov_gap_loss'] += acc['train_unscaled_markov_gap_loss']
-    acc['total_unscaled_tik_tok_padding_loss'] += acc['train_unscaled_tik_tok_padding_loss']
+    acc['total_unscaled_ti_tok_padding_loss'] += acc['train_unscaled_ti_tok_padding_loss']
     acc['total_unscaled_inverse_folding_loss'] += acc['train_unscaled_inverse_folding_loss']
     acc['total_unscaled_plddt_loss'] += acc['train_unscaled_plddt_loss']
     acc['total_unscaled_esm_loss'] += acc['train_unscaled_esm_loss']
@@ -421,7 +425,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['train_vq_loss'] = 0.0
     acc['train_ntp_loss'] = 0.0
     acc['train_markov_gap_loss'] = 0.0
-    acc['train_tik_tok_padding_loss'] = 0.0
+    acc['train_ti_tok_padding_loss'] = 0.0
     acc['train_inverse_folding_loss'] = 0.0
     acc['train_plddt_loss'] = 0.0
     acc['train_esm_loss'] = 0.0
@@ -431,7 +435,7 @@ def finalize_step(acc: Dict[str, Any]) -> None:
     acc['train_unscaled_vq_loss'] = 0.0
     acc['train_unscaled_ntp_loss'] = 0.0
     acc['train_unscaled_markov_gap_loss'] = 0.0
-    acc['train_unscaled_tik_tok_padding_loss'] = 0.0
+    acc['train_unscaled_ti_tok_padding_loss'] = 0.0
     acc['train_unscaled_inverse_folding_loss'] = 0.0
     acc['train_unscaled_plddt_loss'] = 0.0
     acc['train_unscaled_esm_loss'] = 0.0
@@ -456,7 +460,7 @@ def average_losses(acc: Dict[str, Any]) -> Dict[str, float]:
         'avg_vq_loss': acc['total_vq_loss'] / denom,
         'avg_ntp_loss': acc['total_ntp_loss'] / denom,
         'avg_markov_gap_loss': acc['total_markov_gap_loss'] / denom,
-        'avg_tik_tok_padding_loss': acc['total_tik_tok_padding_loss'] / denom,
+        'avg_ti_tok_padding_loss': acc['total_ti_tok_padding_loss'] / denom,
         'avg_inverse_folding_loss': acc['total_inverse_folding_loss'] / denom,
         'avg_plddt_loss': acc['total_plddt_loss'] / denom,
         'avg_esm_loss': acc['total_esm_loss'] / denom,
@@ -465,7 +469,7 @@ def average_losses(acc: Dict[str, Any]) -> Dict[str, float]:
         'avg_unscaled_vq_loss': acc['total_unscaled_vq_loss'] / denom,
         'avg_unscaled_ntp_loss': acc['total_unscaled_ntp_loss'] / denom,
         'avg_unscaled_markov_gap_loss': acc['total_unscaled_markov_gap_loss'] / denom,
-        'avg_unscaled_tik_tok_padding_loss': acc['total_unscaled_tik_tok_padding_loss'] / denom,
+        'avg_unscaled_ti_tok_padding_loss': acc['total_unscaled_ti_tok_padding_loss'] / denom,
         'avg_unscaled_inverse_folding_loss': acc['total_unscaled_inverse_folding_loss'] / denom,
         'avg_unscaled_plddt_loss': acc['total_unscaled_plddt_loss'] / denom,
         'avg_unscaled_esm_loss': acc['total_unscaled_esm_loss'] / denom,
@@ -531,9 +535,9 @@ def log_tensorboard_epoch(writer,
 
     Args:
         writer: TensorBoard writer (or ``None`` to skip logging).
-        avgs: Output of :func:`average_losses`; may include TikTok padding loss.
+        avgs: Output of :func:`average_losses`; may include TiTok padding loss.
         metrics_values: Output of :func:`compute_metrics`; may include perplexity
-            and TikTok padding accuracy.
+            and TiTok padding accuracy.
         epoch: Epoch index used as the TensorBoard step.
         activation_percent: Codebook activation ratio (%).
         include_ntp: Whether to log the NTP loss scalars.
@@ -541,7 +545,7 @@ def log_tensorboard_epoch(writer,
 
     Notes:
         Logs the standard loss/metric suite; optional scalars (NTP loss,
-        TikTok padding loss/accuracy) are emitted only when present in ``avgs`` /
+        TiTok padding loss/accuracy) are emitted only when present in ``avgs`` /
         ``metrics_values``.
     """
     if writer is None:
@@ -550,8 +554,8 @@ def log_tensorboard_epoch(writer,
     writer.add_scalar('loss/total', avgs['avg_step_loss'], epoch)
     writer.add_scalar('loss/rec_loss', avgs['avg_rec_loss'], epoch)
     writer.add_scalar('loss/vq', avgs['avg_vq_loss'], epoch)
-    if 'avg_tik_tok_padding_loss' in avgs:
-        writer.add_scalar('loss/tik_tok_padding', avgs['avg_tik_tok_padding_loss'], epoch)
+    if 'avg_ti_tok_padding_loss' in avgs:
+        writer.add_scalar('loss/ti_tok_padding', avgs['avg_ti_tok_padding_loss'], epoch)
     if 'avg_inverse_folding_loss' in avgs:
         writer.add_scalar('loss/inverse_folding', avgs['avg_inverse_folding_loss'], epoch)
     if 'avg_plddt_loss' in avgs:
@@ -570,8 +574,8 @@ def log_tensorboard_epoch(writer,
         writer.add_scalar('unscaled_loss/rec_loss', avgs['avg_unscaled_rec_loss'], epoch)
     if 'avg_unscaled_vq_loss' in avgs:
         writer.add_scalar('unscaled_loss/vq', avgs['avg_unscaled_vq_loss'], epoch)
-    if 'avg_unscaled_tik_tok_padding_loss' in avgs:
-        writer.add_scalar('unscaled_loss/tik_tok_padding', avgs['avg_unscaled_tik_tok_padding_loss'], epoch)
+    if 'avg_unscaled_ti_tok_padding_loss' in avgs:
+        writer.add_scalar('unscaled_loss/ti_tok_padding', avgs['avg_unscaled_ti_tok_padding_loss'], epoch)
     if 'avg_unscaled_inverse_folding_loss' in avgs:
         writer.add_scalar('unscaled_loss/inverse_folding', avgs['avg_unscaled_inverse_folding_loss'], epoch)
     if 'avg_unscaled_plddt_loss' in avgs:
@@ -587,9 +591,9 @@ def log_tensorboard_epoch(writer,
     writer.add_scalar('metric/rmsd', metrics_values['rmsd'], epoch)
     writer.add_scalar('metric/gdtts', metrics_values['gdtts'], epoch)
     writer.add_scalar('metric/tm_score', metrics_values['tm_score'], epoch)
-    tik_tok_acc = metrics_values.get('tik_tok_padding_accuracy', float('nan'))
-    if tik_tok_acc == tik_tok_acc:
-        writer.add_scalar('metric/padding_accuracy', tik_tok_acc, epoch)
+    ti_tok_acc = metrics_values.get('ti_tok_padding_accuracy', float('nan'))
+    if ti_tok_acc == ti_tok_acc:
+        writer.add_scalar('metric/padding_accuracy', ti_tok_acc, epoch)
     inverse_acc = metrics_values.get('inverse_folding_accuracy', float('nan'))
     if inverse_acc == inverse_acc:
         writer.add_scalar('metric/inverse_folding_accuracy', inverse_acc, epoch)

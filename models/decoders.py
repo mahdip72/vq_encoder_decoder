@@ -19,33 +19,34 @@ class GeometricDecoder(nn.Module):
         self.vqvae_dimension = configs.model.vqvae.vector_quantization.dim
         self.decoder_channels = decoder_configs.dimension
 
-        tik_tok_cfg = getattr(
-            configs.model.vqvae.vector_quantization, "tik_tok", None
-        ) or {}
-        self.tik_tok_enabled = tik_tok_cfg.get("enabled", False)
-        compression_factor = tik_tok_cfg.get("compression_factor", 1)
-        self.tik_tok_compression_factor = int(compression_factor)
-        if self.tik_tok_enabled:
-            if self.tik_tok_compression_factor <= 0:
-                raise ValueError("TikTok compression_factor must be a positive integer")
-            if (self.tik_tok_compression_factor != 1) and (self.tik_tok_compression_factor % 2) != 0:
-                raise ValueError("TikTok compression_factor must be an even integer")
+        ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "ti_tok", None)
+        if ti_tok_cfg is None:
+            ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "tik_tok", {})
+
+        self.ti_tok_enabled = getattr(ti_tok_cfg, "enabled", False)
+        compression_factor = getattr(ti_tok_cfg, "compression_factor", 1)
+        self.ti_tok_compression_factor = int(compression_factor)
+        if self.ti_tok_enabled:
+            if self.ti_tok_compression_factor <= 0:
+                raise ValueError("TiTok compression_factor must be a positive integer")
+            if (self.ti_tok_compression_factor != 1) and (self.ti_tok_compression_factor % 2) != 0:
+                raise ValueError("TiTok compression_factor must be an even integer")
             if self.decoder_causal:
                 raise ValueError(
-                    "TikTok latent tokens require a non-causal decoder. "
-                    "Disable configs.model.vqvae.decoder.causal when tik_tok is enabled."
+                    "TiTok latent tokens require a non-causal decoder. "
+                    "Disable configs.model.vqvae.decoder.causal when ti_tok is enabled."
                 )
             self.latent_token_count = math.ceil(
-                self.max_length / self.tik_tok_compression_factor
+                self.max_length / self.ti_tok_compression_factor
             )
         else:
             self.latent_token_count = 0
         self.decoder_max_seq_len = self.max_length + (
-            self.latent_token_count if self.tik_tok_enabled else 0
+            self.latent_token_count if self.ti_tok_enabled else 0
         )
 
         projector_input_length = (
-            self.latent_token_count if self.tik_tok_enabled else self.max_length
+            self.latent_token_count if self.ti_tok_enabled else self.max_length
         )
 
         self.direction_loss_bins = decoder_configs.direction_loss_bins
@@ -70,7 +71,7 @@ class GeometricDecoder(nn.Module):
                 self.vqvae_dimension, self.decoder_channels, bias=False
             )
 
-        if self.tik_tok_enabled:
+        if self.ti_tok_enabled:
             self.decoder_mask_token = nn.Parameter(
                 torch.randn(self.decoder_channels)
             )
@@ -120,9 +121,9 @@ class GeometricDecoder(nn.Module):
             self.inverse_folding_pre_decoder = bool(
                 getattr(inverse_folding_cfg, "pre_decoder", False)
             )
-            if self.inverse_folding_pre_decoder and self.tik_tok_enabled:
+            if self.inverse_folding_pre_decoder and self.ti_tok_enabled:
                 raise ValueError(
-                    "Inverse folding head cannot run before the decoder when TikTok latents are enabled."
+                    "Inverse folding head cannot run before the decoder when TiTok latents are enabled."
                 )
 
         plddt_cfg = getattr(configs.train_settings.losses, "plddt", None)
@@ -134,9 +135,9 @@ class GeometricDecoder(nn.Module):
             self.plddt_pre_decoder = bool(
                 getattr(plddt_cfg, "pre_decoder", True)
             )
-            if self.plddt_pre_decoder and self.tik_tok_enabled:
+            if self.plddt_pre_decoder and self.ti_tok_enabled:
                 raise ValueError(
-                    "pLDDT head cannot run before the decoder when TikTok latents are enabled."
+                    "pLDDT head cannot run before the decoder when TiTok latents are enabled."
                 )
 
         if self.enable_pairwise_losses:
@@ -197,8 +198,8 @@ class GeometricDecoder(nn.Module):
             positions = torch.arange(self.max_length, device=mask.device).unsqueeze(0)
             decoder_mask_bool = positions < true_lengths.unsqueeze(1)
 
-        if self.tik_tok_enabled:
-            x, decoder_mask_bool = self._build_decoder_tik_tok_stream(
+        if self.ti_tok_enabled:
+            x, decoder_mask_bool = self._build_decoder_ti_tok_stream(
                 latent_tokens=x,
                 original_mask=decoder_mask_bool,
             )
@@ -222,7 +223,7 @@ class GeometricDecoder(nn.Module):
 
         x = self.decoder_stack(x, mask=decoder_mask_bool, attn_mask=decoder_attn_mask)
 
-        if self.tik_tok_enabled:
+        if self.ti_tok_enabled:
             x = x[:, :self.max_length, :]
 
         if self.inverse_folding_head is not None and not self.inverse_folding_pre_decoder:
@@ -262,9 +263,9 @@ class GeometricDecoder(nn.Module):
         """Configure the optional ESM regression head once the encoder is known."""
         if embedding_dim <= 0:
             raise ValueError("ESM embedding dimension must be positive.")
-        if pre_decoder and self.tik_tok_enabled:
+        if pre_decoder and self.ti_tok_enabled:
             raise ValueError(
-                "ESM head cannot run before the decoder when TikTok latents are enabled."
+                "ESM head cannot run before the decoder when TiTok latents are enabled."
             )
         self.esm_pre_decoder = bool(pre_decoder)
         self.esm_projector = nn.Linear(self.decoder_channels, embedding_dim, bias=False)
@@ -290,17 +291,17 @@ class GeometricDecoder(nn.Module):
         )
         self.esm_head_enabled = True
 
-    def _build_decoder_tik_tok_stream(
+    def _build_decoder_ti_tok_stream(
         self,
         latent_tokens: torch.Tensor,
         original_mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Construct the decoder input sequence when TikTok is enabled.
+        """Construct the decoder input sequence when TiTok is enabled.
 
         Args:
             latent_tokens: Tensor ``(B, latent_count, D)`` output by the VQ layer.
             original_mask: Bool tensor ``(B, max_length)`` indicating valid
-                residue positions prior to TikTok augmentation.
+                residue positions prior to TiTok augmentation.
 
         Returns:
             tuple containing:
@@ -311,7 +312,7 @@ class GeometricDecoder(nn.Module):
             RuntimeError: If the decoder mask token has not been created.
         """
         if self.decoder_mask_token is None:
-            raise RuntimeError("TikTok decoder mask token is not initialized.")
+            raise RuntimeError("TiTok decoder mask token is not initialized.")
 
         batch_size = latent_tokens.size(0)
         latent_token_length = latent_tokens.size(1)
@@ -321,7 +322,7 @@ class GeometricDecoder(nn.Module):
         mask_tokens = mask_tokens * original_mask.to(mask_tokens.dtype).unsqueeze(-1)
 
         active_tokens = original_mask.to(torch.int64).sum(dim=1)
-        latent_keep = (active_tokens + self.tik_tok_compression_factor - 1) // self.tik_tok_compression_factor
+        latent_keep = (active_tokens + self.ti_tok_compression_factor - 1) // self.ti_tok_compression_factor
         latent_keep = latent_keep.clamp(min=0, max=latent_token_length)
 
         latent_positions = torch.arange(

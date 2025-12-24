@@ -21,26 +21,27 @@ class VQVAETransformer(nn.Module):
         self.vqvae_dim = configs.model.vqvae.vector_quantization.dim
         self.codebook_size = configs.model.vqvae.vector_quantization.codebook_size
 
-        tik_tok_cfg = getattr(
-            configs.model.vqvae.vector_quantization, "tik_tok", None
-        ) or {}
-        self.tik_tok_enabled = tik_tok_cfg.get("enabled", False)
-        compression_factor = tik_tok_cfg.get("compression_factor", 1)
-        self.tik_tok_compression_factor = int(compression_factor)
-        self.residual_depth = int(tik_tok_cfg.get("residual_depth", 1))
-        self.use_residual_vq = self.tik_tok_enabled and self.residual_depth > 1
-        if self.tik_tok_enabled:
-            if self.tik_tok_compression_factor <= 0:
-                raise ValueError("TikTok compression_factor must be a positive integer")
-            if (self.tik_tok_compression_factor != 1) and (self.tik_tok_compression_factor % 2) != 0:
-                raise ValueError("TikTok compression_factor must be an even integer")
+        ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "ti_tok", None)
+        if ti_tok_cfg is None:
+            ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "tik_tok", {})
+        
+        self.ti_tok_enabled = getattr(ti_tok_cfg, "enabled", False)
+        compression_factor = getattr(ti_tok_cfg, "compression_factor", 1)
+        self.ti_tok_compression_factor = int(compression_factor)
+        self.residual_depth = int(getattr(ti_tok_cfg, "residual_depth", 1))
+        self.use_residual_vq = self.ti_tok_enabled and self.residual_depth > 1
+        if self.ti_tok_enabled:
+            if self.ti_tok_compression_factor <= 0:
+                raise ValueError("TiTok compression_factor must be a positive integer")
+            if (self.ti_tok_compression_factor != 1) and (self.ti_tok_compression_factor % 2) != 0:
+                raise ValueError("TiTok compression_factor must be an even integer")
             self.latent_token_count = math.ceil(
-                self.max_length / self.tik_tok_compression_factor
+                self.max_length / self.ti_tok_compression_factor
             )
         else:
             self.latent_token_count = 0
 
-        encoder_sequence_extension = self.latent_token_count if self.tik_tok_enabled else 0
+        encoder_sequence_extension = self.latent_token_count if self.ti_tok_enabled else 0
         self.encoder_max_seq_len = self.max_length + encoder_sequence_extension
 
         if getattr(configs.train_settings.losses, "next_token_prediction", False):
@@ -64,14 +65,14 @@ class VQVAETransformer(nn.Module):
         input_shape = 128
 
         self.encoder_causal = getattr(configs.model.vqvae.encoder, 'causal', False)
-        if self.tik_tok_enabled and self.encoder_causal:
+        if self.ti_tok_enabled and self.encoder_causal:
             raise ValueError(
-                "TikTok latent tokens require a non-causal encoder. "
-                "Disable configs.model.vqvae.encoder.causal when tik_tok is enabled."
+                "TiTok latent tokens require a non-causal encoder. "
+                "Disable configs.model.vqvae.encoder.causal when ti_tok is enabled."
             )
 
-        self.tik_tok_latent_tokens = None
-        self.tik_tok_padding_classifier = None
+        self.ti_tok_latent_tokens = None
+        self.ti_tok_padding_classifier = None
 
         if not self.decoder_only:
             # Encoder
@@ -114,7 +115,7 @@ class VQVAETransformer(nn.Module):
                     self.ntp_blocks = ContinuousTransformerWrapper(
                         dim_in=configs.model.vqvae.vector_quantization.dim,
                         dim_out=configs.model.vqvae.vector_quantization.dim,
-                        max_seq_len=self.encoder_max_seq_len if not self.tik_tok_enabled else self.latent_token_count * self.residual_depth,
+                        max_seq_len=self.encoder_max_seq_len if not self.ti_tok_enabled else self.latent_token_count * self.residual_depth,
                         num_memory_tokens=configs.model.vqvae.encoder.num_memory_tokens,
                         attn_layers=Encoder(
                             dim=configs.model.vqvae.encoder.dimension,
@@ -146,8 +147,8 @@ class VQVAETransformer(nn.Module):
                 )
 
             encoder_dim = configs.model.vqvae.encoder.dimension
-            if self.tik_tok_enabled and self.latent_token_count > 0:
-                self.tik_tok_latent_tokens = nn.Parameter(
+            if self.ti_tok_enabled and self.latent_token_count > 0:
+                self.ti_tok_latent_tokens = nn.Parameter(
                     torch.randn(self.latent_token_count, encoder_dim)
                 )
 
@@ -203,16 +204,16 @@ class VQVAETransformer(nn.Module):
                 logger.info("VQ layer parameters frozen.")
 
         self.decoder = decoder
-        if self.tik_tok_enabled and getattr(self.decoder, 'decoder_causal', False):
+        if self.ti_tok_enabled and getattr(self.decoder, 'decoder_causal', False):
             raise ValueError(
-                "TikTok latent tokens require a non-causal decoder. "
-                "Disable configs.model.vqvae.decoder.causal when tik_tok is enabled."
+                "TiTok latent tokens require a non-causal decoder. "
+                "Disable configs.model.vqvae.decoder.causal when ti_tok is enabled."
             )
 
-        if self.tik_tok_enabled and self.latent_token_count > 0 and self.tik_tok_padding_classifier is None:
-            self.tik_tok_padding_classifier = nn.Linear(
+        if self.ti_tok_enabled and self.latent_token_count > 0 and self.ti_tok_padding_classifier is None:
+            self.ti_tok_padding_classifier = nn.Linear(
                 self.vqvae_dim,
-                self.tik_tok_compression_factor
+                self.ti_tok_compression_factor
             )
 
     def _project_encoder_input(self, x: torch.Tensor) -> torch.Tensor:
@@ -250,13 +251,13 @@ class VQVAETransformer(nn.Module):
         Optional[torch.Tensor],
         Optional[torch.Tensor],
     ]:
-        """Pass encoder activations through the VQ layer, including TikTok/residual paths.
+        """Pass encoder activations through the VQ layer, including TiTok/residual paths.
 
         Args:
-            quantizer_input: Transformer encoder activations with optional TikTok latents
-                appended at the tail when ``tik_tok`` is enabled.
+            quantizer_input: Transformer encoder activations with optional TiTok latents
+                appended at the tail when ``ti_tok`` is enabled.
             valid_mask: Standard key-padding mask for the original residues.
-            latent_mask_bool: Boolean mask over TikTok latent slots; ``None`` when TikTok is
+            latent_mask_bool: Boolean mask over TiTok latent slots; ``None`` when TiTok is
                 disabled and the entire sequence should be quantized in one pass.
             active_tokens: Per-sample residue counts prior to compression, used to
                 supervise the padding classifier.
@@ -265,12 +266,12 @@ class VQVAETransformer(nn.Module):
 
         Returns:
             Tuple containing the decoder input (quantized embeddings), flattened codebook
-            indices, VQ loss, updated latent mask, optional TikTok padding logits/targets,
+            indices, VQ loss, updated latent mask, optional TiTok padding logits/targets,
             residual indices (when residual VQ is active), and latent-token counts.
         """
 
-        tik_tok_padding_logits: Optional[torch.Tensor] = None
-        tik_tok_padding_targets: Optional[torch.Tensor] = None
+        ti_tok_padding_logits: Optional[torch.Tensor] = None
+        ti_tok_padding_targets: Optional[torch.Tensor] = None
         unflatten_indices: Optional[torch.Tensor] = None
         latent_counts: Optional[torch.Tensor] = None
 
@@ -279,10 +280,10 @@ class VQVAETransformer(nn.Module):
         if sample_codebook_temp is not None:
             vq_kwargs['sample_codebook_temp'] = sample_codebook_temp
 
-        if self.tik_tok_enabled and self.latent_token_count > 0:
+        if self.ti_tok_enabled and self.latent_token_count > 0:
             latent_tokens = quantizer_input[:, self.max_length:, :]
             if latent_mask_bool is None:
-                raise RuntimeError("TikTok latent mask was not created.")
+                raise RuntimeError("TiTok latent mask was not created.")
             latent_mask_bool = latent_mask_bool.to(torch.bool)
             decoder_input, indices, vq_loss = self.vector_quantizer(
                 latent_tokens,
@@ -294,8 +295,8 @@ class VQVAETransformer(nn.Module):
                 indices = self._flatten_residual_indices(indices)
                 vq_loss = vq_loss.sum(dim=-1)
 
-            if self.tik_tok_padding_classifier:
-                tik_tok_padding_logits, tik_tok_padding_targets, latent_counts = self._compute_tik_tok_padding_output(
+            if self.ti_tok_padding_classifier:
+                ti_tok_padding_logits, ti_tok_padding_targets, latent_counts = self._compute_ti_tok_padding_output(
                     decoder_input,
                     latent_mask_bool,
                     active_tokens,
@@ -309,8 +310,8 @@ class VQVAETransformer(nn.Module):
             indices,
             vq_loss,
             latent_mask_bool,
-            tik_tok_padding_logits,
-            tik_tok_padding_targets,
+            ti_tok_padding_logits,
+            ti_tok_padding_targets,
             unflatten_indices,
             latent_counts,
         )
@@ -322,9 +323,9 @@ class VQVAETransformer(nn.Module):
         unflatten_indices: Optional[torch.Tensor],
         valid_mask: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Assemble inputs and masks for the NTP head across TikTok/residual modes.
+        """Assemble inputs and masks for the NTP head across TiTok/residual modes.
 
-        When TikTok compression is active, the NTP stream should ignore the
+        When TiTok compression is active, the NTP stream should ignore the
         original residues and operate only on latent tokens (flattened across
         residual quantizers if enabled). Otherwise, it consumes the full
         decoder input with the standard validity mask.
@@ -334,7 +335,7 @@ class VQVAETransformer(nn.Module):
             projector will produce.
         """
 
-        if self.tik_tok_enabled and self.latent_token_count > 0 and latent_mask is not None:
+        if self.ti_tok_enabled and self.latent_token_count > 0 and latent_mask is not None:
             if self.use_residual_vq:
                 if unflatten_indices is None:
                     raise RuntimeError("Residual VQ requires unflattened indices for NTP inputs.")
@@ -370,31 +371,31 @@ class VQVAETransformer(nn.Module):
         valid_mask: torch.Tensor,
         mask_device: torch.device,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Rebuild decoder inputs in decoder-only mode and adjust masks for TikTok.
+        """Rebuild decoder inputs in decoder-only mode and adjust masks for TiTok.
 
         Besides the decoded embeddings, this returns the latent mask derived
         from ``-1`` padding, the possibly-updated validity mask, the NTP mask,
-        optional TikTok padding logits/targets, and inferred sequence lengths
-        when TikTok compression is enabled.
+        optional TiTok padding logits/targets, and inferred sequence lengths
+        when TiTok compression is enabled.
         """
 
         latent_mask_bool = (indices != -1)
         decoder_input = self.vector_quantizer.get_output_from_indices(indices)
 
-        tik_tok_padding_logits: Optional[torch.Tensor] = None
-        tik_tok_padding_targets: Optional[torch.Tensor] = None
+        ti_tok_padding_logits: Optional[torch.Tensor] = None
+        ti_tok_padding_targets: Optional[torch.Tensor] = None
         sequence_lengths: Optional[torch.Tensor] = None
         ntp_valid_mask = valid_mask
         updated_valid = valid_mask
 
-        if self.tik_tok_enabled:
-            tik_tok_padding_logits, tik_tok_padding_targets, latent_counts = self._compute_tik_tok_padding_output(
+        if self.ti_tok_enabled:
+            ti_tok_padding_logits, ti_tok_padding_targets, latent_counts = self._compute_ti_tok_padding_output(
                 decoder_input,
                 latent_mask_bool,
                 None,
             )
-            predicted_remainder = tik_tok_padding_logits.argmax(dim=-1)
-            sequence_lengths = latent_counts.to(torch.long) * self.tik_tok_compression_factor + predicted_remainder
+            predicted_remainder = ti_tok_padding_logits.argmax(dim=-1)
+            sequence_lengths = latent_counts.to(torch.long) * self.ti_tok_compression_factor + predicted_remainder
 
             token_positions = torch.arange(self.max_length, device=mask_device).unsqueeze(0)
             updated_valid = token_positions < sequence_lengths.unsqueeze(1)
@@ -406,8 +407,8 @@ class VQVAETransformer(nn.Module):
             updated_valid,
             ntp_valid_mask,
             sequence_lengths,
-            tik_tok_padding_logits,
-            tik_tok_padding_targets,
+            ti_tok_padding_logits,
+            ti_tok_padding_targets,
         )
 
     def create_causal_mask(self, seq_len, device):
@@ -448,8 +449,8 @@ class VQVAETransformer(nn.Module):
         ntp_valid_mask = valid
         markov_short_logits: Optional[torch.Tensor] = None
         markov_long_logits: Optional[torch.Tensor] = None
-        tik_tok_padding_logits = None
-        tik_tok_padding_targets = None
+        ti_tok_padding_logits = None
+        ti_tok_padding_targets = None
         sequence_lengths: Optional[torch.Tensor] = None
         active_tokens = None
         encoder_mask_bool = valid
@@ -460,8 +461,8 @@ class VQVAETransformer(nn.Module):
         if not self.decoder_only:
             encoder_input = self._project_encoder_input(x)
 
-            if self.tik_tok_enabled and self.latent_token_count > 0:
-                encoder_input, latent_mask_bool, encoder_mask_bool, active_tokens = self._append_tik_tok_latents(
+            if self.ti_tok_enabled and self.latent_token_count > 0:
+                encoder_input, latent_mask_bool, encoder_mask_bool, active_tokens = self._append_ti_tok_latents(
                     encoder_input,
                     valid_mask=valid,
                     encoder_mask_bool=encoder_mask_bool,
@@ -482,8 +483,8 @@ class VQVAETransformer(nn.Module):
                     indices,
                     vq_loss,
                     latent_mask_bool,
-                    tik_tok_padding_logits,
-                    tik_tok_padding_targets,
+                    ti_tok_padding_logits,
+                    ti_tok_padding_targets,
                     unflatten_indices,
                     latent_counts,
                 ) = self._apply_vector_quantization(
@@ -496,8 +497,8 @@ class VQVAETransformer(nn.Module):
 
                 if kwargs.get('return_vq_layer', False):
                     return (
-                        {"embeddings": decoder_input}, indices, vq_loss, ntp_logits, ntp_valid_mask, tik_tok_padding_logits,
-                        tik_tok_padding_targets,
+                        {"embeddings": decoder_input}, indices, vq_loss, ntp_logits, ntp_valid_mask, ti_tok_padding_logits,
+                        ti_tok_padding_targets,
                         sequence_lengths,
                         markov_short_logits,
                         markov_long_logits,
@@ -519,20 +520,20 @@ class VQVAETransformer(nn.Module):
                 if self.markov_gap_enabled:
                     markov_short_logits, markov_long_logits = self._markov_forward(shared_ntp_input, shared_ntp_mask)
 
-                if self.tik_tok_enabled and self.tik_tok_padding_classifier is not None:
-                    predicted_remainder = tik_tok_padding_logits.argmax(dim=-1)
+                if self.ti_tok_enabled and self.ti_tok_padding_classifier is not None:
+                    predicted_remainder = ti_tok_padding_logits.argmax(dim=-1)
                     sequence_lengths = latent_counts.to(
-                        torch.long) * self.tik_tok_compression_factor + predicted_remainder
+                        torch.long) * self.ti_tok_compression_factor + predicted_remainder
                     sequence_lengths = torch.min(sequence_lengths, torch.full_like(sequence_lengths, self.max_length))
-                elif self.tik_tok_enabled and self.tik_tok_padding_classifier is None:
+                elif self.ti_tok_enabled and self.ti_tok_padding_classifier is None:
                     sequence_lengths = latent_mask_bool.sum(dim=-1)
 
             else:
                 decoder_input = x
-                if self.tik_tok_enabled:
+                if self.ti_tok_enabled:
                     # sequence_lengths = valid.sum(dim=1).to(torch.long)
-                    # Error to say not implemented if tik_tok enabled without vqvae
-                    raise NotImplementedError("TikTok mode requires vector quantization to be enabled.")
+                    # Error to say not implemented if ti_tok enabled without vqvae
+                    raise NotImplementedError("TiTok mode requires vector quantization to be enabled.")
 
         else:
             indices = x
@@ -542,11 +543,11 @@ class VQVAETransformer(nn.Module):
                 valid,
                 ntp_valid_mask,
                 sequence_lengths,
-                tik_tok_padding_logits,
-                tik_tok_padding_targets,
+                ti_tok_padding_logits,
+                ti_tok_padding_targets,
             ) = self._decode_from_indices(indices, valid, mask.device)
 
-        decoder_true_lengths = sequence_lengths if self.tik_tok_enabled else None
+        decoder_true_lengths = sequence_lengths if self.ti_tok_enabled else None
 
         x = self.decoder(decoder_input, valid, true_lengths=decoder_true_lengths)
 
@@ -556,29 +557,29 @@ class VQVAETransformer(nn.Module):
             vq_loss,
             ntp_logits,
             ntp_valid_mask,
-            tik_tok_padding_logits,
-            tik_tok_padding_targets,
+            ti_tok_padding_logits,
+            ti_tok_padding_targets,
             sequence_lengths,
             markov_short_logits,
             markov_long_logits,
         )
 
-    def _append_tik_tok_latents(self, x: torch.Tensor, valid_mask: torch.Tensor, encoder_mask_bool: torch.Tensor):
-        """Append TikTok latent tokens to the encoder stream and update masks.
+    def _append_ti_tok_latents(self, x: torch.Tensor, valid_mask: torch.Tensor, encoder_mask_bool: torch.Tensor):
+        """Append TiTok latent tokens to the encoder stream and update masks.
 
-        This helper handles the boilerplate for TikTok-mode: it concatenates the
+        This helper handles the boilerplate for TiTok-mode: it concatenates the
         learnable latent token bank to each sequence, derives how many of those
         latents should remain active based on the number of valid input tokens,
         and merges the resulting latent mask into the encoder's key padding mask.
 
         Args:
             x: Tensor of shape ``(B, L, D)`` containing the encoder activations
-               directly after ``encoder_tail`` (before TikTok augmentation).
+               directly after ``encoder_tail`` (before TiTok augmentation).
             valid_mask: Bool tensor ``(B, L)`` where True marks residues that are
                both unmasked and non-NaN; used to compute the latent keep count.
             encoder_mask_bool: Bool tensor ``(B, L)`` representing the current
                key-padding mask passed to the transformer encoder; typically this
-               is identical to ``valid_mask`` prior to TikTok augmentation.
+               is identical to ``valid_mask`` prior to TiTok augmentation.
 
         Returns:
             tuple:
@@ -590,18 +591,18 @@ class VQVAETransformer(nn.Module):
                 - active token counts ``(B,)`` prior to compression
 
         Raises:
-            RuntimeError: If the TikTok latent parameter tensor has not been
-                initialised (should not happen when TikTok is enabled).
+            RuntimeError: If the TiTok latent parameter tensor has not been
+                initialised (should not happen when TiTok is enabled).
         """
         batch_size = x.size(0)
-        if self.tik_tok_latent_tokens is None:
-            raise RuntimeError("TikTok latent tokens are not initialized.")
+        if self.ti_tok_latent_tokens is None:
+            raise RuntimeError("TiTok latent tokens are not initialized.")
 
-        latent_tokens = self.tik_tok_latent_tokens.unsqueeze(0).expand(batch_size, -1, -1)
+        latent_tokens = self.ti_tok_latent_tokens.unsqueeze(0).expand(batch_size, -1, -1)
         x = torch.cat([x, latent_tokens], dim=1)
 
         active_tokens = valid_mask.to(torch.int64).sum(dim=1)
-        latent_keep = (active_tokens + self.tik_tok_compression_factor - 1) // self.tik_tok_compression_factor
+        latent_keep = (active_tokens + self.ti_tok_compression_factor - 1) // self.ti_tok_compression_factor
         latent_keep = latent_keep.clamp(min=0, max=self.latent_token_count)
 
         latent_positions = torch.arange(
@@ -614,22 +615,22 @@ class VQVAETransformer(nn.Module):
 
         return x, latent_mask_bool, encoder_mask_bool, active_tokens
 
-    def _compute_tik_tok_padding_output(
+    def _compute_ti_tok_padding_output(
             self,
             latent_tokens: torch.Tensor,
             latent_mask_bool: torch.Tensor,
             active_tokens: Optional[torch.Tensor],
     ):
-        """Infer original residue length from TikTok latents.
+        """Infer original residue length from TiTok latents.
 
         Each latent token represents ``compression_factor`` residues (minus any
         padding). The last active latent therefore carries information about the
         padding remainder. This helper selects that latent, runs it through the
-        TikTok padding classifier, and returns the logits over remainder classes
+        TiTok padding classifier, and returns the logits over remainder classes
         along with optional supervision targets and latent counts.
 
         Args:
-            latent_tokens: Quantized TikTok latent embeddings of shape
+            latent_tokens: Quantized TiTok latent embeddings of shape
                 ``(B, latent_count, D)``.
             latent_mask_bool: Boolean mask ``(B, latent_count)`` indicating which
                 latent slots are valid.
@@ -649,11 +650,11 @@ class VQVAETransformer(nn.Module):
         last_indices = (active_counts - 1).unsqueeze(1).unsqueeze(2).expand(-1, 1, latent_tokens.size(-1))
         last_latent = latent_tokens.gather(1, last_indices).squeeze(1)
 
-        logits = self.tik_tok_padding_classifier(last_latent)
+        logits = self.ti_tok_padding_classifier(last_latent)
 
         targets = None
         if active_tokens is not None:
-            targets = active_tokens.to(torch.long) % self.tik_tok_compression_factor
+            targets = active_tokens.to(torch.long) % self.ti_tok_compression_factor
 
         return logits, targets, active_counts
 
@@ -663,7 +664,7 @@ class VQVAETransformer(nn.Module):
         Args:
             indices: Tensor ``(B, L, D)`` produced by :class:`ResidualVQ`, where
                 ``B`` is the batch size, ``L`` the latent token count, and ``D``
-                the residual depth. ``-1`` marks padded tokens. TikTok ensures
+                the residual depth. ``-1`` marks padded tokens. TiTok ensures
                 masking is uniform across depths, so a padded position is padded
                 for every quantizer.
 

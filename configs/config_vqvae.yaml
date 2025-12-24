@@ -46,12 +46,12 @@ model:
       cosine_sample_codebook_temp: False
       log_codebook_usage_statistics: True
       alpha: 1.0
-      tik_tok:
+      ti_tok:
         enabled: False
         compression_factor: 8
         residual_depth: 1
         classifier_weight: 0.1
-        adaptive_coefficient: True
+        adaptive_coefficient: False
     encoder:
       freeze_parameters: False
       dimension: 1024  # Used as dim_in and dim_out for ContinuousTransformerWrapper

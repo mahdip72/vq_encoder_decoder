@@ -169,7 +169,10 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
     binned_distance_adaptive = configs.train_settings.losses.binned_distance_classification.adaptive_coefficient
     ntp_adaptive = configs.train_settings.losses.next_token_prediction.adaptive_coefficient
     markov_adaptive = configs.train_settings.losses.markov_gap.adaptive_coefficient
-    tik_tok_adaptive = configs.model.vqvae.vector_quantization.tik_tok.adaptive_coefficient
+    ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "ti_tok", None)
+    if ti_tok_cfg is None:
+        ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "tik_tok", {})
+    ti_tok_adaptive = getattr(ti_tok_cfg, "adaptive_coefficient", False)
     inverse_folding_adaptive = configs.train_settings.losses.inverse_folding.adaptive_coefficient
     plddt_adaptive = configs.train_settings.losses.plddt.adaptive_coefficient
     esm_adaptive = configs.train_settings.losses.esm.adaptive_coefficient
@@ -222,9 +225,9 @@ def adjust_adaptive_coefficients(adaptive_loss_coeffs, global_grad_norms, config
                 adaptive_loss_coeffs.get('markov_gap', 1.0), global_grad_norms['markov_gap']
             )
 
-    if 'tik_tok_padding' in global_grad_norms and tik_tok_adaptive:
-        adaptive_loss_coeffs['tik_tok_padding'] = adjust_coeff_by_grad(
-            adaptive_loss_coeffs.get('tik_tok_padding', 1.0), global_grad_norms['tik_tok_padding']
+    if 'ti_tok_padding' in global_grad_norms and ti_tok_adaptive:
+        adaptive_loss_coeffs['ti_tok_padding'] = adjust_coeff_by_grad(
+            adaptive_loss_coeffs.get('ti_tok_padding', 1.0), global_grad_norms['ti_tok_padding']
         )
 
     if 'inverse_folding' in global_grad_norms and inverse_folding_adaptive:
@@ -342,10 +345,13 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
     if configs.model.vqvae.vector_quantization.enabled:
         local_grad_norms['vq'] = compute_grad_norm(loss_dict.get('vq_loss', torch.tensor(0.0)), net.parameters())
 
-    if configs.model.vqvae.vector_quantization.tik_tok.enabled:
-        tik_tok_loss = loss_dict.get('tik_tok_padding_loss', None)
-        if isinstance(tik_tok_loss, torch.Tensor) and tik_tok_loss.requires_grad:
-            local_grad_norms['tik_tok_padding'] = compute_grad_norm(tik_tok_loss, net.parameters())
+    ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "ti_tok", None)
+    if ti_tok_cfg is None:
+        ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "tik_tok", {})
+    if getattr(ti_tok_cfg, "enabled", False):
+        ti_tok_loss = loss_dict.get('ti_tok_padding_loss', None)
+        if isinstance(ti_tok_loss, torch.Tensor) and ti_tok_loss.requires_grad:
+            local_grad_norms['ti_tok_padding'] = compute_grad_norm(ti_tok_loss, net.parameters())
 
     if configs.train_settings.losses.inverse_folding.enabled:
         inv_loss = loss_dict.get('inverse_folding_loss', None)
@@ -368,7 +374,7 @@ def log_per_loss_grad_norms(loss_dict, net, configs, writer, accelerator, global
         + loss_dict.get('vq_loss', zero)
         + loss_dict.get('ntp_loss', zero)
         + loss_dict.get('markov_gap_loss', zero)
-        + loss_dict.get('tik_tok_padding_loss', zero)
+        + loss_dict.get('ti_tok_padding_loss', zero)
     )
     local_grad_norms['total_unscaled'] = compute_grad_norm(total_loss_unscaled, net.parameters())
 
@@ -812,8 +818,8 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
     vq_loss = output_dict.get('vq_loss', torch.tensor(0.0, device=outputs.device))
     indices = output_dict.get('indices', None)
     ntp_mask = output_dict.get('ntp_mask', None)
-    tik_tok_padding_logits = output_dict.get('tik_tok_padding_logits', None)
-    tik_tok_padding_targets = output_dict.get('tik_tok_padding_targets', None)
+    ti_tok_padding_logits = output_dict.get('ti_tok_padding_logits', None)
+    ti_tok_padding_targets = output_dict.get('ti_tok_padding_targets', None)
     alpha = configs.model.vqvae.vector_quantization.alpha
     # Compute aligned MSE foundation
     mse_raw, x_pred_aligned, x_true_aligned = calculate_aligned_mse_loss(
@@ -830,7 +836,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'ntp': 1.0,
         'markov_gap': 1.0,
         'vq': 1.0,
-        'tik_tok_padding': 1.0,
+        'ti_tok_padding': 1.0,
         'inverse_folding': 1.0,
         'plddt': 1.0,
         'esm': 1.0,
@@ -1019,17 +1025,20 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         loss_dict['unscaled_inverse_folding_loss'] = zero
         loss_dict['inverse_folding_loss'] = zero
 
-    tik_tok_cfg = getattr(configs.model.vqvae.vector_quantization, 'tik_tok', False)
-    if tik_tok_cfg and getattr(tik_tok_cfg, 'enabled', False) and tik_tok_padding_logits is not None and tik_tok_padding_targets is not None and tik_tok_padding_targets.numel() > 0:
-        tik_tok_weight = float(tik_tok_cfg.classifier_weight)
-        tik_tok_coeff = adaptive.get('tik_tok_padding', 1.0)
-        tik_tok_unscaled = F.cross_entropy(tik_tok_padding_logits, tik_tok_padding_targets)
-        loss_dict['unscaled_tik_tok_padding_loss'] = tik_tok_unscaled
-        loss_dict['tik_tok_padding_loss'] = tik_tok_unscaled * tik_tok_weight * tik_tok_coeff
+    ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "ti_tok", None)
+    if ti_tok_cfg is None:
+        ti_tok_cfg = getattr(configs.model.vqvae.vector_quantization, "tik_tok", None)
+
+    if ti_tok_cfg and getattr(ti_tok_cfg, "enabled", False) and ti_tok_padding_logits is not None and ti_tok_padding_targets is not None and ti_tok_padding_targets.numel() > 0:
+        ti_tok_weight = float(ti_tok_cfg.classifier_weight)
+        ti_tok_coeff = adaptive.get("ti_tok_padding", 1.0)
+        ti_tok_unscaled = F.cross_entropy(ti_tok_padding_logits, ti_tok_padding_targets)
+        loss_dict["unscaled_ti_tok_padding_loss"] = ti_tok_unscaled
+        loss_dict["ti_tok_padding_loss"] = ti_tok_unscaled * ti_tok_weight * ti_tok_coeff
     else:
         zero = torch.tensor(0.0, device=device)
-        loss_dict['unscaled_tik_tok_padding_loss'] = zero
-        loss_dict['tik_tok_padding_loss'] = zero
+        loss_dict["unscaled_ti_tok_padding_loss"] = zero
+        loss_dict["ti_tok_padding_loss"] = zero
 
     # Sum reconstruction components
     valid_losses = [
@@ -1052,7 +1061,7 @@ def calculate_decoder_loss(output_dict: Dict[str, torch.Tensor],
         'unscaled_backbone_direction_loss',
         'unscaled_binned_direction_classification_loss',
         'unscaled_binned_distance_classification_loss',
-        'unscaled_tik_tok_padding_loss',
+        'unscaled_ti_tok_padding_loss',
         'unscaled_inverse_folding_loss',
         'unscaled_plddt_loss',
         'unscaled_esm_loss',
