@@ -122,6 +122,9 @@ def main():
 
     # Override task-specific settings
     configs.model.max_length = infer_cfg.get('max_length', configs.model.max_length)
+    esm_cfg = getattr(configs.train_settings.losses, 'esm', None)
+    if esm_cfg and getattr(esm_cfg, 'enabled', False):
+        esm_cfg.enabled = False
     configs.model.encoder.pretrained.enabled = False
 
     # Load decoder config from saved results
@@ -157,7 +160,13 @@ def main():
 
     # Load checkpoint
     checkpoint_path = os.path.join(infer_cfg.trained_model_dir, infer_cfg.checkpoint_path)
-    model = load_checkpoints_simple(checkpoint_path, model, logger, decoder_only=True)
+    model = load_checkpoints_simple(
+        checkpoint_path,
+        model,
+        logger,
+        decoder_only=True,
+        drop_prefixes=["protein_encoder.", "vqvae.decoder.esm_"],
+    )
 
     compile_cfg = infer_cfg.get('compile_model')
     if compile_cfg and compile_cfg.get('enabled', False):

@@ -237,7 +237,7 @@ def save_checkpoint(epoch: int, model_path: str, accelerator: Accelerator, **kwa
     }, model_path)
 
 
-def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False):
+def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False, drop_prefixes=None):
     model_checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     pretrained_state_dict = model_checkpoint['model_state_dict']
 
@@ -251,6 +251,12 @@ def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False):
     if decoder_only:
         pretrained_state_dict = {k: v for k, v in pretrained_state_dict.items() if
                                  not (k.startswith('encoder') or k.startswith('vqvae.encoder'))}
+    if drop_prefixes:
+        prefixes = tuple(drop_prefixes) if isinstance(drop_prefixes, (list, tuple)) else (str(drop_prefixes),)
+        pretrained_state_dict = {
+            k: v for k, v in pretrained_state_dict.items()
+            if not any(k.startswith(prefix) for prefix in prefixes)
+        }
 
     load_log = net.load_state_dict(pretrained_state_dict, strict=False)
     logger.info(f'Loading checkpoint log: {load_log}')
