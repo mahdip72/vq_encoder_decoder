@@ -14,8 +14,11 @@ model performance.
 
 Dependencies
 1) Use the same Python environment as the main project.
-2) If you do not have one, install demo-only dependencies:
+2) If you do not have one, install demo-only dependencies. First create and activate a Python environment, then run this script:
+
+```cmd
    bash demo/install_demo.sh
+```
 
 Usage
 1) Edit `demo/demo_eval_config.yaml`:
@@ -23,7 +26,9 @@ Usage
    - `trained_model_dir`: directory with checkpoint + saved training YAMLs
    - Set these based on your need: `save_indices_csv`, `save_embeddings_h5`, `save_pdb_and_evaluate`
 2) Run:
+```cmd
    python demo/demo_evaluation.py
+```
 
 Notes
 - Both PDB and CIF files are handled automatically.
