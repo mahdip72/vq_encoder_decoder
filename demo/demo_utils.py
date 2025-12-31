@@ -2,14 +2,15 @@ import csv
 import logging
 import os
 import sys
+from collections import OrderedDict
 
 import h5py
 import numpy as np
+import torch
 import yaml
 from box import Box
 from tqdm import tqdm
 
-from utils.utils import save_backbone_pdb_inference
 from utils.evaluation.tmscore import TMscoring
 
 
@@ -23,6 +24,95 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     decoder_configs = Box(dec_cfg)
 
     return encoder_configs, decoder_configs
+
+
+def load_configs(config):
+    tree_config = Box(config)
+    tree_config.optimizer.lr = float(tree_config.optimizer.lr)
+    tree_config.optimizer.decay.min_lr = float(tree_config.optimizer.decay.min_lr)
+    tree_config.optimizer.weight_decay = float(tree_config.optimizer.weight_decay)
+    tree_config.optimizer.eps = float(tree_config.optimizer.eps)
+    return tree_config
+
+
+def _remap_gcp_encoder_keys(state_dict, model, logger=None):
+    if not isinstance(state_dict, (dict, OrderedDict)):
+        return state_dict
+
+    encoder = getattr(model, "encoder", None)
+    if encoder is None:
+        return state_dict
+
+    try:
+        from models.gcpnet.models.base import PretrainedEncoder
+    except ImportError:
+        PretrainedEncoder = ()  # type: ignore
+
+    def _is_unwrapped_key(key: str) -> bool:
+        return (
+            key.startswith("encoder.")
+            and not key.startswith("encoder.encoder.")
+            and not key.startswith("encoder.featuriser.")
+            and not key.startswith("encoder.task_transform.")
+        )
+
+    has_wrapped_keys = any(key.startswith("encoder.encoder.") for key in state_dict)
+    has_unwrapped_keys = any(_is_unwrapped_key(key) for key in state_dict)
+    is_wrapped_model = isinstance(encoder, PretrainedEncoder)
+
+    if not is_wrapped_model and has_wrapped_keys:
+        remapped = OrderedDict()
+        for key, value in state_dict.items():
+            if key.startswith("encoder.encoder."):
+                remapped["encoder." + key[len("encoder.encoder."):]] = value
+            elif key.startswith("encoder.featuriser.") or key.startswith("encoder.task_transform."):
+                continue
+            else:
+                remapped[key] = value
+        if logger is not None:
+            logger.info("Remapped encoder checkpoint keys for non-pretrained encoder.")
+        return remapped
+
+    if is_wrapped_model and not has_wrapped_keys and has_unwrapped_keys:
+        remapped = OrderedDict()
+        for key, value in state_dict.items():
+            if _is_unwrapped_key(key):
+                remapped["encoder.encoder." + key[len("encoder."):]] = value
+            else:
+                remapped[key] = value
+        if logger is not None:
+            logger.info("Remapped encoder checkpoint keys for pretrained encoder wrapper.")
+        return remapped
+
+    return state_dict
+
+
+def load_checkpoints_simple(checkpoint_path, net, logger, decoder_only=False, drop_prefixes=None):
+    model_checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    pretrained_state_dict = model_checkpoint['model_state_dict']
+
+    pretrained_state_dict = {
+        k.replace('_orig_mod.', ''): v for k, v in pretrained_state_dict.items()
+    }
+
+    pretrained_state_dict = _remap_gcp_encoder_keys(pretrained_state_dict, net, logger)
+
+    if decoder_only:
+        pretrained_state_dict = {
+            k: v
+            for k, v in pretrained_state_dict.items()
+            if not (k.startswith('encoder') or k.startswith('vqvae.encoder'))
+        }
+    if drop_prefixes:
+        prefixes = tuple(drop_prefixes) if isinstance(drop_prefixes, (list, tuple)) else (str(drop_prefixes),)
+        pretrained_state_dict = {
+            k: v for k, v in pretrained_state_dict.items()
+            if not any(k.startswith(prefix) for prefix in prefixes)
+        }
+
+    load_log = net.load_state_dict(pretrained_state_dict, strict=False)
+    logger.info(f'Loading checkpoint log: {load_log}')
+    return net
 
 
 def build_logger(result_dir, name="demo_evaluation"):
@@ -73,6 +163,60 @@ def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records
             'indices': ind_trim,
             'protein_sequence': seq,
         })
+
+
+def save_backbone_pdb_inference(
+    coords,
+    masks,
+    save_path_prefix,
+    atom_names=("N", "CA", "C"),
+    chain_id="A",
+):
+    if coords.dim() == 3:
+        coords = coords.unsqueeze(0)
+        masks = masks.unsqueeze(0)
+
+    _, length = coords.shape[:2]
+
+    for b in range(coords.shape[0]):
+        out_path = save_path_prefix if save_path_prefix.lower().endswith('.pdb') else f"{save_path_prefix}.pdb"
+
+        with open(out_path, "w") as fh:
+            serial = 1
+            for r in range(length):
+                if masks[b, r].item() != 1:
+                    continue
+
+                for a_idx, atom_name in enumerate(atom_names):
+                    if not torch.isfinite(coords[b, r, a_idx]).all():
+                        continue
+
+                    x, y, z = coords[b, r, a_idx].tolist()
+                    element = atom_name[0].upper()
+
+                    fh.write(
+                        f"ATOM  "
+                        f"{serial:5d} "
+                        f"{atom_name:>4s}"
+                        f" "
+                        f"UNK"
+                        f" "
+                        f"{chain_id}"
+                        f"{r + 1:4d}"
+                        f" "
+                        f"   "
+                        f"{x:8.3f}"
+                        f"{y:8.3f}"
+                        f"{z:8.3f}"
+                        f"{1.00:6.2f}"
+                        f"{0.00:6.2f}"
+                        f"          "
+                        f"{element:>2s}"
+                        "\n"
+                    )
+                    serial += 1
+
+            fh.write("TER\nEND\n")
 
 
 def save_predictions_to_pdb(pids, preds, masks, pdb_dir):

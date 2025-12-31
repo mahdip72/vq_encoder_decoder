@@ -18,7 +18,6 @@ if not os.path.exists(os.path.join(PROJECT_ROOT, "configs")):
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from utils.utils import load_configs, load_checkpoints_simple
 from utils.custom_losses import calculate_aligned_mse_loss
 from models.super_model import prepare_model
 from data.dataset import custom_collate_pretrained_gcp
@@ -27,6 +26,8 @@ from dataset import DemoStructureDataset
 from demo_utils import (
     build_logger,
     load_saved_encoder_decoder_configs,
+    load_configs,
+    load_checkpoints_simple,
     record_indices,
     record_embeddings,
     save_predictions_to_pdb,
