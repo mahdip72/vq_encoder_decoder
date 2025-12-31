@@ -1,0 +1,24 @@
+trained_model_dir: "path/to/trained_model" # Directory where the trained model is saved
+checkpoint_path: "checkpoints/best_valid.pth"
+config_vqvae: "config_vqvae.yaml"
+config_encoder: "config_gcpnet_encoder.yaml"
+config_decoder: "config_geometric_decoder.yaml"
+
+data_dir: "path/to/pdb_cif_files"
+output_base_dir: "demo_results"
+
+batch_size: 2
+num_workers: 0
+max_task_samples: 0  # 0 means no limit
+tqdm_progress_bar: true
+
+alignment_strategy: "kabsch"  # kabsch, no
+mixed_precision: "bf16"  # no, fp16, bf16
+
+save_indices_csv: true
+indices_csv_filename: "vq_indices.csv"
+
+save_embeddings_h5: true
+embeddings_h5_filename: "vq_embed.h5"
+
+save_pdb_and_evaluate: true
