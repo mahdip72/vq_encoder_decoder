@@ -22,6 +22,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 - 🗓️ **10 Oct 2025** — 🚀 Pretrained checkpoints and evaluation datasets are now available for download!
 - 🗓️ **17 Oct 2025** - Release a lite version of GCP-VQVAE with half the parameters.
 - 🗓️ **22 Dec 2025** - Add Protein Structure Tokenizer benchmark evaluation scripts and instructions. Refer to [pst_evaluation/README.md](./pst_evaluation/README.md).
+- 🗓️ **31 Dec 2025** - Added a simplified evaluation demo and refactored README docs for easier navigation. See [demo/README.md](demo/README.md).
 
 
 
@@ -74,6 +75,7 @@ The demo workflow below is for quick local evaluation of checkpoints on raw PDB/
 ### Simplified Evaluation Demo
 The demo pipeline (`demo/demo_evaluation.py`) preprocesses raw PDB/CIF/mmCIF files, encodes tokens, optionally writes
 embeddings, and can reconstruct + evaluate PDBs. It is meant for quick testing of checkpoints without the full multi-GPU stack.
+See [demo/README.md](demo/README.md) for setup and usage.
 
 Example demo config (`demo/demo_eval_config.yaml`):
 ```yaml

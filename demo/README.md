@@ -1,4 +1,4 @@
-# Demo Evaluation (Standalone)
+# Simplified Evaluation Demo
 
 This demo runs a minimal inference + evaluation loop without bells and whistles.
 It scans a directory for PDB/CIF/mmCIF files,
@@ -28,6 +28,30 @@ Usage
 2) Run:
 ```cmd
    python demo/demo_evaluation.py
+```
+
+Example demo config (`demo/demo_eval_config.yaml`):
+```yaml
+trained_model_dir: "/abs/path/to/trained_model"  # Directory of model checkpoint result in timestamped 
+checkpoint_path: "checkpoints/best_valid.pth"  # Relative to trained_model_dir
+config_vqvae: "config_vqvae.yaml"  # Saved training config name
+config_encoder: "config_gcpnet_encoder.yaml"  # Saved encoder config name
+config_decoder: "config_geometric_decoder.yaml"  # Saved decoder config name
+
+data_dir: "/abs/path/to/pdb_cif_dir"  # Root of PDB/CIF/mmCIF files (recursive)
+output_base_dir: "demo_results"  # Output parent dir (timestamped subdir created)
+
+batch_size: 2  # Inference batch size
+num_workers: 0  # DataLoader workers
+max_task_samples: 0  # 0 means no limit
+tqdm_progress_bar: true  # Show progress bars
+
+alignment_strategy: "kabsch"  # kabsch or no (type of alignment before evaluation)
+mixed_precision: "bf16"  # no, fp16, bf16
+
+save_indices_csv: true  # Write discrete tokens into vq_indices.csv
+save_embeddings_h5: false  # Write continuous VQ embeddings into vq_embed.h5
+save_pdb_and_evaluate: true  # Write original and reconstrued coordinates in PDB format and evaluate TM-score/RMSD
 ```
 
 Notes
