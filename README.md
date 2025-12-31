@@ -31,47 +31,18 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 - PyTorch 2.5+
 - CUDA-compatible GPU
 - 16GB+ GPU memory recommended for training
+- 12GB+ GPU memory recommended for inference/evaluation
 
 
 ## Installation
+See [docs/installation/README.md](docs/installation/README.md) for Docker images, Dockerfile build steps, and 
+optional FlashAttention-3 notes.
 
-### Option 1: Using Pre-built Docker Images
+## Data Pipeline
 
-For AMD64 systems:
-```bash
-docker pull mahdip72/vqvae3d:amd_v8
-docker run --gpus all -it mahdip72/vqvae3d:amd_v8
-```
-
-For ARM64 systems:
-```bash
-docker pull mahdip72/vqvae3d:arm_v3
-docker run --gpus all -it mahdip72/vqvae3d:arm_v3
-```
-
-### Option 2: Building from Dockerfile
-
-```bash
-# Clone the repository
-git clone https://github.com/mahdip72/vq_encoder_decoder.git
-cd vq_encoder_decoder
-
-# Build the Docker image
-docker build -t vqvae3d .
-
-# Run the container
-docker run --gpus all -it vqvae3d
-```
-
-#### (Optional, Hopper only) FlashAttention-3
-If you are on H100, H800, GH200, H200 (SM90) you can enable FlashAttention-3 for faster, lower‑memory attention.
-
-Build with FA3 baked in:
-```bash
-docker build --build-arg FA3=1 -t vqvae3d-fa3 .
-```
-
-## Data
+For training and inference scripts (separate from `demo/`), convert structure PDB/CIF files to HDF5 and use 
+those `.h5` datasets as inputs. Full data prep, formats, and conversion details live in 
+[docs/data/README.md](docs/data/README.md).
 
 ### Evaluation Datasets
 
@@ -83,145 +54,10 @@ docker build --build-arg FA3=1 -t vqvae3d-fa3 .
 | CASP16 | CASP 16 evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/EgMgJtM0fdNHpU46opUf0OgBZxhlJiV8Xu8N1Ke2lgw0mg?e=0d46eL) |
 | Zero-Shot | Zero-shot evaluation dataset | [Download](https://mailmissouri-my.sharepoint.com/:f:/g/personal/mpngf_umsystem_edu/EiPEh9RGgypEi_LRWlNhLi0BSlbFsr9VryhKT1v8MYLj7Q?e=Uhr3bF) |
 
-### Download PDBs with Foldcomp (recommended)
-We provide a helper script to fetch a Foldcomp-formatted database and extract structures to uncompressed `.pdb` files. See the official docs for more details: [Foldcomp README](https://github.com/steineggerlab/foldcomp) and the [Foldcomp download server](https://foldcomp.steineggerlab.workers.dev/).
-
-Quick start (preferred):
-```bash
-# 1) Open the script and set parameters at the top:
-#    - DATABASE_NAME (e.g. afdb_swissprot_v4, afdb_uniprot_v4, afdb_rep_v4, afdb_rep_dark_v4,
-#      esmatlas, esmatlas_v2023_02, highquality_clust30, or organism sets like h_sapiens)
-#    - DOWNLOAD_DIR (where DB files live)
-#    - OUTPUT_DIR (where .pdb files will be written)
-
-nano data/download_foldcomp_db_to_pdb.sh
-
-# 2) Run the script
-bash data/download_foldcomp_db_to_pdb.sh
-
-# The script will (a) fetch the DB via the optional Python helper if available,
-# or instruct you to download DB files from the Foldcomp server, then (b) call
-# `foldcomp decompress` to write uncompressed .pdb files to OUTPUT_DIR.
-```
-
-Notes:
-- You need the `foldcomp` CLI in your PATH. Install guidance is available in the [Foldcomp README](https://github.com/steineggerlab/foldcomp).
-- The script optionally uses the Python package `foldcomp` to auto-download DB files. If not present, it prints the exact files to fetch from the official server.
-- After PDBs are downloaded, continue with the converters below to produce the `.h5` dataset used by this repo.
-
-### HDF5 format used by this repo
-- **seq**: length‑L amino‑acid string. Standard 20‑letter alphabet; **X** marks unknowns and numbering gaps.
-- **N_CA_C_O_coord**: float array of shape (L, 4, 3). Backbone atom coordinates in Å for [N, CA, C, O] per residue. Missing atoms/residues are NaN‑filled.
-- **plddt_scores**: float array of shape (L,). Per‑residue pLDDT pulled from B‑factors when present; NaN if unavailable.
-
-### Convert PDB/CIF → HDF5
-This script scans a directory recursively and writes one `.h5` per processed chain.
-- **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
-- **Chain filtering**: drops chains whose final length (after gap handling) is < `--min_len` or > `--max_len`.
-- **Duplicate sequences**: among highly similar chains (identity > 0.95), keeps the one with the most resolved CA atoms.
-- **Numbering gaps & insertions**: handles insertion codes natively. For numeric residue‑number gaps (both PDB and CIF), inserts `X` residues with NaN coords. If a gap exceeds `--gap_threshold` (default 5), reduces the number of inserted residues using the straight‑line CA–CA distance (assumes ~3.8 Å per residue); if CA coords are missing, caps at the threshold. This prevents runaway padding for CIF files with non‑contiguous author numbering.
-- **Outputs**: by default filenames are `<index>_<basename>.h5` or `<index>_<basename>_chain_id_<ID>.h5` for multi‑chain structures. Add `--no_file_index` to omit the `<index>_` prefix.
-
-Examples:
-```bash
-# Default: PDB input
-python data/pdb_to_h5.py \
-  --data /abs/path/to/pdb_root \
-  --save_path /abs/path/to/output_h5 \
-  --max_len 2048 \
-  --min_len 25 \
-  --max_workers 16
-```
-
-```bash
-# CIF input (no .gz)
-python data/pdb_to_h5.py \
-  --use_cif \
-  --data /abs/path/to/cif_root \
-  --save_path /abs/path/to/output_h5
-```
-
-```bash
-# Control large numeric gaps with CA–CA estimate (applies to PDB and CIF)
-python data/pdb_to_h5.py \
-  --data /abs/path/to/structures \
-  --save_path /abs/path/to/output_h5 \
-  --gap_threshold 5
-```
-
-```bash
-# Omit index from output filenames
-python data/pdb_to_h5.py \
-  --no_file_index \
-  --data /abs/path/to/pdb_or_cif_root \
-  --save_path /abs/path/to/output_h5
-```
-
-### Convert HDF5 → PDB
-Converts `.h5` backbones to PDB, writing only N/CA/C atoms and skipping residues with any NaN coordinates.
-
-Example:
-```bash
-python data/h5_to_pdb.py \
-  --h5_dir /abs/path/to/input_h5 \
-  --pdb_dir /abs/path/to/output_pdb
-```
-
-### Split complexes into monomer PDBs
-Scans a directory recursively and writes one PDB per selected chain, deduplicating highly similar chains.
-
-- **Input format**: By default it searches for `.pdb`. Use `--use_cif` to read `.cif` files (no `.cif.gz`).
-- **Chain filtering**: drops chains whose final length (after gap checks) is < `--min_len` or > `--max_len`.
-- **Duplicate sequences**: among highly similar chains (identity > 0.90), keeps the one with the most resolved CA atoms.
-- **Numbering gaps**: for large numeric residue‑numbering gaps, uses the straight‑line CA–CA distance to cap the number of inserted missing residues (quality control; outputs remain original coordinates).
-- **Outputs**: default filenames are `<basename>_chain_id_<ID>.pdb`. Add `--with_file_index` to prefix with `<index>_`. Output chain ID is set to "A".
-
-Examples:
-```bash
-# Default: PDB input
-python data/break_complex_to_monumers.py \
-  --data /abs/path/to/structures \
-  --save_path /abs/path/to/output_pdb \
-  --max_len 2048 \
-  --min_len 25 \
-  --max_workers 16
-```
-
-```bash
-# CIF input (no .gz)
-python data/break_complex_to_monumers.py \
-  --use_cif \
-  --data /abs/path/to/cif_root \
-  --save_path /abs/path/to/output_pdb
-```
-
-### How inference/evaluation use `.h5`
-- **Inference**: `inference_encode.py` and `inference_embed.py` read datasets from `.h5` in the format above. `inference_decode.py` decodes VQ indices (from CSV) to backbone coordinates; you can convert decoded `.h5`/coords to PDB with `data/h5_to_pdb.py`.
-- **Evaluation**: `evaluation.py` consumes an `.h5` file via `data_path` in `configs/evaluation_config.yaml` and reports TM‑score/RMSD; it can also write aligned PDBs.
-
 ## Usage
 
-Before you begin:
-- Prepare your dataset in `.h5` format as described in [Data](#data). Use the PDB → HDF5 converter in `data/pdb_to_h5.py`.
-
-### Training
-
-Configure your training parameters in `configs/config_vqvae.yaml` and run:
-
-Note:
-- Training expects datasets in the HDF5 layout defined in [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
-
-```bash
-# Set up accelerator configuration for multi-GPU training
-accelerate config
-
-# Start training with accelerate for multi-GPU support
-accelerate launch train.py --config_path configs/config_vqvae.yaml
-```
-
-See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index) for more options and configurations.
-
-### Inference
+Full multi-GPU training/inference/evaluation workflows are documented in [docs/usage/README.md](docs/usage/README.md). 
+The demo workflow below is for quick local evaluation of checkpoints on raw PDB/CIF inputs.
 
 ### Pretrained Models
 
@@ -235,81 +71,44 @@ See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index)
 2. Extract the checkpoint folder
 3. Set the `trained_model_dir` path in your config file (following ones) to point to the right checkpoint.
 
+### Simplified Evaluation Demo
+The demo pipeline (`demo/demo_evaluation.py`) preprocesses raw PDB/CIF/mmCIF files, encodes tokens, optionally writes
+embeddings, and can reconstruct + evaluate PDBs. It is meant for quick testing of checkpoints without the full multi-GPU stack.
 
-Multi‑GPU with Hugging Face Accelerate:
-- The following scripts support multi‑GPU via Accelerate: `inference_encode.py`, `inference_embed.py`, `inference_decode.py`, and `evaluation.py`.
+Example demo config (`demo/demo_eval_config.yaml`):
+```yaml
+trained_model_dir: "/abs/path/to/trained_model"  # Directory of model checkpoint result in timestamped 
+checkpoint_path: "checkpoints/best_valid.pth"  # Relative to trained_model_dir
+config_vqvae: "config_vqvae.yaml"  # Saved training config name
+config_encoder: "config_gcpnet_encoder.yaml"  # Saved encoder config name
+config_decoder: "config_geometric_decoder.yaml"  # Saved decoder config name
 
-Example (2 GPUs, bfloat16):
-```bash
-accelerate launch --multi_gpu --mixed_precision=bf16 --num_processes=2 evaluation.py
+data_dir: "/abs/path/to/pdb_cif_dir"  # Root of PDB/CIF/mmCIF files (recursive)
+output_base_dir: "demo_results"  # Output parent dir (timestamped subdir created)
+
+batch_size: 2  # Inference batch size
+num_workers: 0  # DataLoader workers
+max_task_samples: 0  # 0 means no limit
+tqdm_progress_bar: true  # Show progress bars
+
+alignment_strategy: "kabsch"  # kabsch or no (type of alignment before evaluation)
+mixed_precision: "bf16"  # no, fp16, bf16
+
+save_indices_csv: true  # Write discrete tokens into vq_indices.csv
+save_embeddings_h5: false  # Write continuous VQ embeddings into vq_embed.h5
+save_pdb_and_evaluate: true  # Write original and reconstrued coordinates in PDB format and evaluate TM-score/RMSD
 ```
-Or like in Training, configure Accelerate first:
-```bash
-accelerate config
-accelerate launch evaluation.py
-```
 
+Minimum config requirement: set `trained_model_dir` and `data_dir`.
 
-See the [Accelerate documentation](https://huggingface.co/docs/accelerate/index) for more options and configurations.
+### Training
+For full training (Accelerate, multi-GPU), see [docs/usage/README.md#training](docs/usage/README.md#training).
 
-All inference scripts consume `.h5` inputs in the format defined in [Data](#data).
-
-To extract the VQ codebook embeddings:
-```bash
-python codebook_extraction.py
-```
-Edit `configs/inference_codebook_extraction_config.yaml` to change paths and output filename.
-
-To encode proteins into discrete VQ indices:
-```bash
-python inference_encode.py
-```
-Edit `configs/inference_encode_config.yaml` to change dataset paths, model, and output. Input datasets should be `.h5` as in [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
-
-To extract per‑residue embeddings from the VQ layer:
-```bash
-python inference_embed.py
-```
-Edit `configs/inference_embed_config.yaml` to change dataset paths, model, and output HDF5. Input `.h5` files must follow [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
-
-To decode VQ indices back to 3D backbone structures:
-```bash
-python inference_decode.py
-```
-Edit `configs/inference_decode_config.yaml` to point to the indices CSV and adjust runtime. To write PDBs from decoded outputs, see [Convert HDF5 → PDB](#convert-hdf5--pdb-datah5_to_pdbpy).
+### Inference
+For full inference scripts (encode/embed/decode) and multi-GPU setup, see [docs/usage/README.md#inference](docs/usage/README.md#inference).
 
 ### Evaluation
-
-To evaluate predictions and write TM‑score/RMSD along with aligned PDBs:
-```bash
-python evaluation.py
-```
-
-Notes:
-- Set `data_path` to an `.h5` dataset that follows [HDF5 format used by this repo](#hdf5-format-used-by-this-repo).
-- To visualize results as PDB, convert `.h5` outputs with [`data/h5_to_pdb.py`](#convert-hdf5--pdb-datah5_to_pdbpy).
-
-Example config template (`configs/evaluation_config.yaml`):
-```yaml
-trained_model_dir: "/abs/path/to/trained_model"   # Folder containing checkpoint and saved YAMLs
-checkpoint_path: "checkpoints/best_valid.pth"     # Relative to trained_model_dir
-config_vqvae: "config_vqvae.yaml"                 # Names of saved training YAMLs
-config_encoder: "config_gcpnet_encoder.yaml"
-config_decoder: "config_geometric_decoder.yaml"
-
-data_path: "/abs/path/to/evaluation/data.h5"      # HDF5 used for evaluation
-output_base_dir: "evaluation_results"              # A timestamped subdir is created inside
-
-batch_size: 8
-shuffle: true
-num_workers: 0
-max_task_samples: 5000000                           # Optional cap
-vq_indices_csv_filename: "vq_indices.csv"          # Also writes observed VQ indices
-alignment_strategy: "kabsch"                       # "kabsch" or "no"
-mixed_precision: "bf16"                            # "no", "fp16", "bf16", "fp8"
-
-tqdm_progress_bar: true
-```
+For full evaluation scripts and config details, see [docs/usage/README.md#evaluation](docs/usage/README.md#evaluation).
 
 ## External Tokenizer Evaluations
 
@@ -335,28 +134,6 @@ The table below reproduces Table 2 from the manuscript: reconstruction accuracy 
 - Added the residual quantization (multi-depth VQ) using a shared codebook when `ti_tok.residual_depth > 1`. This only works when ti_tok is enabled which means the residual latents are packed depth-by-depth, flattened into a single stream for NTP and decoding, and their masks/embeddings remain aligned with the flattened indices. This improves reconstruction capacity without expanding the base codebook.
 - Included an optional next-token prediction head, drawing on the autoregressive regularization ideas from *“When Worse is Better: Navigating the Compression-Generation Tradeoff in Visual Tokenization”*, to encourage codebooks that are friendlier to autoregressive modeling.
 - Enabled adaptive loss coefficients driven by gradient norms: each active loss (MSE, distance/direction, VQ, NTP) tracks its synchronized gradient magnitude and scales its weight toward the 0.2–5.0 norm “comfort zone.” Coefficients shrink when a loss overpowers the rest and grow when its gradients fade, keeping the multi-objective training balanced without constant manual re-tuning.
-
-## Codebook Usage Statistics
-
-Enable `model.vqvae.vector_quantization.log_codebook_usage_statistics: true` to log the following statistics to TensorBoard under `codebook_usage_statistics/*` during validation:
-
-| Metric | TensorBoard tag | Range |
-| --- | --- | --- |
-| Unigram entropy (bits) | `codebook_usage_statistics/entropy_unigram_bits` | 0 → log₂(K) (12 bits for K=4096) |
-| Unigram perplexity | `codebook_usage_statistics/perplexity_unigram` | 1 → K |
-| Bigram conditional entropy H₂\|₁ | `codebook_usage_statistics/entropy_bigram_cond_bits` | 0 → log₂(K) |
-| Bigram perplexity | `codebook_usage_statistics/perplexity_bigram` | 1 → K |
-| Trigram conditional entropy H₃\|₂₁ | `codebook_usage_statistics/entropy_trigram_cond_bits` | 0 → log₂(K) |
-| Trigram perplexity | `codebook_usage_statistics/perplexity_trigram` | 1 → K |
-| ΔH₁ = H₁ − H₂\|₁ | `codebook_usage_statistics/delta_entropy_h1_h2` | 0 → H₁ |
-| ΔH₂ = H₁ − H₃\|₂₁ | `codebook_usage_statistics/delta_entropy_h1_h3` | 0 → H₁ |
-| Extra conditional gain H₂\|₁ − H₃\|₂₁ | `codebook_usage_statistics/delta_entropy_conditional` | 0 → H₂\|₁ |
-| Mutual information (lag d) | `codebook_usage_statistics/mutual_info_lag{d}` | ≥0, typically ≤2 bits |
-| Zipf slope | `codebook_usage_statistics/zipf_slope` | negative (≈−0.5 to −1.2) |
-| Zipf R² | `codebook_usage_statistics/zipf_r2` | 0 → 1 |
-| Active codes | `codebook_usage_statistics/active_codes` | 0 → K |
-| Effective usage ratio (PPL₁/active) | `codebook_usage_statistics/effective_usage_ratio` | 0 → 1 |
-
 
 ## Acknowledgments
 
@@ -384,6 +161,6 @@ If you use this code or the pretrained models, please cite the following paper:
   journal = {bioRxiv},
   year    = {2025},
   doi     = {10.1101/2025.10.01.679833},
-  url     = {https://www.biorxiv.org/content/10.1101/2025.10.01.679833v1}
+  url     = {https://www.biorxiv.org/content/10.1101/2025.10.01.679833v2}
 }
 ```
