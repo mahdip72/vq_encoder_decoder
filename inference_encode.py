@@ -184,6 +184,8 @@ def main():
                         leave=True, disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
     progress_bar.set_description("Inference")
 
+    logger.info(f"Total inference steps: {len(loader)}")
+
     for i, batch in enumerate(loader):
         # Inference loop
         with torch.inference_mode():
