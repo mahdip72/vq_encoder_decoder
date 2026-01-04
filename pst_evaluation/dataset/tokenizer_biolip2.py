@@ -20,11 +20,17 @@ class WrappedMyRepBioLIP2Tokenizer:
         fallback_to_any_chain=False,
         skip_on_missing=True,
         device="cpu",
+        output_dtype=None,
     ):
         self.device = device
         self.embed_dim = int(embed_dim)
         self.fallback = bool(fallback_to_any_chain)
         self.skip_on_missing = bool(skip_on_missing)
+        if output_dtype is None:
+            output_dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
+        elif isinstance(output_dtype, str):
+            output_dtype = getattr(torch, output_dtype)
+        self.output_dtype = output_dtype
         self._last_debug = {}
 
         if not h5_path:
@@ -182,7 +188,7 @@ class WrappedMyRepBioLIP2Tokenizer:
         elif idx is not None and idx.shape[0] == row_nonzero.shape[0]:
             idx = idx[mask]
 
-        feats = torch.as_tensor(arr, dtype=torch.float32, device=self.device)
+        feats = torch.as_tensor(arr, dtype=self.output_dtype, device=self.device)
         L = int(feats.shape[0])
         if idx is None or idx.shape[0] != L:
             idx = np.arange(L, dtype=int)

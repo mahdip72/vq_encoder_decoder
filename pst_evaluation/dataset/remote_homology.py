@@ -234,7 +234,8 @@ class RemoteHomologyDataset(Dataset):
             return None
         if arr.ndim == 1:
             arr = arr[None, :]
-        token_ids = torch.as_tensor(arr, dtype=torch.float32)
+        output_dtype = getattr(self.tokenizer, "output_dtype", torch.float32)
+        token_ids = torch.as_tensor(arr, dtype=output_dtype)
         # Crop to domain by positional residue ranges
         selected_indices = self._get_selected_indices_by_length(int(token_ids.shape[0]), residue_range)
         
