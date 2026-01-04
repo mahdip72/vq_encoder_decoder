@@ -45,7 +45,7 @@ def record_indices(pids, indices_tensor, sequences, records):
         if not isinstance(idx, list):
             idx = [idx]
         cleaned = [int(v) for v in idx if v != -1]
-        records.append({'pid': pid, 'indices': cleaned, 'protein_sequence': seq})
+        records.append({'pid': pid, 'structures': cleaned, 'Amino Acid Sequence': seq})
 
 
 def main():
@@ -213,7 +213,7 @@ def main():
     partial_csv_path = os.path.join(result_dir, f'partial_rank_{rank}.csv')
     with open(partial_csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['pid', 'indices', 'protein_sequence'])
+        writer.writerow(['pid', 'structures', 'Amino Acid Sequence'])
         for rec in indices_records:
             pid = rec['pid']
             inds = rec['structures']
@@ -230,7 +230,7 @@ def main():
         csv_path = os.path.join(result_dir, csv_filename)
         with open(csv_path, 'w', newline='') as outf:
             writer = csv.writer(outf)
-            writer.writerow(['pid', 'indices', 'protein_sequence'])
+            writer.writerow(['pid', 'structures', 'Amino Acid Sequence'])
             for r in range(accelerator.num_processes):
                 partial_path = os.path.join(result_dir, f'partial_rank_{r}.csv')
                 with open(partial_path, 'r', newline='') as inf:
