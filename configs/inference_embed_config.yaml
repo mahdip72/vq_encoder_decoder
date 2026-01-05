@@ -12,6 +12,7 @@ shuffle: True
 num_workers: 0
 max_task_samples: 5000000
 vq_embeddings_h5_filename: "vq_embed.h5"
+keep_missing_tokens: false  # Keep -1 indices and corresponding embeddings within sequence length
 mixed_precision: "bf16"  # no, fp16, bf16, fp8
 
 tqdm_progress_bar: True

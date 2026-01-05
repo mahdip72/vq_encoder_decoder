@@ -142,8 +142,7 @@ def record_indices(pids, indices_tensor, sequences, records):
     for pid, idx, seq in zip(pids, cpu_inds, sequences):
         if not isinstance(idx, list):
             idx = [idx]
-        cleaned = [int(v) for v in idx if v != -1]
-        records.append({'pid': pid, 'indices': cleaned, 'protein_sequence': seq})
+        records.append({'pid': pid, 'indices': [int(v) for v in idx[:len(seq)]], 'protein_sequence': seq})
 
 
 def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records):
@@ -152,15 +151,10 @@ def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records
         seq_len = len(seq)
         emb_trim = emb[:seq_len]
         ind_trim = ind_list[:seq_len]
-        cleaned = [int(v) for v in ind_trim if v != -1]
-        if len(cleaned) != len(ind_trim):
-            keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
-            emb_trim = emb_trim[keep_positions]
-        ind_trim = cleaned
         records.append({
             'pid': pid,
             'embedding': emb_trim.astype('float32', copy=False),
-            'indices': ind_trim,
+            'indices': [int(v) for v in ind_trim],
             'protein_sequence': seq,
         })
 

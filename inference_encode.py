@@ -44,8 +44,7 @@ def record_indices(pids, indices_tensor, sequences, records):
         # wrap non-list idx into list
         if not isinstance(idx, list):
             idx = [idx]
-        cleaned = [int(v) for v in idx if v != -1]
-        records.append({'pid': pid, 'structures': cleaned, 'Amino Acid Sequence': seq})
+        records.append({'pid': pid, 'structures': idx[:len(seq)], 'Amino Acid Sequence': seq})
 
 
 def main():

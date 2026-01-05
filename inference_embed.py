@@ -34,7 +34,7 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     return encoder_configs, decoder_configs
 
 
-def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records):
+def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records, *, keep_missing_tokens=False):
     """Append pid-embedding-indices-sequence tuples to records list."""
     # embeddings_array: numpy array (B, L, D)
     cpu_inds = indices_tensor.detach().cpu().tolist()
@@ -43,12 +43,20 @@ def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records
         L = len(seq)
         emb_trim = emb[:L]
         ind_trim = ind_list[:L]
-        cleaned = [int(v) for v in ind_trim if v != -1]
-        if len(cleaned) != len(ind_trim):
-            keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
-            emb_trim = emb_trim[keep_positions]
-        ind_trim = cleaned
-        records.append({'pid': pid, 'embedding': emb_trim.astype('float32', copy=False), 'indices': ind_trim, 'protein_sequence': seq})
+        if keep_missing_tokens:
+            ind_trim = [int(v) for v in ind_trim]
+        else:
+            cleaned = [int(v) for v in ind_trim if v != -1]
+            if len(cleaned) != len(ind_trim):
+                keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
+                emb_trim = emb_trim[keep_positions]
+            ind_trim = cleaned
+        records.append({
+            'pid': pid,
+            'embedding': emb_trim.astype('float32', copy=False),
+            'indices': ind_trim,
+            'protein_sequence': seq,
+        })
 
 
 def main():
@@ -179,6 +187,8 @@ def main():
                         disable=not (infer_cfg.tqdm_progress_bar and accelerator.is_main_process))
     progress_bar.set_description("Inference embed")
 
+    keep_missing_tokens = infer_cfg.get('keep_missing_tokens', False)
+
     for i, batch in enumerate(loader):
         with torch.inference_mode():
             # move graph batch to device
@@ -195,7 +205,14 @@ def main():
             sequences = batch['seq']
 
             emb_np = embeddings.detach().cpu().numpy()
-            record_embeddings(pids, emb_np, indices, sequences, embeddings_records)
+            record_embeddings(
+                pids,
+                emb_np,
+                indices,
+                sequences,
+                embeddings_records,
+                keep_missing_tokens=keep_missing_tokens,
+            )
 
             progress_bar.update(1)
 
