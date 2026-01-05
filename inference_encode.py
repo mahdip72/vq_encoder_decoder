@@ -133,7 +133,9 @@ def main():
         shuffle=infer_cfg.shuffle,
         batch_size=infer_cfg.batch_size,
         num_workers=infer_cfg.num_workers,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        pin_memory=True,
+        prefetch_factor=4,
     )
 
     # Setup file logger in result directory
