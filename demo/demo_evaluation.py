@@ -171,7 +171,13 @@ def main():
         sequences = batch['seq']
 
         if infer_cfg.get('save_indices_csv', False):
-            record_indices(pids, indices, sequences, indices_records)
+            record_indices(
+                pids,
+                indices,
+                sequences,
+                indices_records,
+                max_length=configs.model.max_length,
+            )
 
         bb_pred = output_dict["outputs"]
         preds = bb_pred.view(bb_pred.shape[0], bb_pred.shape[1], 3, 3)
@@ -195,7 +201,14 @@ def main():
             embeddings = vq_dict['embeddings']
             vq_indices = vq_dict['indices']
             emb_np = embeddings.detach().cpu().numpy()
-            record_embeddings(pids, emb_np, vq_indices, sequences, embeddings_records)
+            record_embeddings(
+                pids,
+                emb_np,
+                vq_indices,
+                sequences,
+                embeddings_records,
+                max_length=configs.model.max_length,
+            )
 
     if infer_cfg.get('save_indices_csv', False):
         csv_path = os.path.join(result_dir, infer_cfg.get('indices_csv_filename', 'vq_indices.csv'))

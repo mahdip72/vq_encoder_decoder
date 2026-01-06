@@ -135,22 +135,25 @@ def build_logger(result_dir, name="demo_evaluation"):
     return logger
 
 
-def record_indices(pids, indices_tensor, sequences, records):
+def record_indices(pids, indices_tensor, sequences, records, *, max_length=None):
     cpu_inds = indices_tensor.detach().cpu().tolist()
     if not isinstance(cpu_inds, list):
         cpu_inds = [cpu_inds]
     for pid, idx, seq in zip(pids, cpu_inds, sequences):
         if not isinstance(idx, list):
             idx = [idx]
+        if max_length is not None and len(seq) > max_length:
+            seq = seq[:max_length]
         records.append({'pid': pid, 'indices': [int(v) for v in idx[:len(seq)]], 'protein_sequence': seq})
 
 
-def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records):
+def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records, *, max_length=None):
     cpu_inds = indices_tensor.detach().cpu().tolist()
     for pid, emb, ind_list, seq in zip(pids, embeddings_array, cpu_inds, sequences):
-        seq_len = len(seq)
-        emb_trim = emb[:seq_len]
-        ind_trim = ind_list[:seq_len]
+        if max_length is not None and len(seq) > max_length:
+            seq = seq[:max_length]
+        emb_trim = emb[:len(seq)]
+        ind_trim = ind_list[:len(seq)]
         records.append({
             'pid': pid,
             'embedding': emb_trim.astype('float32', copy=False),

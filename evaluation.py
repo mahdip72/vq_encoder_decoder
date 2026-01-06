@@ -35,7 +35,7 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     return encoder_configs, decoder_configs
 
 
-def record_indices(pids, indices_tensor, sequences, records):
+def record_indices(pids, indices_tensor, sequences, records, *, max_length=None):
     """Append pid-index-sequence tuples to records list, ensuring indices is always a list."""
     cpu_inds = indices_tensor.detach().cpu().tolist()
     # Handle scalar to list
@@ -45,6 +45,8 @@ def record_indices(pids, indices_tensor, sequences, records):
         # wrap non-list idx into list
         if not isinstance(idx, list):
             idx = [idx]
+        if max_length is not None and len(seq) > max_length:
+            seq = seq[:max_length]
         records.append({'pid': pid, 'indices': idx[:len(seq)], 'protein_sequence': seq})
 
 
@@ -299,7 +301,13 @@ def main():
             sequences = batch['seq']
 
             # record indices per sample
-            record_indices(pids, indices, sequences, indices_records)
+            record_indices(
+                pids,
+                indices,
+                sequences,
+                indices_records,
+                max_length=configs.model.max_length,
+            )
 
             # output is dictionary with 'outputs' key
             bb_pred = output_dict["outputs"]

@@ -34,28 +34,37 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
     return encoder_configs, decoder_configs
 
 
-def record_embeddings(pids, embeddings_array, indices_tensor, sequences, records, *, keep_missing_tokens=False):
+def record_embeddings(
+    pids,
+    embeddings_array,
+    indices_tensor,
+    sequences,
+    records,
+    *,
+    keep_missing_tokens=False,
+    max_length=None,
+):
     """Append pid-embedding-indices-sequence tuples to records list."""
     # embeddings_array: numpy array (B, L, D)
     cpu_inds = indices_tensor.detach().cpu().tolist()
     for pid, emb, ind_list, seq in zip(pids, embeddings_array, cpu_inds, sequences):
-        # Trim to sequence length
-        L = len(seq)
-        emb_trim = emb[:L]
-        ind_trim = ind_list[:L]
+        if max_length is not None and len(seq) > max_length:
+            seq = seq[:max_length]
+        emb_trim = emb[:len(seq)]
+        ind_trim = ind_list[:len(seq)]
         if keep_missing_tokens:
             ind_trim = [int(v) for v in ind_trim]
+            seq_out = seq
         else:
-            cleaned = [int(v) for v in ind_trim if v != -1]
-            if len(cleaned) != len(ind_trim):
-                keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
-                emb_trim = emb_trim[keep_positions]
-            ind_trim = cleaned
+            keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
+            emb_trim = emb_trim[keep_positions]
+            ind_trim = [int(ind_trim[i]) for i in keep_positions]
+            seq_out = "".join(seq[i] for i in keep_positions)
         records.append({
             'pid': pid,
             'embedding': emb_trim.astype('float32', copy=False),
             'indices': ind_trim,
-            'protein_sequence': seq,
+            'protein_sequence': seq_out,
         })
 
 
