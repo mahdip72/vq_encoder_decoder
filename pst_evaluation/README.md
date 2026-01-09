@@ -66,6 +66,13 @@ python pst_evaluation/interpro_conserved_eval.py \
   --data-root ./pst_evaluation/struct_token_bench_release_data/data/functional/local
 ```
 
+## InterPro repeats
+```bash
+python pst_evaluation/interpro_repeats_eval.py \
+  --h5 "$EMB_DIR/vq_embed_interpro_repeats.h5" \
+  --data-root ./pst_evaluation/struct_token_bench_release_data/data/functional/local
+```
+
 ## ProteinGLUE epitope region
 ```bash
 python pst_evaluation/proteinglue_epitope_region_eval.py \
