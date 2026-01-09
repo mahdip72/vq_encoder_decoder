@@ -18,6 +18,8 @@ SUPERVISED_ROWS = [
     ("InterPro_ActiveSite", "Superfamily", "AUROC%"),
     ("InterPro_Conserved", "Fold", "AUROC%"),
     ("InterPro_Conserved", "Superfamily", "AUROC%"),
+    ("InterPro_Repeats", "Fold", "AUROC%"),
+    ("InterPro_Repeats", "Superfamily", "AUROC%"),
     ("ProteinGLUE_Epitope", "Fold", "AUROC%"),
     ("ProteinGLUE_Epitope", "Superfamily", "AUROC%"),
     ("Atlas_RMSF", "Fold", "Spearman%"),
@@ -142,6 +144,17 @@ def collect_metrics(logs_dir: Path):
     )
     set_val(
         ("InterPro_Conserved", "Superfamily", "AUROC%"),
+        _extract_last_float(text, r"\[final\]\s+superfamily_test AUROC% = ([0-9.]+)"),
+    )
+
+    # InterPro repeats
+    text = _load_log(logs_dir / "eval_interpro_repeats.log")
+    set_val(
+        ("InterPro_Repeats", "Fold", "AUROC%"),
+        _extract_last_float(text, r"\[final\]\s+fold_test AUROC% = ([0-9.]+)"),
+    )
+    set_val(
+        ("InterPro_Repeats", "Superfamily", "AUROC%"),
         _extract_last_float(text, r"\[final\]\s+superfamily_test AUROC% = ([0-9.]+)"),
     )
 
