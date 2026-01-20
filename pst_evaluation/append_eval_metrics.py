@@ -7,15 +7,15 @@ from pathlib import Path
 
 
 SUPERVISED_ROWS = [
-    ("BioLIP2_Binding", "Fold", "AUROC%"),
-    ("BioLIP2_Binding", "Superfamily", "AUROC%"),
-    ("BioLIP2_Catalytic", "Fold", "AUROC%"),
-    ("BioLIP2_Catalytic", "Superfamily", "AUROC%"),
-    ("ProteinShake_Binding", "Test", "AUROC%"),
     ("InterPro_Binding", "Fold", "AUROC%"),
     ("InterPro_Binding", "Superfamily", "AUROC%"),
+    ("BioLIP2_Binding", "Fold", "AUROC%"),
+    ("BioLIP2_Binding", "Superfamily", "AUROC%"),
+    ("ProteinShake_Binding", "Test", "AUROC%"),
     ("InterPro_ActiveSite", "Fold", "AUROC%"),
     ("InterPro_ActiveSite", "Superfamily", "AUROC%"),
+    ("BioLIP2_Catalytic", "Fold", "AUROC%"),
+    ("BioLIP2_Catalytic", "Superfamily", "AUROC%"),
     ("InterPro_Conserved", "Fold", "AUROC%"),
     ("InterPro_Conserved", "Superfamily", "AUROC%"),
     ("InterPro_Repeats", "Fold", "AUROC%"),
