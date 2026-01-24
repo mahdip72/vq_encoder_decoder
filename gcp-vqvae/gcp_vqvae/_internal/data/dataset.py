@@ -1,0 +1,1098 @@
+import glob
+import math
+import numpy as np
+import torch
+import torch_cluster
+import torch.nn.functional as F
+import os
+import functools
+import random
+from torch.utils.data import DataLoader, Dataset
+
+from graphein.protein.resi_atoms import PROTEIN_ATOMS, STANDARD_AMINO_ACIDS, STANDARD_AMINO_ACID_MAPPING_1_TO_3
+from torch_geometric.data import Batch
+
+from ..models.gcpnet.models.base import instantiate_module, load_encoder_config
+from ..utils.utils import load_h5_file
+from typing import Mapping, Tuple
+from transformers import AutoTokenizer
+
+# ideal bond lengths in Å
+BOND_LENGTHS = {
+    "N-CA": 1.458,
+    "CA-C": 1.525,
+    "C-O": 1.231,
+    "C-N": 1.329,
+}
+
+
+def enforce_backbone_bonds(coords: torch.Tensor, changed: torch.Tensor = None) -> torch.Tensor:
+    """
+    Enforces ideal backbone bond lengths, selectively modifying specified atoms.
+
+    This function iterates through a protein's coordinates and adjusts the positions
+    of backbone atoms to match their ideal, physically-correct bond lengths (N-CA,
+    CA-C, C-O, and the inter-residue C-N peptide bond).
+
+    A key feature is its ability to selectively modify atoms. This is controlled by
+    the `changed` mask, which ensures that only atoms marked as `True` (i.e., those
+    that were part of an interpolated or otherwise modified region) are affected.
+    This preserves the original coordinates of the known parts of the structure.
+
+    To handle cases where an atom's position is `NaN` at the start of the process,
+    the function uses the vector from the previous two atoms in the backbone to
+    determine a valid direction for placing the new atom. This makes the process
+    robust against persistent `NaN` values.
+
+    Args:
+        coords (torch.Tensor): A tensor of shape (N, 4, 3) with coordinates in the
+            order [N, CA, C, O] per residue.
+        changed (torch.Tensor, optional): A boolean tensor of shape (N, 4) where `True`
+            indicates that the atom's coordinates have been changed and its bonds
+            should be enforced. If `None`, all bonds are enforced. Defaults to `None`.
+
+    Returns:
+        torch.Tensor: The input `coords` tensor with backbone bond lengths enforced
+            for the specified atoms.
+    """
+    N = coords.size(0)
+    for i in range(N):
+        # within‐residue bonds
+        for (a, b, key) in ((0, 1, "N-CA"), (1, 2, "CA-C"), (2, 3, "C-O")):
+            if changed is None or changed[i, a] or changed[i, b]:
+                # if the position of the atom to be placed is nan, use the direction
+                # from the previous atom to place it
+                if torch.isnan(coords[i,b]).any():
+                    if a > 0:
+                        v = coords[i, a] - coords[i, a-1]
+                    # if it's the first atom, use the next one
+                    else:
+                        v = coords[i, a+1] - coords[i, a]
+                else:
+                    v = coords[i, b] - coords[i, a]
+
+                norm = v.norm(dim=-1, keepdim=True)
+                if norm.item() > 1e-6:
+                    coords[i, b] = coords[i, a] + v / norm * BOND_LENGTHS[key]
+        # peptide bond to next residue
+        if i < N - 1:
+            if changed is None or changed[i, 2] or changed[i + 1, 0]:
+                v = coords[i + 1, 0] - coords[i, 2]
+                norm = v.norm(dim=-1, keepdim=True)
+                if norm > 1e-6:
+                    coords[i + 1, 0] = coords[i, 2] + v / norm * BOND_LENGTHS["C-N"]
+    return coords
+
+
+def enforce_ca_spacing(coords: torch.Tensor, changed: torch.Tensor = None, ideal: float = 3.8) -> torch.Tensor:
+    """
+    Enforces ideal Cα–Cα spacing, intelligently adjusting only modified residues.
+
+    This function iterates through adjacent pairs of residues and adjusts their
+    positions to ensure the distance between their C-alpha atoms is close to the
+    ideal value of ~3.8 Å.
+
+    Its primary role is to clean up the geometry of interpolated regions without
+    disturbing the original, valid parts of the protein structure. This is achieved
+    using the `changed` mask.
+
+    The logic is as follows:
+    1.  **Identify Changed Residues**: It first determines which residues have been
+        modified based on the `changed` mask.
+    2.  **Skip Unchanged Pairs**: If two adjacent residues were both part of the
+        original, valid structure, they are skipped.
+    3.  **Boundary Handling**: If one residue is original and the other is from an
+        interpolated region, the function only moves the interpolated residue.
+        This preserves the coordinates of the original structure.
+    4.  **Internal Adjustment**: If both adjacent residues are part of an interpolated
+        region, it moves both of them, splitting the adjustment between them.
+
+    Args:
+        coords (torch.Tensor): A tensor of shape (N, 4, 3) with coordinates in the
+            order [N, CA, C, O] per residue.
+        changed (torch.Tensor, optional): A boolean tensor of shape (N, 4) where `True`
+            indicates that the atom's coordinates have been changed and its bonds
+            should be enforced. If `None`, all bonds are enforced. Defaults to `None`.
+        ideal (float, optional): The ideal Cα–Cα distance. Defaults to 3.8.
+
+    Returns:
+        torch.Tensor: The input `coords` tensor with Cα–Cα spacing enforced for the
+            specified residues.
+    """
+    N = coords.size(0)
+    # determine which residues have any atom changed
+    if changed is not None:
+        res_changed = changed.any(dim=1)
+    else:
+        res_changed = torch.ones(N, dtype=torch.bool, device=coords.device)
+    for i in range(N - 1):
+        # if a residue is changed, and the next is not, we still want to space
+        # the changed one relative to the unchanged one
+        if changed is not None and not res_changed[i] and not res_changed[i+1]:
+            continue
+
+        ca_i = coords[i, 1]
+        ca_j = coords[i + 1, 1]
+        v = ca_j - ca_i
+        d = v.norm()
+        if d > 1e-6:
+            delta = v * ((d - ideal) / d)
+            # if the first residue is unchanged, only move the second
+            if changed is not None and not res_changed[i]:
+                coords[i + 1] = coords[i + 1] - delta
+            # if the second residue is unchanged, only move the first
+            elif changed is not None and not res_changed[i+1]:
+                coords[i] = coords[i] + delta
+            # if both are changed, move both
+            else:
+                coords[i] = coords[i] + delta / 2
+                coords[i + 1] = coords[i + 1] - delta / 2
+    return coords
+
+
+def merge_features_and_create_mask(features_list, max_length=512):
+    # Pad tensors and create mask
+    padded_tensors = []
+    mask_tensors = []
+    for t in features_list:
+        if t.size(0) < max_length:
+            size_diff = max_length - t.size(0)
+            pad = torch.zeros(size_diff, t.size(1), device=t.device)
+            t_padded = torch.cat([t, pad], dim=0)
+            mask = torch.cat([torch.ones(t.size(0), dtype=torch.bool, device=t.device),
+                              torch.zeros(size_diff, dtype=torch.bool, device=t.device)], dim=0)
+        else:
+            t_padded = t
+            mask = torch.ones(t.size(0), dtype=torch.bool, device=t.device)
+        padded_tensors.append(t_padded.unsqueeze(0))  # Add an extra dimension for concatenation
+        mask_tensors.append(mask.unsqueeze(0))  # Add an extra dimension for concatenation
+
+    # Concatenate tensors and masks
+    result = torch.cat(padded_tensors, dim=0)
+    mask = torch.cat(mask_tensors, dim=0)
+    return result, mask
+
+
+def custom_collate_pretrained_gcp(one_batch, featuriser=None, task_transform=None, fill_value: float = 1e-5):
+    # Unpack the batch
+    torch_geometric_feature = [item[0] for item in one_batch]  # item[0] is for torch_geometric Data
+
+    # Create a Batch object
+    torch_geometric_batch = Batch.from_data_list(torch_geometric_feature)
+
+    if not featuriser or not getattr(featuriser, 'edge_types', None):
+        raise ValueError("Featuriser must supply kNN edge_types for precomputation.")
+
+    edge_types = featuriser.edge_types
+    if len(edge_types) != 1 or not edge_types[0].startswith("knn_"):
+        raise ValueError("Featuriser edge_types must contain a single 'knn_{k}' entry for precomputation.")
+
+    try:
+        k = int(edge_types[0].split("_", 1)[1])
+    except (IndexError, ValueError) as exc:
+        raise ValueError("Unable to parse k from edge_types; expected format 'knn_{k}'.") from exc
+
+    ca_coords = torch_geometric_batch.x_bb[:, 1].contiguous()
+    edge_index = torch_cluster.knn_graph(
+        ca_coords,
+        k=k,
+        batch=torch_geometric_batch.batch,
+        loop=False,
+    )
+    torch_geometric_batch.edge_index = edge_index
+    torch_geometric_batch.edge_type = torch.zeros(
+        edge_index.size(1), dtype=torch.long, device=edge_index.device
+    )
+    torch_geometric_batch.edge_index_precomputed = True
+    raw_seqs = [item[1] for item in one_batch]
+    plddt_scores = [item[2] for item in one_batch]
+    pids = [item[3] for item in one_batch]
+
+    coords = torch.stack([item[4] for item in one_batch])
+    masks = torch.stack([item[5] for item in one_batch])
+
+    input_coordinates = torch.stack([item[6] for item in one_batch])
+    inverse_folding_labels = torch.stack([item[7] for item in one_batch])
+
+    nan_mask = torch.stack([item[8] for item in one_batch])  # Mask for NaN coordinates
+    sample_weights = torch.tensor([item[9] for item in one_batch], dtype=torch.float32)  # Sample weights
+    esm_input_ids_list = [item[10] for item in one_batch]
+    esm_attention_mask_list = [item[11] for item in one_batch]
+
+    plddt_scores = torch.stack(plddt_scores, dim=0)
+    one_batch = {'graph': torch_geometric_batch, 'seq': raw_seqs, 'plddt': plddt_scores, 'pid': pids,
+                 'target_coords': coords, 'masks': masks, "nan_masks": nan_mask,
+                 "input_coordinates": input_coordinates, "inverse_folding_labels": inverse_folding_labels,
+                 "sample_weights": sample_weights}
+
+    if esm_input_ids_list[0] is not None:
+        one_batch['esm_input_ids'] = torch.stack(esm_input_ids_list, dim=0)
+        one_batch['esm_attention_mask'] = torch.stack(esm_attention_mask_list, dim=0)
+    else:
+        one_batch['esm_input_ids'] = None
+        one_batch['esm_attention_mask'] = None
+
+    # build input graph one_batch to be featurized
+    device = one_batch["graph"].x.device
+
+    one_batch["graph"].fill_value = torch.full((one_batch["graph"].num_graphs,), fill_value, device=device)
+
+    one_batch["graph"].atom_list = [PROTEIN_ATOMS for _ in range(one_batch["graph"].num_graphs)]
+    one_batch["graph"].id = one_batch["pid"]
+
+    one_batch["graph"].residue_id = [
+        [f"A:{STANDARD_AMINO_ACID_MAPPING_1_TO_3[res]}:{res_index}" for res_index, res in enumerate(seq, start=1)] for
+        seq in one_batch["seq"]]  # NOTE: this assumes all input graphs represent single-chain proteins
+    one_batch["graph"].residue_type = torch.cat(
+        [torch.tensor([STANDARD_AMINO_ACIDS.index(res) for res in seq], device=device) for seq in one_batch["seq"]])
+
+    one_batch["graph"].residues = [[STANDARD_AMINO_ACID_MAPPING_1_TO_3[res] for res in seq] for seq in one_batch["seq"]]
+    one_batch["graph"].chains = torch.zeros_like(one_batch["graph"].batch,
+                                                 device=device)  # NOTE: this assumes all input graphs represent single-chain proteins
+
+    one_batch["graph"].coords = torch.full((one_batch["graph"].num_nodes, len(PROTEIN_ATOMS), 3), fill_value,
+                                           device=device, dtype=torch.float32)
+    one_batch["graph"].coords[:, :3, :] = one_batch[
+        "graph"].x_bb.float()  # NOTE: only the N, CA, and C atoms are referenced in the pretrained encoder, which requires float32 precision
+    one_batch["graph"]._slice_dict["coords"] = one_batch["graph"]._slice_dict["x_bb"]
+
+    one_batch["graph"].seq_pos = torch.cat([torch.arange(len(seq), device=device).unsqueeze(1) for seq in one_batch[
+        "seq"]])  # NOTE: this assumes all input graphs represent single-chain proteins
+
+    if featuriser:
+        # Apply the featuriser to the collated graph batch
+        one_batch['graph'] = featuriser(one_batch['graph'])
+        # Apply the task transform if it exists
+        if task_transform:
+            one_batch['graph'] = task_transform(one_batch['graph'])
+    return one_batch
+
+
+def _normalize(tensor, dim=-1, eps=1e-8):
+    """
+    Normalizes a `torch.Tensor` along dimension `dim` without `nan`s.
+    """
+    return torch.nan_to_num(tensor / torch.norm(tensor, dim=dim, keepdim=True).clamp_min(eps))
+
+
+def _rbf(d, d_min=0., d_max=20., d_count=16, device='cpu'):
+    """
+    From https://github.com/jingraham/neurips19-graph-protein-design
+
+    Returns an RBF embedding of `torch.Tensor` `d` along a new axis=-1.
+    That is, if `d` has shape [...dims], then the returned tensor will have
+    shape [...dims, d_count].
+    """
+    d_mu = torch.linspace(d_min, d_max, d_count,
+                          # device=device
+                          )
+    d_mu = d_mu.view([1, -1])
+    d_sigma = (d_max - d_min) / d_count
+    d_sigma = torch.tensor(d_sigma,
+                           # device=device
+                           )  # Convert d_sigma to a tensor
+    d_expand = torch.unsqueeze(d, -1)
+
+    RBF = torch.exp(-((d_expand - d_mu) / d_sigma) ** 2)
+    return RBF
+
+
+def amino_acid_to_tensor(sequence, max_length, letter_to_num=None):
+    """
+    Converts a single amino acid sequence to a categorical PyTorch tensor with padding or trimming.
+
+    Args:
+        sequence (str): The amino acid sequence (e.g., "ACDEFGHIKLMNPQRSTVWY").
+        max_length (int): The desired fixed length for the sequence.
+        letter_to_num (dict, optional): Mapping from residue letters to class indices.
+
+    Returns:
+        torch.Tensor: A tensor of shape (max_length,) representing the sequence.
+    """
+    if letter_to_num is None:
+        amino_acids = "ARNDCQEGHILKMFPSTWYVX"
+        aa_to_index = {aa: i for i, aa in enumerate(amino_acids)}
+    else:
+        aa_to_index = dict(letter_to_num)
+
+    pad_index = aa_to_index.get('X', 0)
+
+    # Convert the sequence to indices
+    encoded = [aa_to_index.get(aa, pad_index) for aa in sequence]
+
+    # Pad or trim the sequence to the desired length
+    if len(encoded) < max_length:
+        encoded = encoded + [pad_index] * (max_length - len(encoded))  # padding
+    else:
+        encoded = encoded[:max_length]  # trimming
+
+    # Convert to a PyTorch tensor of shape (1, max_length)
+    tensor = torch.tensor(encoded, dtype=torch.long)
+    return tensor
+
+
+class GCPNetDataset(Dataset):
+    """
+    This class is a subclass of `torch.utils.data.Dataset` and is used to transform JSON/dictionary-style
+    protein structures into featurized protein graphs. The transformation process is described in detail in the
+    associated manuscript.
+
+    The transformed protein graphs are instances of `torch_geometric.data.Data` and have the following attributes:
+    - x: Alpha carbon coordinates. This is a tensor of shape [n_nodes, 3].
+    - seq: Protein sequence converted to an integer tensor according to `self.letter_to_num`. This is a tensor of shape [n_nodes].
+    - name: Name of the protein structure. This is a string.
+    - node_s: Node scalar features. This is a tensor of shape [n_nodes, 6].
+    - node_v: Node vector features. This is a tensor of shape [n_nodes, 3, 3].
+    - edge_s: Edge scalar features. This is a tensor of shape [n_edges, 32].
+    - edge_v: Edge scalar features. This is a tensor of shape [n_edges, 1, 3].
+    - edge_index: Edge indices. This is a tensor of shape [2, n_edges].
+    - mask: Node mask. This is a boolean tensor where `False` indicates nodes with missing data that are excluded from message passing.
+
+    This class uses portions of code from https://github.com/jingraham/neurips19-graph-protein-design.
+
+    Parameters:
+    - data_list: directory of h5 files.
+    - num_positional_embeddings: The number of positional embeddings to use.
+    - top_k: The number of edges to draw per node (as destination node).
+    - device: The device to use for preprocessing. If "cuda", preprocessing will be done on the GPU.
+    """
+
+    def __init__(
+        self,
+        data_path,
+        num_positional_embeddings=16,
+        top_k=30,
+        encoder_config_path=None,
+        **kwargs,
+    ):
+        super(GCPNetDataset, self).__init__()
+        self.h5_samples = glob.glob(os.path.join(data_path, '**', '*.h5'), recursive=True)
+
+        self.mode = kwargs["mode"]
+
+        if self.mode == 'train':
+            random.shuffle(self.h5_samples)
+
+        self.h5_samples = self.h5_samples[:kwargs['configs'].train_settings.max_task_samples]
+
+        self.top_k = top_k
+        self.num_positional_embeddings = num_positional_embeddings
+        # self.node_counts = [len(e['seq']) for e in data_list]
+
+        self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
+                              'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
+                              'E': 6, 'L': 10, 'R': 1, 'W': 17, 'V': 19,
+                              'N': 2, 'Y': 18, 'M': 12, 'X': 20}
+        self.num_to_letter = {v: k for k, v in self.letter_to_num.items()}
+
+        self.max_length = kwargs['configs'].model.max_length
+
+        self.configs = kwargs['configs']  # Main training config
+
+        if encoder_config_path is None:
+            default_path = os.path.join(os.getcwd(), "configs", "config_gcpnet_encoder.yaml")
+            if os.path.isfile(default_path):
+                encoder_config_path = default_path
+            else:
+                raise FileNotFoundError(
+                    "encoder_config_path is required when no local configs/ path is available."
+                )
+
+        encoder_cfg = load_encoder_config(encoder_config_path)
+
+        self.pretrained_featuriser = instantiate_module(encoder_cfg.get("features"))
+
+        task_cfg = encoder_cfg.get("task")
+        self.pretrained_task_transform = (
+            instantiate_module(task_cfg.get("transform"))
+            if isinstance(task_cfg, Mapping)
+            else None
+        )
+
+        self.esm_tokenizer = kwargs.get('esm_tokenizer', None)
+        esm_cfg = getattr(self.configs.train_settings.losses, 'esm', None)
+        self.use_esm_loss = bool(esm_cfg and getattr(esm_cfg, 'enabled', False))
+
+    @staticmethod
+    def handle_nan_coordinates(coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fills missing backbone coordinates, refines geometry, and returns a validity mask.
+
+        This function takes a tensor of backbone atom coordinates (N, CA, C, O) that may
+        contain NaN values, and returns a new tensor with the missing coordinates filled in,
+        along with a boolean mask indicating which residues were originally valid.
+        The process involves several steps to ensure a physically plausible result, while
+        only modifying the originally missing data.
+
+        The process is as follows:
+        1.  **Cloning**: The input `coords` tensor is cloned to avoid modifying the
+            original data.
+        2.  **NaN Identification**: A `nan_mask` is created to keep track of which atoms
+            were originally missing.
+        3.  **Per-Atom Interpolation**: The function iterates through each of the four
+            backbone atom types (N, CA, C, O) independently.
+            a.  **Fill Ends**: Leading and trailing NaN values in the sequence for a given
+                atom are filled by copying the coordinates of the nearest valid atom.
+            b.  **Interpolate Gaps**: For gaps of NaNs between two valid coordinates,
+                the function decides between two interpolation strategies:
+                i.  **Arc Interpolation**: If the ideal contour length required to span
+                    the gap (number of missing residues * 3.8 Å) is greater than the
+                    direct Euclidean distance between the gap's endpoints, the missing
+                    atoms are placed along a calculated circular arc. This avoids steric
+                    clashes in crowded regions. A fallback to linear interpolation is
+                    included for cases where arc calculation is geometrically impossible
+                    (i.e., would require sqrt of a negative number).
+                ii. **Linear Interpolation**: If the direct distance is sufficient,
+                    simple linear interpolation is used to place the atoms in a
+                    straight line.
+        4.  **Geometric Refinement**: After all NaNs are filled, two enforcement functions
+            are called to refine the local geometry, guided by the `nan_mask` to ensure
+            only the newly generated coordinates are adjusted.
+            a.  `enforce_ca_spacing`: Adjusts the Cα-Cα distances in the imputed
+                regions to the ideal ~3.8 Å.
+            b.  `enforce_backbone_bonds`: Corrects the bond lengths (N-CA, CA-C, C-O,
+                and peptide C-N) for the imputed residues to their ideal values.
+
+        Parameters
+        ----------
+        coords : torch.Tensor
+            Tensor of shape (N, 4, 3) containing backbone atom coordinates with
+            potential NaN entries.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            - A tensor of shape (N, 4, 3) with NaN values filled and geometry corrected.
+            - A boolean tensor of shape (N,) where `True` indicates a residue's
+              coordinates were originally valid and `False` indicates they were imputed.
+        """
+        # record which atoms will be filled
+        nan_mask = torch.isnan(coords).any(dim=-1)  # (N,4)
+        # quickly return if no NaNs
+        if not nan_mask.any():
+            # no missing entries
+            return coords, coords.new_ones(coords.size(0), dtype=torch.bool)
+
+        coords = coords.clone()
+        N, n_atoms, _ = coords.shape
+
+        for atom in range(n_atoms):
+            flat = coords[:, atom].clone()
+            mask = nan_mask[:, atom]
+            valid = torch.where(~mask)[0]
+            if valid.numel() == 0:
+                flat[:] = 0.0
+            else:
+                first, last = valid[0].item(), valid[-1].item()
+                flat[:first] = flat[first]
+                flat[last + 1:] = flat[last]
+                for a, b in zip(valid[:-1], valid[1:]):
+                    gap = b - a - 1
+                    if gap > 0:
+                        v = flat[b] - flat[a]
+                        dist = v.norm().item()
+                        L_target = gap * 3.8
+                        if L_target > dist:
+                            u = v / dist
+                            temp = torch.tensor([1, 0, 0], device=v.device, dtype=v.dtype)
+                            if abs((u * temp).sum()) > 0.9:
+                                temp = torch.tensor([0, 1, 0], device=v.device, dtype=v.dtype)
+                            n = torch.linalg.cross(u, temp)
+                            n = n / n.norm()
+
+                            # prevent nan from sqrt of negative number
+                            h_squared = (L_target / math.pi)**2 - (dist / 2)**2
+                            if h_squared < 0:
+                                w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
+                                flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
+                                continue
+
+                            h = h_squared**0.5
+                            for j in range(1, gap + 1):
+                                theta = j * math.pi / (gap + 1)
+                                d_j = dist * j / (gap + 1)
+                                h_j = h * math.sin(theta)
+                                flat[a + j] = flat[a] + d_j * u + h_j * n
+                        else:
+                            w = torch.linspace(0, 1, gap + 2, device=flat.device, dtype=flat.dtype)[1:-1].unsqueeze(1)
+                            flat[a + 1:b] = flat[a] * (1 - w) + flat[b] * w
+            coords[:, atom] = flat
+
+        # enforce Cα–Cα spacing on residues with imputed atoms
+        coords = enforce_ca_spacing(coords, changed=nan_mask)
+        # then enforce backbone bond lengths on those atoms
+        coords = enforce_backbone_bonds(coords, changed=nan_mask)
+        return coords, ~nan_mask.any(dim=1)
+
+    def __len__(self):
+        return len(self.h5_samples)
+
+    @staticmethod
+    def recenter_coordinates(coordinates):
+        """
+        Recenters the 3D coordinates of a protein structure.
+
+        Parameters:
+        - coordinates: A PyTorch tensor of shape (num_amino_acids, 4, 3), representing
+          the 3D coordinates of the backbone atoms.
+
+        Returns:
+        - A tensor of the same shape, but recentered to the center of the coordinates.
+        """
+        # Flatten to shape (num_atoms, 3) to calculate the center of mass
+        num_amino_acids, num_atoms, _ = coordinates.shape
+        flattened_coordinates = coordinates.view(-1, 3)
+
+        # Compute the center of mass (mean of all coordinates)
+        center_of_mass = flattened_coordinates.mean(dim=0)
+
+        # Subtract the center of mass from each coordinate to recenter
+        recentered_coordinates = coordinates - center_of_mass
+
+        return recentered_coordinates
+
+    def _apply_random_rotation(self, coords_list):
+        """Apply a single random 3D rotation (rigid body) to all non-NaN backbone coordinates.
+
+        This augmentation:
+        - Draws a random unit axis and an angle in [0, 2π)
+        - Builds a rotation matrix via Rodrigues' formula
+        - Applies it to every coordinate whose (x,y,z) are all finite
+        - Leaves any NaN entries untouched so downstream NaN logic still works
+        - Performs NO translation, scaling, or noise (pure rotation about origin)
+
+        Args:
+            coords_list (list): Nested list (L, 4, 3) of backbone coordinates
+        Returns:
+            list: Rotated coordinates in the same nested list structure
+        """
+        if not (hasattr(self.configs.train_settings, 'random_rotation') and
+                self.configs.train_settings.random_rotation.enabled and
+                self.mode == 'train'):
+            return coords_list
+        if not coords_list:
+            return coords_list
+        coords = torch.tensor(coords_list, dtype=torch.float32)
+        if coords.ndim != 3 or coords.size(-1) != 3:
+            return coords_list  # unexpected shape, skip
+        # mask of atoms where all components are finite
+        finite_mask = torch.isfinite(coords).all(dim=-1)  # (L,4)
+        if not finite_mask.any():
+            return coords_list
+        # sample random rotation
+        axis = torch.randn(3, dtype=coords.dtype)
+        axis_norm = axis.norm()
+        if axis_norm < 1e-8:
+            return coords_list  # degenerate, extremely unlikely
+        axis = axis / axis_norm
+        theta = torch.rand(1).item() * 2 * math.pi
+        K = torch.tensor([[0, -axis[2], axis[1]],
+                          [axis[2], 0, -axis[0]],
+                          [-axis[1], axis[0], 0]], dtype=coords.dtype)
+        I = torch.eye(3, dtype=coords.dtype)
+        R = I + math.sin(theta) * K + (1 - math.cos(theta)) * (K @ K)
+        # apply rotation to finite coordinates (broadcast over all selected atoms)
+        flat = coords.view(-1, 3)
+        finite_mask_flat = finite_mask.view(-1)
+        flat[finite_mask_flat] = flat[finite_mask_flat] @ R.T
+        coords = flat.view_as(coords)
+        return coords.tolist()
+
+    def _apply_gaussian_jitter(self, coords_list):
+        """Apply Gaussian jitter to input coordinates and enforce geometry.
+
+        Behavior:
+        - No-op unless train_settings.gaussian_jitter.enabled and mode == 'train'.
+        - Supports either (L, 4, 3) backbone coords OR flattened (1, L, 12)/(L, 12).
+        - Adds N(0, std^2) noise to valid residues only (padded rows are preserved).
+        - Enforces ideal bonds and CA–CA spacing on valid region after jitter.
+
+        Returns the same structure type/shape as the input.
+        """
+        # Gate by config and mode
+        if not hasattr(self.configs.train_settings, 'gaussian_jitter'):
+            return coords_list
+        if not getattr(self.configs.train_settings.gaussian_jitter, 'enabled', False):
+            return coords_list
+        if self.mode != 'train':
+            return coords_list
+
+        std = float(getattr(self.configs.train_settings.gaussian_jitter, 'std', 0.0))
+        prob = float(getattr(self.configs.train_settings.gaussian_jitter, 'probability', 1.0))
+        if std <= 0.0:
+            return coords_list
+        if prob < 1.0 and random.random() >= prob:
+            return coords_list
+
+        # Convert to tensor while preserving original type/shape for output
+        input_is_tensor = torch.is_tensor(coords_list)
+        coords_tensor = coords_list.clone() if input_is_tensor else torch.tensor(coords_list, dtype=torch.float32)
+
+        # Handle (1, L, 12) or (L, 12) flattened inputs by reshaping to (L, 4, 3)
+        original_shape = coords_tensor.shape
+        if coords_tensor.ndim == 3 and coords_tensor.size(0) == 1 and coords_tensor.size(2) == 12:
+            # (1, L, 12) -> (L, 4, 3)
+            L = coords_tensor.size(1)
+            coords_bb = coords_tensor.view(L, 4, 3)
+            flattened_mode = True
+        else:
+            # Unrecognized shape; do nothing
+            return coords_list
+
+        # Determine valid (non-padded) residues: any non-zero across 12 dims
+        with torch.no_grad():
+            row_sums = coords_bb.reshape(L, 12).abs().sum(dim=1)
+            valid_mask_res = row_sums > 0
+            if valid_mask_res.any():
+                valid_length = int(valid_mask_res.nonzero(as_tuple=False).max().item()) + 1
+            else:
+                valid_length = 0
+
+        if valid_length == 0:
+            # nothing to jitter/enforce
+            return coords_list
+
+        # Slice valid region
+        coords_valid = coords_bb[:valid_length].clone()
+
+        # Add jitter only to finite entries
+        finite_mask = torch.isfinite(coords_valid)
+        coords_valid = torch.where(finite_mask, coords_valid + torch.randn_like(coords_valid) * std, coords_valid)
+
+        # Enforce geometry on valid slice
+        # Apply to all valid residues; no adjustments spill into padded tail
+        coords_valid = enforce_backbone_bonds(coords_valid)
+        coords_valid = enforce_ca_spacing(coords_valid)
+
+        # Merge back with padded tail unchanged
+        coords_bb = coords_bb.clone()
+        coords_bb[:valid_length] = coords_valid
+
+        # Restore original shape
+        if flattened_mode:
+            out_tensor = coords_bb.reshape(original_shape)
+        else:
+            out_tensor = coords_bb
+
+        if input_is_tensor:
+            return out_tensor
+        else:
+            return out_tensor.tolist()
+
+    def _apply_augmentations(self, coords_list, raw_sequence):
+        """
+        Applies a series of augmentations to the input coordinates and sequence.
+
+        Augmentation steps (applied in this order if enabled):
+          1. NaN Masking: Random multi-chunk masking -> coordinates set to NaN and sequence positions set to 'X'.
+          2. Random Cutoff: Truncate sequence + coordinates to a random length.
+
+        Args:
+            coords_list (list): Nested list of backbone coords shape (L, 4, 3) for [N, CA, C, O].
+            raw_sequence (str): Amino acid sequence.
+        Returns:
+            (new_coords_list, new_sequence_str)
+        """
+        nan_cfg = self.configs.train_settings.nan_augmentation
+        cut_cfg = self.configs.train_settings.cutoff_augmentation
+
+        seq_list = list(raw_sequence)
+
+        # random nan masking
+        if nan_cfg.enabled and self.mode == 'train' and random.random() < nan_cfg.probability:
+            segment_length = random.randint(1, nan_cfg.max_length)
+            N = len(coords_list)
+            if N > segment_length:
+                # choose 1..6 chunks, but not more than the segment_length
+                num_chunks = random.randint(1, min(6, segment_length))
+
+                # randomly partition segment_length into num_chunks positive integers
+                if num_chunks == 1:
+                    chunk_lengths = [segment_length]
+                else:
+                    split_points = sorted(random.sample(range(1, segment_length), num_chunks - 1))
+                    chunk_lengths = [split_points[0]] + \
+                                    [split_points[i] - split_points[i - 1] for i in range(1, len(split_points))] + \
+                                    [segment_length - split_points[-1]]
+
+                # place chunks randomly without overlap using free-interval sampling
+                free_intervals = [(0, N)]  # half-open intervals [start, end)
+                masked_ranges = []
+                for L in chunk_lengths:
+                    candidates = [iv for iv in free_intervals if (iv[1] - iv[0]) >= L]
+                    if not candidates:
+                        break  # no room left; stop early
+                    a, b = random.choice(candidates)
+                    start = random.randint(a, b - L)
+                    end = start + L
+                    masked_ranges.append((start, end))
+                    # update free intervals by splitting the chosen interval
+                    free_intervals.remove((a, b))
+                    if start > a:
+                        free_intervals.append((a, start))
+                    if end < b:
+                        free_intervals.append((end, b))
+
+                # apply masking
+                for s, e in masked_ranges:
+                    for idx in range(s, e):
+                        coords_list[idx] = [[float('nan')] * 3 for _ in range(4)]
+                        if idx < len(seq_list):
+                            seq_list[idx] = 'X'
+
+        # random cutoff
+        if cut_cfg.enabled and self.mode == 'train' and random.random() < cut_cfg.probability:
+            # Ensure max_length is not smaller than min_length
+            max_len = len(seq_list)
+            min_len = cut_cfg.min_length
+            if max_len > min_len:
+                random_length = random.randint(min_len, max_len)
+                coords_list = coords_list[:random_length]
+                seq_list = seq_list[:random_length]
+
+        return coords_list, "".join(seq_list)
+
+    def _calculate_sample_weight(self, sequence_length):
+        """
+        Calculate sample weight based on sequence length.
+
+        Args:
+            sequence_length (int): Length of the amino acid sequence
+
+        Returns:
+            float: Sample weight between min_weight and max_weight
+        """
+        if getattr(self.configs.train_settings, "sample_weighting", True):
+            return 1.0
+
+        elif not self.configs.train_settings.sample_weighting.enabled:
+            return 1.0
+
+        min_weight = self.configs.train_settings.sample_weighting.min_weight
+        max_weight = self.configs.train_settings.sample_weighting.max_weight
+        threshold_length = self.configs.train_settings.sample_weighting.threshold_length
+
+        if sequence_length <= threshold_length:
+            return min_weight
+
+        # Logarithmic increase from threshold_length to max_length
+        # Weight increases from min_weight to max_weight
+        weight_range = max_weight - min_weight
+        length_ratio = min(sequence_length - threshold_length, self.max_length - threshold_length) / (self.max_length - threshold_length)
+
+        # Apply logarithmic scaling
+        if length_ratio > 0:
+            log_ratio = (length_ratio * 9) + 1  # Scale to 1-10 range for log
+            weight = min_weight + weight_range * (log_ratio - 1) / 9
+        else:
+            weight = min_weight
+
+        return min(weight, max_weight)
+
+    def _getitem_esm_v2(self, protein_sequence):
+        """
+        Tokenizes a protein sequence for ESM-v2 model.
+
+        Args:
+            protein_sequence (str): The protein amino acid sequence.
+
+        Returns:
+            dict: A dictionary containing tokenized 'input_ids' and 'attention_mask'.
+        """
+        if self.esm_tokenizer is None:
+            raise RuntimeError("ESM tokenizer is not initialized while esm loss is enabled.")
+
+        encoded_protein_sequence = self.esm_tokenizer(
+            protein_sequence,
+            max_length=self.max_length,
+            add_special_tokens=False,
+            padding='max_length',
+            truncation=True,
+            return_tensors="pt"
+        )
+
+        encoded_protein_sequence['input_ids'] = torch.squeeze(encoded_protein_sequence['input_ids'])
+        encoded_protein_sequence['attention_mask'] = torch.squeeze(encoded_protein_sequence['attention_mask'])
+        return encoded_protein_sequence
+
+    def __getitem__(self, i):
+        sample_path = self.h5_samples[i]
+        sample = load_h5_file(sample_path)
+        basename = os.path.basename(sample_path)
+        pid = basename.split('.h5')[0]
+
+        # Decode sequence and replace U with X
+        raw_sequence = sample[0].decode('utf-8').replace('U', 'X').replace('O', 'X').replace('B', 'X').replace('Z', 'X')
+        
+        coords_list = torch.tensor(sample[1].tolist()).tolist()
+
+        # NEW: global random rotation BEFORE other augmentations
+        coords_list = self._apply_random_rotation(coords_list)
+
+        if self.mode == 'train' and (self.configs.train_settings.nan_augmentation.enabled or
+                                     self.configs.train_settings.cutoff_augmentation.enabled):
+            coords_list, raw_sequence = self._apply_augmentations(coords_list, raw_sequence)
+
+        coords_list, nan_mask = self.handle_nan_coordinates(torch.tensor(coords_list))
+
+        # Pad or trim nan_mask to max_length and invert it to correctly represent missing coordinates
+        nan_mask = torch.cat([nan_mask, nan_mask.new_zeros(self.max_length)], dim=0)[:self.max_length]
+
+        coords_list = self.recenter_coordinates(coords_list).tolist()
+
+        sample_dict = {'name': pid,
+                       'coords': coords_list,
+                       'seq': raw_sequence}
+        feature = self._featurize_as_graph(sample_dict)
+        plddt_scores = sample[2]
+        plddt_scores = torch.from_numpy(plddt_scores).to(torch.float16) / 100
+        plddt_scores = plddt_scores[: self.max_length]
+        if plddt_scores.shape[0] < self.max_length:
+            pad_len = self.max_length - plddt_scores.shape[0]
+            pad = torch.full((pad_len,), float("nan"), dtype=plddt_scores.dtype)
+            plddt_scores = torch.cat([plddt_scores, pad], dim=0)
+        raw_seqs = raw_sequence
+        coords_list = sample_dict['coords']
+        coords_tensor = torch.Tensor(coords_list)
+
+        coords_tensor = coords_tensor[:self.max_length, ...]
+
+        coords_tensor = coords_tensor.reshape(1, -1, 12)
+        # Merge the features and create a mask
+        coords, masks = merge_features_and_create_mask(coords_tensor, self.max_length)
+
+        input_coordinates = coords.clone()
+        # Apply Gaussian jitter + geometry enforcement to inputs only (if enabled)
+        input_coordinates = self._apply_gaussian_jitter(input_coordinates)
+
+        coords = coords[..., :9]  # only use N, CA, C atoms
+
+        # squeeze coords and masks to return them to 2D
+        coords = coords.squeeze(0)
+        masks = masks.squeeze(0)
+
+        # Calculate sample weight based on sequence length
+        sequence_length = len(raw_sequence)
+        sample_weight = self._calculate_sample_weight(sequence_length)
+
+        inverse_folding_labels = amino_acid_to_tensor(raw_sequence, self.max_length, self.letter_to_num)
+
+        esm_input_ids = None
+        esm_attention_mask = None
+        if self.use_esm_loss:
+            if self.esm_tokenizer is None:
+                raise RuntimeError("ESM tokenizer must be provided when esm loss is enabled.")
+            esm_tokens = self._getitem_esm_v2(raw_sequence)
+            esm_input_ids = esm_tokens['input_ids']
+            esm_attention_mask = esm_tokens['attention_mask']
+
+        return [feature, raw_seqs, plddt_scores, pid, coords, masks, input_coordinates,
+                inverse_folding_labels, nan_mask, sample_weight, esm_input_ids, esm_attention_mask]
+
+    def _featurize_as_graph(self, protein):
+        from torch_geometric.data import Data
+
+        name = protein['name']
+        with torch.no_grad():
+            # x=N, C-alpha, C, and O atoms
+            coords = torch.as_tensor(protein['coords'],
+                                     # device=self.device,
+                                     dtype=torch.float32)
+
+            seq = torch.as_tensor([self.letter_to_num[a] for a in protein['seq']],
+                                  # device=self.device,
+                                  dtype=torch.long)
+
+            mask = torch.isfinite(coords.sum(dim=(1, 2)))
+            coords[~mask] = np.inf
+
+            X_ca = coords[:, 1]
+
+            dihedrals = self._dihedrals(coords)  # only this one used O
+            orientations = self._orientations(X_ca)
+            sidechains = self._sidechains(coords)
+            node_s = dihedrals
+
+            node_v = torch.cat([orientations, sidechains.unsqueeze(-2)], dim=-2)
+
+            node_s, node_v = map(torch.nan_to_num, (node_s, node_v))
+
+        data = Data(x=X_ca, x_bb=coords[:, :3], seq=seq, name=name,
+                    h=node_s, chi=node_v,
+                    mask=mask)
+        return data
+
+    @staticmethod
+    def _dihedrals(x, eps=1e-7):
+        # From https://github.com/jingraham/neurips19-graph-protein-design
+
+        x = torch.reshape(x[:, :3], [3 * x.shape[0], 3])
+        dx = x[1:] - x[:-1]
+        U = _normalize(dx, dim=-1)
+        u_2 = U[:-2]
+        u_1 = U[1:-1]
+        u_0 = U[2:]
+
+        # Backbone normals
+        n_2 = _normalize(torch.linalg.cross(u_2, u_1), dim=-1)
+        n_1 = _normalize(torch.linalg.cross(u_1, u_0), dim=-1)
+
+        # Angle between normals
+        cosD = torch.sum(n_2 * n_1, -1)
+        cosD = torch.clamp(cosD, -1 + eps, 1 - eps)
+        D = torch.sign(torch.sum(u_2 * n_1, -1)) * torch.acos(cosD)
+
+        # This scheme will remove phi[0], psi[-1], omega[-1]
+        D = F.pad(D, [1, 2])
+        D = torch.reshape(D, [-1, 3])
+        # Lift angle representations to the circle
+        D_features = torch.cat([torch.cos(D), torch.sin(D)], 1)
+        return D_features
+
+    def _positional_embeddings(self, edge_index,
+                               num_embeddings=None,
+                               period_range=(2, 1000)):
+        # From https://github.com/jingraham/neurips19-graph-protein-design
+        num_embeddings = num_embeddings or self.num_positional_embeddings
+        d = edge_index[0] - edge_index[1]
+
+        frequency = torch.exp(
+            torch.arange(0, num_embeddings, 2, dtype=torch.float32,
+                         # device=self.device
+                         )
+            * -(np.log(10000.0) / num_embeddings)
+        )
+        angles = d.unsqueeze(-1) * frequency
+        E = torch.cat((torch.cos(angles), torch.sin(angles)), -1)
+        return E
+
+    @staticmethod
+    def _orientations(x):
+        forward = _normalize(x[1:] - x[:-1])
+        backward = _normalize(x[:-1] - x[1:])
+        forward = F.pad(forward, [0, 0, 0, 1])
+        backward = F.pad(backward, [0, 0, 1, 0])
+        return torch.cat([forward.unsqueeze(-2), backward.unsqueeze(-2)], -2)
+
+    @staticmethod
+    def _sidechains(x):
+        n, origin, c = x[:, 0], x[:, 1], x[:, 2]
+        c, n = _normalize(c - origin), _normalize(n - origin)
+        bisector = _normalize(c + n)
+        perp = _normalize(torch.linalg.cross(c, n))
+        vec = -bisector * math.sqrt(1 / 3) - perp * math.sqrt(2 / 3)
+        # The specific weights used in the linear combination (math.sqrt(1 / 3) and math.sqrt(2 / 3)) are derived from the idealized tetrahedral geometry of the sidechain atoms around the C-alpha atom. However, in practice, these weights may be adjusted or learned from data to better capture the actual sidechain geometries observed in protein structures.
+        return vec
+
+
+def prepare_gcpnet_vqvae_dataloaders(logging, accelerator, configs, **kwargs):
+    if accelerator.is_main_process:
+        logging.info(f"train directory: {configs.train_settings.data_path}")
+        logging.info(f"valid directory: {configs.valid_settings.data_path}")
+
+        assert os.path.exists(configs.train_settings.data_path), (
+            f"Data path {configs.train_settings.data_path} does not exist"
+        )
+        assert os.path.exists(configs.valid_settings.data_path), (
+            f"Data path {configs.valid_settings.data_path} does not exist"
+        )
+
+    esm_tokenizer = None
+    if configs.train_settings.losses.esm.enabled:
+        # Load the ESM model tokenizer
+        esm_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t12_35M_UR50D")
+        logging.info("Loaded ESM tokenizer for loss computation")
+
+    train_dataset = GCPNetDataset(
+        configs.train_settings.data_path,
+        top_k=kwargs["encoder_configs"].top_k,
+        num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
+        configs=configs,
+        esm_tokenizer=esm_tokenizer,
+        mode="train",
+    )
+
+    valid_dataset = GCPNetDataset(
+        configs.valid_settings.data_path,
+        top_k=kwargs["encoder_configs"].top_k,
+        num_positional_embeddings=kwargs["encoder_configs"].num_positional_embeddings,
+        configs=configs,
+        esm_tokenizer=esm_tokenizer,
+        mode="evaluation",
+    )
+
+    custom_collate_pretrained_gcp_partial = functools.partial(
+        custom_collate_pretrained_gcp,
+        featuriser=train_dataset.pretrained_featuriser,
+        task_transform=train_dataset.pretrained_task_transform,
+    )
+    logging.info("Using GCPNet featuriser-aware collate function")
+
+    train_loader = DataLoader(train_dataset, batch_size=configs.train_settings.batch_size,
+                              num_workers=configs.train_settings.num_workers,
+                              shuffle=configs.train_settings.shuffle,
+                              pin_memory=False,  # page-lock host buffers
+                              persistent_workers=False,  # keep workers alive between epochs
+                              collate_fn=custom_collate_pretrained_gcp_partial)
+    valid_loader = DataLoader(valid_dataset, batch_size=configs.valid_settings.batch_size,
+                              num_workers=configs.valid_settings.num_workers,
+                              pin_memory=False,
+                              persistent_workers=False,  # keep workers alive between epochs
+                              shuffle=False,
+                              collate_fn=custom_collate_pretrained_gcp_partial)
+
+    return train_loader, valid_loader
+
+
+if __name__ == '__main__':
+    import yaml
+    import tqdm
+    from utils.utils import load_configs, get_dummy_logger
+    from torch.utils.data import DataLoader
+    from accelerate import Accelerator
+
+    # from utils.metrics import batch_distance_map_to_coordinates
+
+    config_path = "../configs/config_vqvae.yaml"
+
+    print('Loading config file:', config_path)
+    with open(config_path) as file:
+        config_file = yaml.full_load(file)
+
+    config_file['model']['encoder']['pretrained'][
+        'config_path'] = "../configs/pretrained/structure_denoising_pretrained_config.yaml"
+    config_file['model']['encoder']['pretrained'][
+        'checkpoint_path'] = "../models/checkpoints/structure_denoising/gcpnet/ca_bb/last.ckpt"
+    test_configs = load_configs(config_file)
+
+    test_configs.train_settings.data_path = '/home/mpngf/datasets/vqvae/swissprot_1024_h5/'
+    test_logger = get_dummy_logger()
+    accelerator = Accelerator()
+
+    print('data path:', os.path.abspath(test_configs.train_settings.data_path))
+    dataset = GCPNetDataset(test_configs.train_settings.data_path, train_mode=True, rotate_randomly=False,
+                            max_samples=test_configs.train_settings.max_task_samples,
+                            configs=test_configs,
+                            mode="train")
+
+    # determine collate function based on pretrained GCPNet config
+    custom_collate_pretrained_gcp_partial = functools.partial(
+        custom_collate_pretrained_gcp,
+        featuriser=dataset.pretrained_featuriser,
+        task_transform=dataset.pretrained_task_transform,
+    )
+
+    test_loader = DataLoader(dataset, batch_size=test_configs.train_settings.batch_size,
+                             num_workers=test_configs.train_settings.num_workers,
+                             pin_memory=False,  # page-lock host buffers
+                             persistent_workers=True,  # keep workers alive between epochs
+                             prefetch_factor=2,
+                             collate_fn=custom_collate_pretrained_gcp_partial)
+
+    print('Building dataset with', len(dataset), 'samples')
+
+    # test_loader = DataLoader(dataset, batch_size=16, num_workers=0, pin_memory=True)
+    struct_embeddings = []
+    for batch in tqdm.tqdm(test_loader, total=len(test_loader)):
+        # graph = batch["graph"]
+        pass

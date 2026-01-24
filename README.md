@@ -23,6 +23,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 - 🗓️ **17 Oct 2025** - Release a lite version of GCP-VQVAE with half the parameters.
 - 🗓️ **22 Dec 2025** - Add Protein Structure Tokenizer benchmark evaluation scripts and instructions. Refer to [pst_evaluation/README.md](./pst_evaluation/README.md).
 - 🗓️ **31 Dec 2025** - Added a simplified evaluation demo and refactored README docs for easier navigation. See [demo/README.md](demo/README.md).
+- 🗓️ **23 Jan 2026** - Released the standalone `gcp-vqvae` Python package for inference (encode/embed/decode) with a lightweight install path.
 
 
 
@@ -38,6 +39,56 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 ## Installation
 See [docs/installation/README.md](docs/installation/README.md) for Docker images, Dockerfile build steps, and 
 optional FlashAttention-3 notes.
+
+### Standalone Python package (gcp-vqvae)
+If you only want the inference wrapper, see `gcp-vqvae/README.md` for full details.
+
+One-line install from GitHub (uses `gcp-vqvae/pyproject.toml`):
+```bash
+pip install "git+https://github.com/mahdip72/vq_encoder_decoder.git@main#subdirectory=gcp-vqvae"
+```
+
+Minimal usage:
+```python
+from gcp_vqvae import GCPVQVAE
+
+# Download a checkpoint from the section below and pass its directory in `trained_model_dir`.
+model = GCPVQVAE(
+    trained_model_dir="/abs/path/to/trained_model",
+    checkpoint_path="checkpoints/best_valid.pth",
+    config_vqvae="config_vqvae.yaml",
+    config_encoder="config_gcpnet_encoder.yaml",
+    config_decoder="config_geometric_decoder.yaml",
+    mode="encode",
+    mixed_precision="bf16",
+)
+
+records = model.encode(
+    data_path="/abs/path/to/h5_dir",
+    batch_size=8,
+)
+
+decoder = GCPVQVAE(
+    trained_model_dir="/abs/path/to/trained_model",
+    checkpoint_path="checkpoints/best_valid.pth",
+    config_vqvae="config_vqvae.yaml",
+    config_encoder="config_gcpnet_encoder.yaml",
+    config_decoder="config_geometric_decoder.yaml",
+    mode="decode",
+    mixed_precision="bf16",
+)
+
+coords = decoder.decode(
+    ["1 2 3 4 5", "6 7 8"],
+    batch_size=2,
+)
+```
+
+Notes:
+- Use `mode="embed"` with `embed()` for embeddings, and `mode="decode"` with `decode()` for coordinates.
+- `mode="decode"` only builds/loads the VQ + decoder path (encoder is not constructed).
+- `mixed_precision` defaults to `bf16` on CUDA; use `mixed_precision="no"` to disable.
+- Set `deterministic=True` and `shuffle=False` for repeatable outputs.
 
 ## Data Pipeline
 
