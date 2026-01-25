@@ -45,7 +45,7 @@ If you only want the inference wrapper, see `gcp-vqvae/README.md` for full detai
 
 One-line install from GitHub (uses `gcp-vqvae/pyproject.toml`):
 ```bash
-pip install "git+https://github.com/mahdip72/vq_encoder_decoder.git@main#subdirectory=gcp-vqvae"
+pip install "git+https://github.com/mahdip72/vq_encoder_decoder.git@master#subdirectory=gcp-vqvae"
 ```
 
 Minimal usage:
