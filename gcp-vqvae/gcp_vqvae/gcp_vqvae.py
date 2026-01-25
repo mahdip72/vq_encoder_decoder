@@ -11,12 +11,22 @@ from box import Box
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ._internal.data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
+from ._internal.data.dataset import custom_collate_pretrained_gcp
 from ._internal.demo.dataset import DemoStructureDataset
 from ._internal.models.super_model import prepare_model
 from ._internal.utils.utils import get_logger, load_checkpoints_simple, load_configs
 
 DEFAULT_DROP_PREFIXES = ("protein_encoder.", "vqvae.decoder.esm_")
+DEFAULT_SILENCED_LOGGERS = (
+    "graphein",
+    "Bio",
+    "torch_geometric",
+    "torch_cluster",
+    "torch_scatter",
+    "torch_sparse",
+    "huggingface_hub",
+    "transformers",
+)
 
 
 def _load_yaml(path: str) -> dict:
@@ -35,6 +45,35 @@ def _resolve_path(base_dir: Optional[str], path: str) -> str:
     if base_dir is None:
         return path
     return os.path.join(base_dir, path)
+
+
+def _resolve_hf_path(
+    model_id: str,
+    filename: str,
+    *,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    token: Optional[str] = None,
+    logger: Optional[logging.Logger] = None,
+) -> str:
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as exc:
+        raise ImportError(
+            "huggingface-hub is required to download models from Hugging Face. "
+            "Install it or provide local checkpoint/config paths."
+        ) from exc
+
+    path = hf_hub_download(
+        repo_id=model_id,
+        filename=filename,
+        revision=revision,
+        cache_dir=cache_dir,
+        token=token,
+    )
+    if logger is not None:
+        logger.info("Resolved HF file %s from %s -> %s", filename, model_id, path)
+    return path
 
 
 def _load_encoder_decoder_configs(encoder_cfg_path: str, decoder_cfg_path: str) -> tuple[Box, Box]:
@@ -154,11 +193,16 @@ class GCPVQVAE:
     def __init__(
         self,
         *,
-        trained_model_dir: Optional[str],
-        checkpoint_path: str,
-        config_vqvae: str,
-        config_encoder: str,
-        config_decoder: str,
+        trained_model_dir: Optional[str] = None,
+        checkpoint_path: str = "checkpoints/best_valid.pth",
+        config_vqvae: str = "config_vqvae.yaml",
+        config_encoder: str = "config_gcpnet_encoder.yaml",
+        config_decoder: str = "config_geometric_decoder.yaml",
+        hf_model_id: Optional[str] = "Mahdip72/gcp-vqvae-large",
+        hf_revision: Optional[str] = None,
+        hf_cache_dir: Optional[str] = None,
+        hf_token: Optional[str] = None,
+        use_hf: Optional[bool] = None,
         mode: str = "encode",
         device: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
@@ -168,6 +212,7 @@ class GCPVQVAE:
         use_pretrained_encoder: bool = False,
         deterministic: bool = False,
         seed: int = 0,
+        suppress_logging: bool = True,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         """Initialize a GCP-VQVAE inference wrapper.
@@ -183,7 +228,16 @@ class GCPVQVAE:
                 trained_model_dir when provided.
             config_decoder: Path to the decoder config YAML. Resolved relative to
                 trained_model_dir when provided.
-            mode: Inference mode; one of "encode", "embed", or "decode".
+            hf_model_id: Hugging Face model repo ID used when fetching remote
+                checkpoints/configs. Defaults to "Mahdip72/gcp-vqvae-large".
+            hf_revision: Optional Hugging Face revision/branch/tag.
+            hf_cache_dir: Optional cache directory for Hugging Face downloads.
+            hf_token: Optional Hugging Face token for private repos.
+            use_hf: Force using Hugging Face files when True. When None, Hugging
+                Face is used if trained_model_dir is not provided and no absolute
+                local paths are supplied.
+            mode: Inference mode; one of "encode", "embed", "decode", or "all".
+                Use "all" to load both encode/embed and decode paths in one object.
             device: Torch device string (e.g., "cuda", "cpu"). Defaults to CUDA
                 if available.
             dtype: Explicit torch dtype for autocast. If None, dtype is derived
@@ -196,6 +250,8 @@ class GCPVQVAE:
             deterministic: If True, enable deterministic kernels and seeding for
                 repeatable results (may reduce performance).
             seed: Base seed used when deterministic is True.
+            suppress_logging: When True, set noisy third-party loggers to ERROR
+                during inference setup.
             logger: Optional logger for checkpoint/config messages.
 
         Example:
@@ -208,9 +264,11 @@ class GCPVQVAE:
             ...     mode="encode",
             ...     mixed_precision="bf16",
             ... )
+            >>> model = GCPVQVAE(mode="encode")  # Uses Hugging Face default model.
+            >>> model = GCPVQVAE(mode="all")  # Load encode/embed + decode paths.
         """
-        if mode not in ("encode", "embed", "decode"):
-            raise ValueError("mode must be one of: encode, embed, decode")
+        if mode not in ("encode", "embed", "decode", "all"):
+            raise ValueError("mode must be one of: encode, embed, decode, all")
 
         self.mode = mode
         self.device = torch.device(device) if device else torch.device(
@@ -222,14 +280,66 @@ class GCPVQVAE:
             self.dtype = self._resolve_mixed_precision_dtype()
         self.deterministic = bool(deterministic)
         self.seed = int(seed)
+        self.suppress_logging = bool(suppress_logging)
 
         self.logger = logger or get_logger("gcp_vqvae")
+        if self.suppress_logging:
+            self._silence_external_loggers()
 
-        self.trained_model_dir = trained_model_dir
-        self.vqvae_config_path = _resolve_path(trained_model_dir, config_vqvae)
-        self.encoder_config_path = _resolve_path(trained_model_dir, config_encoder)
-        self.decoder_config_path = _resolve_path(trained_model_dir, config_decoder)
-        self.checkpoint_path = _resolve_path(trained_model_dir, checkpoint_path)
+        self.hf_model_id = hf_model_id
+        self.hf_revision = hf_revision
+        self.hf_cache_dir = hf_cache_dir
+        self.hf_token = hf_token
+        if use_hf is None:
+            has_abs_paths = any(
+                os.path.isabs(path)
+                for path in (checkpoint_path, config_vqvae, config_encoder, config_decoder)
+            )
+            use_hf = trained_model_dir is None and not has_abs_paths and hf_model_id is not None
+        self.use_hf = bool(use_hf)
+
+        if self.use_hf:
+            if not hf_model_id:
+                raise ValueError("hf_model_id is required when use_hf is True.")
+            self.trained_model_dir = None
+            self.vqvae_config_path = _resolve_hf_path(
+                hf_model_id,
+                config_vqvae,
+                revision=hf_revision,
+                cache_dir=hf_cache_dir,
+                token=hf_token,
+                logger=self.logger,
+            )
+            self.encoder_config_path = _resolve_hf_path(
+                hf_model_id,
+                config_encoder,
+                revision=hf_revision,
+                cache_dir=hf_cache_dir,
+                token=hf_token,
+                logger=self.logger,
+            )
+            self.decoder_config_path = _resolve_hf_path(
+                hf_model_id,
+                config_decoder,
+                revision=hf_revision,
+                cache_dir=hf_cache_dir,
+                token=hf_token,
+                logger=self.logger,
+            )
+            self.checkpoint_path = _resolve_hf_path(
+                hf_model_id,
+                checkpoint_path,
+                revision=hf_revision,
+                cache_dir=hf_cache_dir,
+                token=hf_token,
+                logger=self.logger,
+            )
+        else:
+            self.trained_model_dir = trained_model_dir
+            self.vqvae_config_path = _resolve_path(trained_model_dir, config_vqvae)
+            self.encoder_config_path = _resolve_path(trained_model_dir, config_encoder)
+            self.decoder_config_path = _resolve_path(trained_model_dir, config_decoder)
+            self.checkpoint_path = _resolve_path(trained_model_dir, checkpoint_path)
 
         vqvae_cfg = _load_yaml(self.vqvae_config_path)
         self.configs = load_configs(vqvae_cfg)
@@ -253,27 +363,39 @@ class GCPVQVAE:
             self._apply_deterministic_settings()
 
         decoder_only = self.mode == "decode"
-        self.model = prepare_model(
-            self.configs,
-            self.logger,
-            encoder_configs=self.encoder_configs,
-            decoder_configs=self.decoder_configs,
-            decoder_only=decoder_only,
-            encoder_config_path=self.encoder_config_path,
-        )
+        def _build_loaded_model(decoder_only_flag: bool):
+            model = prepare_model(
+                self.configs,
+                self.logger,
+                encoder_configs=self.encoder_configs,
+                decoder_configs=self.decoder_configs,
+                decoder_only=decoder_only_flag,
+                encoder_config_path=self.encoder_config_path,
+            )
 
-        for param in self.model.parameters():
-            param.requires_grad = False
+            for param in model.parameters():
+                param.requires_grad = False
 
-        self.model.eval()
-        self.model = load_checkpoints_simple(
-            self.checkpoint_path,
-            self.model,
-            self.logger,
-            decoder_only=decoder_only,
-            drop_prefixes=DEFAULT_DROP_PREFIXES,
-        )
-        self.model.to(self.device)
+            model.eval()
+            model = load_checkpoints_simple(
+                self.checkpoint_path,
+                model,
+                self.logger,
+                decoder_only=decoder_only_flag,
+                drop_prefixes=DEFAULT_DROP_PREFIXES,
+            )
+            model.to(self.device)
+            return model
+
+        self.model = None
+        self.decoder_model = None
+        if self.mode == "decode":
+            self.model = _build_loaded_model(True)
+        elif self.mode in ("encode", "embed"):
+            self.model = _build_loaded_model(False)
+        else:
+            self.model = _build_loaded_model(False)
+            self.decoder_model = _build_loaded_model(True)
 
     def _resolve_mixed_precision_dtype(self) -> Optional[torch.dtype]:
         """Resolve mixed_precision into a torch dtype for autocast."""
@@ -296,6 +418,11 @@ class GCPVQVAE:
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         torch.use_deterministic_algorithms(True)
+
+    def _silence_external_loggers(self) -> None:
+        """Reduce third-party logger verbosity during inference."""
+        for name in DEFAULT_SILENCED_LOGGERS:
+            logging.getLogger(name).setLevel(logging.ERROR)
 
     def _seed_everything(self) -> None:
         """Seed Python, NumPy, and torch RNGs."""
@@ -328,37 +455,24 @@ class GCPVQVAE:
     def _build_dataset(
         self,
         *,
-        data_path: Optional[str],
         pdb_dir: Optional[str],
         max_task_samples: Optional[int],
+        progress: bool,
     ):
-        """Construct a dataset and collate function for H5 or PDB/CIF inputs."""
-        if data_path and pdb_dir:
-            raise ValueError("Provide only one of data_path or pdb_dir.")
-        if not data_path and not pdb_dir:
-            raise ValueError("Either data_path or pdb_dir is required.")
+        """Construct a dataset and collate function for PDB/CIF inputs."""
+        if not pdb_dir:
+            raise ValueError("pdb_dir is required.")
 
         if max_task_samples is not None:
             self.configs.train_settings.max_task_samples = int(max_task_samples)
 
-        if data_path:
-            dataset = GCPNetDataset(
-                data_path,
-                top_k=self.encoder_configs.top_k,
-                num_positional_embeddings=self.encoder_configs.num_positional_embeddings,
-                configs=self.configs,
-                mode="evaluation",
-                esm_tokenizer=None,
-                encoder_config_path=self.encoder_config_path,
-            )
-        else:
-            dataset = DemoStructureDataset(
-                pdb_dir,
-                max_length=self.max_length,
-                encoder_config_path=self.encoder_config_path,
-                max_task_samples=int(max_task_samples or 0),
-                progress=False,
-            )
+        dataset = DemoStructureDataset(
+            pdb_dir,
+            max_length=self.max_length,
+            encoder_config_path=self.encoder_config_path,
+            max_task_samples=int(max_task_samples or 0),
+            progress=progress,
+        )
 
         collate_fn = lambda batch: custom_collate_pretrained_gcp(
             batch,
@@ -371,38 +485,38 @@ class GCPVQVAE:
     def encode(
         self,
         *,
-        data_path: Optional[str] = None,
         pdb_dir: Optional[str] = None,
         batch_size: int = 1,
         num_workers: int = 0,
         shuffle: bool = False,
         max_task_samples: Optional[int] = None,
-        show_progress: bool = True,
+        show_progress: bool = False,
     ) -> List[dict]:
         """Encode structures into VQ indices.
 
+        Available when initialized with mode "encode" or "all".
+
         Args:
-            data_path: Directory of H5 files to encode.
-            pdb_dir: Directory of PDB/CIF files to preprocess and encode.
+            pdb_dir: Directory of PDB/CIF files to preprocess and encode (required).
             batch_size: Batch size for inference.
             num_workers: DataLoader workers.
             shuffle: Shuffle dataset before encoding.
             max_task_samples: Optional override for number of samples to load.
-            show_progress: Whether to show a progress bar.
+            show_progress: Whether to show a progress bar (default: false).
 
         Returns:
             List of dicts with keys: pid, structures, Amino Acid Sequence.
         """
-        if self.mode != "encode":
-            raise RuntimeError("GCPVQVAE is not initialized in encode mode.")
+        if self.mode not in ("encode", "all"):
+            raise RuntimeError("GCPVQVAE is not initialized in encode/all mode.")
 
         if self.deterministic:
             self._seed_everything()
 
         dataset, collate_fn = self._build_dataset(
-            data_path=data_path,
             pdb_dir=pdb_dir,
             max_task_samples=max_task_samples,
+            progress=show_progress,
         )
 
         loader = DataLoader(
@@ -442,40 +556,40 @@ class GCPVQVAE:
     def embed(
         self,
         *,
-        data_path: Optional[str] = None,
         pdb_dir: Optional[str] = None,
         batch_size: int = 1,
         num_workers: int = 0,
         shuffle: bool = False,
         max_task_samples: Optional[int] = None,
         keep_missing_tokens: bool = False,
-        show_progress: bool = True,
+        show_progress: bool = False,
     ) -> List[dict]:
         """Embed structures into VQ embeddings and indices.
 
+        Available when initialized with mode "embed" or "all".
+
         Args:
-            data_path: Directory of H5 files to embed.
-            pdb_dir: Directory of PDB/CIF files to preprocess and embed.
+            pdb_dir: Directory of PDB/CIF files to preprocess and embed (required).
             batch_size: Batch size for inference.
             num_workers: DataLoader workers.
             shuffle: Shuffle dataset before embedding.
             max_task_samples: Optional override for number of samples to load.
             keep_missing_tokens: Keep -1 indices and corresponding embeddings.
-            show_progress: Whether to show a progress bar.
+            show_progress: Whether to show a progress bar (default: false).
 
         Returns:
             List of dicts with keys: pid, embedding, indices, protein_sequence.
         """
-        if self.mode != "embed":
-            raise RuntimeError("GCPVQVAE is not initialized in embed mode.")
+        if self.mode not in ("embed", "all"):
+            raise RuntimeError("GCPVQVAE is not initialized in embed/all mode.")
 
         if self.deterministic:
             self._seed_everything()
 
         dataset, collate_fn = self._build_dataset(
-            data_path=data_path,
             pdb_dir=pdb_dir,
             max_task_samples=max_task_samples,
+            progress=show_progress,
         )
 
         loader = DataLoader(
@@ -522,30 +636,44 @@ class GCPVQVAE:
         *,
         pids: Optional[Sequence[str]] = None,
         batch_size: int = 1,
+        show_progress: bool = False,
     ) -> List[dict]:
         """Decode VQ indices into backbone coordinates.
+
+        Available when initialized with mode "decode" or "all".
 
         Args:
             indices_batch: List of index sequences or space-delimited strings.
             pids: Optional identifiers for each sequence.
             batch_size: Batch size for decoding.
+            show_progress: Whether to show a progress bar (default: false).
 
         Returns:
             List of dicts with keys: pid, coords, mask.
         """
-        if self.mode != "decode":
-            raise RuntimeError("GCPVQVAE is not initialized in decode mode.")
+        if self.mode not in ("decode", "all"):
+            raise RuntimeError("GCPVQVAE is not initialized in decode/all mode.")
         if not indices_batch:
             return []
 
         if self.deterministic:
             self._seed_everything()
 
+        model = self.decoder_model or self.model
+        if model is None:
+            raise RuntimeError("Decoder model not initialized.")
+
         results: List[dict] = []
         if pids is None:
             pids = [f"sample_{idx}" for idx in range(len(indices_batch))]
 
-        for batch_index, batch in enumerate(_chunked(list(indices_batch), batch_size)):
+        chunks = _chunked(list(indices_batch), batch_size)
+        if show_progress:
+            total_batches = (len(indices_batch) + batch_size - 1) // batch_size
+            chunks = tqdm(chunks, total=total_batches, disable=not show_progress, leave=True)
+            chunks.set_description("Decode")
+
+        for batch_index, batch in enumerate(chunks):
             indices_tensor, mask_tensor, nan_mask = _prepare_decode_batch(batch, self.max_length)
             batch_pids = pids[batch_index * batch_size: batch_index * batch_size + len(batch)]
 
@@ -558,7 +686,7 @@ class GCPVQVAE:
             }
 
             with torch.inference_mode(), _autocast_context(self.device, self.dtype):
-                output_dict = self.model(payload, decoder_only=True)
+                output_dict = model(payload, decoder_only=True)
 
             outputs = output_dict["outputs"].view(-1, self.max_length, 3, 3)
             outputs = outputs.detach().cpu()

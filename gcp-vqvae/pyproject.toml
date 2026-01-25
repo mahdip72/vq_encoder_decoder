@@ -16,6 +16,7 @@ dependencies = [
   "pyyaml",
   "python-box",
   "tqdm",
+  "huggingface-hub",
   "h5py",
   "transformers",
   "x-transformers",

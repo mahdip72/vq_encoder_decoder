@@ -52,48 +52,55 @@ Minimal usage:
 ```python
 from gcp_vqvae import GCPVQVAE
 
-# Download a checkpoint from the section below and pass its directory in `trained_model_dir`.
-model = GCPVQVAE(
-    trained_model_dir="/abs/path/to/trained_model",
-    checkpoint_path="checkpoints/best_valid.pth",
-    config_vqvae="config_vqvae.yaml",
-    config_encoder="config_gcpnet_encoder.yaml",
-    config_decoder="config_geometric_decoder.yaml",
+# Encode (HF model).
+encoder = GCPVQVAE(
     mode="encode",
+    hf_model_id="Mahdip72/gcp-vqvae-lite",
     mixed_precision="bf16",
 )
-
-records = model.encode(
-    data_path="/abs/path/to/h5_dir",
+records = encoder.encode(
+    pdb_dir="/abs/path/to/pdb_dir",
     batch_size=8,
+    show_progress=False,
 )
 
-decoder = GCPVQVAE(
-    trained_model_dir="/abs/path/to/trained_model",
-    checkpoint_path="checkpoints/best_valid.pth",
-    config_vqvae="config_vqvae.yaml",
-    config_encoder="config_gcpnet_encoder.yaml",
-    config_decoder="config_geometric_decoder.yaml",
-    mode="decode",
+# Embed (HF model).
+embedder = GCPVQVAE(
+    mode="embed",
+    hf_model_id="Mahdip72/gcp-vqvae-lite",
     mixed_precision="bf16",
 )
-
-coords = decoder.decode(
-    ["1 2 3 4 5", "6 7 8"],
-    batch_size=2,
+embeddings = embedder.embed(
+    pdb_dir="/abs/path/to/pdb_dir",
+    batch_size=4,
+    show_progress=False,
 )
+
+# Decode (HF model).
+decoder = GCPVQVAE(
+    mode="decode",
+    hf_model_id="Mahdip72/gcp-vqvae-lite",
+    mixed_precision="bf16",
+)
+coords = decoder.decode(["1 2 3 4 5", "6 7 8"], batch_size=2)
 ```
 
 Notes:
 - Use `mode="embed"` with `embed()` for embeddings, and `mode="decode"` with `decode()` for coordinates.
+- Use `mode="all"` to load encode/embed + decode paths in one object.
 - `mode="decode"` only builds/loads the VQ + decoder path (encoder is not constructed).
+- Encode/embed take `pdb_dir` inputs; preprocessing happens inside the package.
+- Progress bars are available via `show_progress=True` (default: false).
+- External logging is suppressed by default; set `suppress_logging=False` if you need verbose logs.
 - `mixed_precision` defaults to `bf16` on CUDA; use `mixed_precision="no"` to disable.
 - Set `deterministic=True` and `shuffle=False` for repeatable outputs.
+- Pass `hf_model_id="Mahdip72/gcp-vqvae-lite"` (or another repo) to use Hugging Face downloads.
 
 ## Data Pipeline
 
-For training and inference scripts (separate from `demo/`), convert structure PDB/CIF files to HDF5 and use 
-those `.h5` datasets as inputs. Full data prep, formats, and conversion details live in 
+For training and inference scripts (separate from `demo/`), convert structure PDB/CIF files to HDF5 and use
+those `.h5` datasets as inputs. The standalone `gcp-vqvae` package operates directly on PDB/CIF inputs via
+`pdb_dir`. Full data prep, formats, and conversion details live in 
 [docs/data/README.md](docs/data/README.md).
 
 ### Evaluation Datasets
@@ -113,10 +120,10 @@ The demo workflow below is for quick local evaluation of checkpoints on raw PDB/
 
 ### Pretrained Models
 
-| Model | Description | Download Link                                                                                                                                |
-|-------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| Large | Full GCP-VQVAE model with best performance | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EaxLj74pK5BArOpPkF9MkDgBHxlfaDpAElPRiwH9BsIedA?e=34ida8) |
-| Lite | Lightweight version for faster inference | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EUXZF_Is2X9IrjLeIWk7T5gBNb3yliRwVOAWi2rHyyympg?e=VAveKw) |                                                                                                                                |
+| Model | Description | Download Link | HF Hub |
+|-------|-------------|---------------|--------|
+| Large | Full GCP-VQVAE model with best performance | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EaxLj74pK5BArOpPkF9MkDgBHxlfaDpAElPRiwH9BsIedA?e=34ida8) | `Mahdip72/gcp-vqvae-large` |
+| Lite | Lightweight version for faster inference | [Download](https://mailmissouri-my.sharepoint.com/:u:/g/personal/mpngf_umsystem_edu/EUXZF_Is2X9IrjLeIWk7T5gBNb3yliRwVOAWi2rHyyympg?e=VAveKw) | `Mahdip72/gcp-vqvae-lite` |
 
 **Setup Instructions:**
 1. Download the zip file of the checkpoint
