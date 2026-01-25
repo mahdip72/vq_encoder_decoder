@@ -8,6 +8,7 @@ Minimal inference wrapper for GCP-VQVAE with encode, embed, and decode modes.
 pip install -e /path/to/vq_encoder_decoder/gcp-vqvae
 ```
 
+
 ## Usage
 
 ```python

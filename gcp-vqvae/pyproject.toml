@@ -27,8 +27,8 @@ dependencies = [
   "torch-geometric",
   "torch-cluster",
   "torch-scatter",
-  "torch-sparse",
 ]
+
 
 [tool.setuptools.packages.find]
 where = ["."]

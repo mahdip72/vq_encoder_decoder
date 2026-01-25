@@ -48,6 +48,7 @@ One-line install from GitHub (uses `gcp-vqvae/pyproject.toml`):
 pip install "git+https://github.com/mahdip72/vq_encoder_decoder.git@master#subdirectory=gcp-vqvae"
 ```
 
+
 Minimal usage:
 ```python
 from gcp_vqvae import GCPVQVAE
