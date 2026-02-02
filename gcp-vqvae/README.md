@@ -109,7 +109,9 @@ decoder = GCPVQVAE(
     mixed_precision="bf16",
 )
 
-coords = decoder.decode([[1, 2, 3, 4], [5, 6, 7]], batch_size=2)
+decoded = decoder.decode([[1, 2, 3, 4], [5, 6, 7]], batch_size=2)
+coords = decoded["coords"]
+plddt = decoded["plddt"]  # None if the model has no pLDDT head
 ```
 
 ### Decode (HF model)
@@ -123,7 +125,9 @@ decoder = GCPVQVAE(
     mixed_precision="bf16",
 )
 
-coords = decoder.decode([[1, 2, 3, 4], [5, 6, 7]], batch_size=2)
+decoded = decoder.decode([[1, 2, 3, 4], [5, 6, 7]], batch_size=2)
+coords = decoded["coords"]
+plddt = decoded["plddt"]  # None if the model has no pLDDT head
 ```
 
 ### All modes in one object
@@ -131,12 +135,16 @@ coords = decoder.decode([[1, 2, 3, 4], [5, 6, 7]], batch_size=2)
 ```python
 model = GCPVQVAE(mode="all")  # Loads encode/embed + decode paths.
 records = model.encode(pdb_dir="/path/to/pdb_dir", batch_size=4)
-coords = model.decode(["1 2 3 4 5"], batch_size=1)
+decoded = model.decode(["1 2 3 4 5"], batch_size=1)
+coords = decoded["coords"]
+plddt = decoded["plddt"]
 ```
 
 ## Notes
 - Raw PDB/CIF inputs are preprocessed using the same logic as the `demo/` pipeline.
 - Encode/embed operate on `pdb_dir` inputs; the wrapper handles preprocessing internally.
+- Encode/embed outputs include a `plddt` field (None when no pLDDT head is present).
+- Decode returns a dict of batched outputs with `coords`, `mask`, and `plddt` (when available).
 - Progress bars are available via `show_progress=True` (default: false).
 - External logging is suppressed by default; set `suppress_logging=False` if you need verbose logs.
 - `torch-geometric` and `torch-cluster` require matching CUDA wheels; install them per the PyG docs.

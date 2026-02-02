@@ -89,12 +89,20 @@ def _record_indices(
     indices_tensor: torch.Tensor,
     sequences: Sequence[str],
     *,
+    plddt_logits: Optional[torch.Tensor] = None,
     max_length: Optional[int] = None,
 ) -> List[dict]:
     records: List[dict] = []
     cpu_inds = indices_tensor.detach().cpu().tolist()
     if not isinstance(cpu_inds, list):
         cpu_inds = [cpu_inds]
+    plddt_values = None
+    if plddt_logits is not None:
+        plddt_values = plddt_logits.squeeze(-1).detach().cpu().tolist()
+        if not isinstance(plddt_values, list):
+            plddt_values = [plddt_values]
+        elif plddt_values and not isinstance(plddt_values[0], list):
+            plddt_values = [plddt_values]
     for pid, idx, seq in zip(pids, cpu_inds, sequences):
         if not isinstance(idx, list):
             idx = [idx]
@@ -104,8 +112,20 @@ def _record_indices(
             "pid": pid,
             "structures": idx[:len(seq)],
             "Amino Acid Sequence": seq,
+            "plddt": None,
         })
+    if plddt_values is not None:
+        for record, values in zip(records, plddt_values):
+            record["plddt"] = values[:len(record["structures"])]
     return records
+
+
+def _stack_records(records: List[dict]) -> dict:
+    if not records:
+        return {}
+    keys = records[0].keys()
+    stacked = {key: [rec.get(key) for rec in records] for key in keys}
+    return stacked
 
 
 def _record_embeddings(
@@ -114,33 +134,53 @@ def _record_embeddings(
     indices_tensor: torch.Tensor,
     sequences: Sequence[str],
     *,
+    plddt_logits: Optional[torch.Tensor] = None,
     keep_missing_tokens: bool,
     max_length: Optional[int] = None,
 ) -> List[dict]:
     records: List[dict] = []
     emb_np = embeddings.detach().cpu().numpy()
     cpu_inds = indices_tensor.detach().cpu().tolist()
+    plddt_values = None
+    if plddt_logits is not None:
+        plddt_values = plddt_logits.squeeze(-1).detach().cpu().numpy()
 
-    for pid, emb, ind_list, seq in zip(pids, emb_np, cpu_inds, sequences):
+    if plddt_values is None:
+        plddt_iter = [None] * len(pids)
+    else:
+        if plddt_values.ndim == 1:
+            plddt_iter = [plddt_values]
+        else:
+            plddt_iter = plddt_values
+
+    for pid, emb, ind_list, seq, plddt_row in zip(pids, emb_np, cpu_inds, sequences, plddt_iter):
         if max_length is not None and len(seq) > max_length:
             seq = seq[:max_length]
         emb_trim = emb[:len(seq)]
         ind_trim = ind_list[:len(seq)]
+        plddt_trim = None
+        if plddt_row is not None:
+            plddt_trim = plddt_row[:len(seq)]
         if keep_missing_tokens:
             seq_out = seq
             ind_out = [int(v) for v in ind_trim]
             emb_out = emb_trim
+            plddt_out = plddt_trim
         else:
             keep_positions = [i for i, v in enumerate(ind_trim) if v != -1]
             emb_out = emb_trim[keep_positions]
             ind_out = [int(ind_trim[i]) for i in keep_positions]
             seq_out = "".join(seq[i] for i in keep_positions)
+            plddt_out = None
+            if plddt_trim is not None:
+                plddt_out = plddt_trim[keep_positions]
 
         records.append({
             "pid": pid,
             "embedding": emb_out.astype("float32", copy=False),
             "indices": ind_out,
             "protein_sequence": seq_out,
+            "plddt": plddt_out,
         })
     return records
 
@@ -172,6 +212,24 @@ def _prepare_decode_batch(
     mask_tensor = torch.tensor(masks, dtype=torch.bool)
     nan_mask = mask_tensor.clone()
     return indices_tensor, mask_tensor, nan_mask
+
+
+def _extract_plddt(
+    plddt_logits: Optional[torch.Tensor],
+    masks: torch.Tensor,
+) -> List[Optional[torch.Tensor]]:
+    if plddt_logits is None:
+        return [None] * masks.shape[0]
+    values = plddt_logits.squeeze(-1).detach().cpu()
+    if values.dim() == 1:
+        values = values.unsqueeze(0)
+    masks_cpu = masks.detach().cpu()
+    outputs: List[Optional[torch.Tensor]] = []
+    for row, mask in zip(values, masks_cpu):
+        row = row.clone()
+        row[~mask] = float("nan")
+        outputs.append(row)
+    return outputs
 
 
 def _chunked(items: Sequence, batch_size: int) -> Iterable[Sequence]:
@@ -505,7 +563,7 @@ class GCPVQVAE:
             show_progress: Whether to show a progress bar (default: false).
 
         Returns:
-            List of dicts with keys: pid, structures, Amino Acid Sequence.
+            Dict with keys: pid, structures, Amino Acid Sequence, plddt.
         """
         if self.mode not in ("encode", "all"):
             raise RuntimeError("GCPVQVAE is not initialized in encode/all mode.")
@@ -542,16 +600,18 @@ class GCPVQVAE:
                 output_dict = self.model(batch, return_vq_layer=True)
 
             indices = output_dict["indices"]
+            plddt_logits = output_dict.get("plddt_logits")
             records.extend(
                 _record_indices(
                     batch["pid"],
                     indices,
                     batch["seq"],
+                    plddt_logits=plddt_logits,
                     max_length=self.max_length,
                 )
             )
 
-        return records
+        return _stack_records(records)
 
     def embed(
         self,
@@ -578,7 +638,7 @@ class GCPVQVAE:
             show_progress: Whether to show a progress bar (default: false).
 
         Returns:
-            List of dicts with keys: pid, embedding, indices, protein_sequence.
+            Dict with keys: pid, embedding, indices, protein_sequence, plddt.
         """
         if self.mode not in ("embed", "all"):
             raise RuntimeError("GCPVQVAE is not initialized in embed/all mode.")
@@ -616,6 +676,7 @@ class GCPVQVAE:
 
             embeddings = output_dict["embeddings"]
             indices = output_dict["indices"]
+            plddt_logits = output_dict.get("plddt_logits")
 
             records.extend(
                 _record_embeddings(
@@ -623,12 +684,13 @@ class GCPVQVAE:
                     embeddings,
                     indices,
                     batch["seq"],
+                    plddt_logits=plddt_logits,
                     keep_missing_tokens=keep_missing_tokens,
                     max_length=self.max_length,
                 )
             )
 
-        return records
+        return _stack_records(records)
 
     def decode(
         self,
@@ -637,7 +699,7 @@ class GCPVQVAE:
         pids: Optional[Sequence[str]] = None,
         batch_size: int = 1,
         show_progress: bool = False,
-    ) -> List[dict]:
+    ) -> dict:
         """Decode VQ indices into backbone coordinates.
 
         Available when initialized with mode "decode" or "all".
@@ -649,7 +711,7 @@ class GCPVQVAE:
             show_progress: Whether to show a progress bar (default: false).
 
         Returns:
-            List of dicts with keys: pid, coords, mask.
+            Dict with keys: pid, coords, mask, plddt.
         """
         if self.mode not in ("decode", "all"):
             raise RuntimeError("GCPVQVAE is not initialized in decode/all mode.")
@@ -690,13 +752,15 @@ class GCPVQVAE:
 
             outputs = output_dict["outputs"].view(-1, self.max_length, 3, 3)
             outputs = outputs.detach().cpu()
+            plddt_values = _extract_plddt(output_dict.get("plddt_logits"), mask_tensor)
             masks = mask_tensor.detach().cpu()
 
-            for pid, coords, mask in zip(batch_pids, outputs, masks):
+            for pid, coords, mask, plddt in zip(batch_pids, outputs, masks, plddt_values):
                 results.append({
                     "pid": pid,
                     "coords": coords,
                     "mask": mask,
+                    "plddt": plddt,
                 })
 
-        return results
+        return _stack_records(results)

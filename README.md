@@ -83,14 +83,17 @@ decoder = GCPVQVAE(
     hf_model_id="Mahdip72/gcp-vqvae-lite",
     mixed_precision="bf16",
 )
-coords = decoder.decode(["1 2 3 4 5", "6 7 8"], batch_size=2)
+decoded = decoder.decode(["1 2 3 4 5", "6 7 8"], batch_size=2)
+coords = decoded["coords"]
+plddt = decoded["plddt"]  # None if the model has no pLDDT head
 ```
 
 Notes:
-- Use `mode="embed"` with `embed()` for embeddings, and `mode="decode"` with `decode()` for coordinates.
+- Use `mode="embed"` with `embed()` for embeddings, and `mode="decode"` with `decode()` for coordinates + pLDDT (when available).
 - Use `mode="all"` to load encode/embed + decode paths in one object.
 - `mode="decode"` only builds/loads the VQ + decoder path (encoder is not constructed).
 - Encode/embed take `pdb_dir` inputs; preprocessing happens inside the package.
+- Encode/embed outputs include a `plddt` field (None if the head is disabled).
 - Progress bars are available via `show_progress=True` (default: false).
 - External logging is suppressed by default; set `suppress_logging=False` if you need verbose logs.
 - `mixed_precision` defaults to `bf16` on CUDA; use `mixed_precision="no"` to disable.
