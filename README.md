@@ -18,7 +18,7 @@ Building on these properties, we train GCP-VQVAE on a corpus of 24 million monom
 
 ## News
 - 🗓️ **25 Sept 2025** — 🎉 Our paper was accepted to the NeurIPS 2025 AI4Science workshop!
-- 🗓️ **3 Oct 2025** — Our preprint has been published in [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v2).
+- 🗓️ **3 Oct 2025** — Our preprint has been published in [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.10.01.679833v3).
 - 🗓️ **10 Oct 2025** — 🚀 Pretrained checkpoints and evaluation datasets are now available for download!
 - 🗓️ **17 Oct 2025** - Release a lite version of GCP-VQVAE with half the parameters.
 - 🗓️ **22 Dec 2025** - Add Protein Structure Tokenizer benchmark evaluation scripts and instructions. Refer to [pst_evaluation/README.md](./pst_evaluation/README.md).
