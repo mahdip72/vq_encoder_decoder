@@ -27,6 +27,7 @@ DEFAULT_SILENCED_LOGGERS = (
     "huggingface_hub",
     "transformers",
 )
+AA_TOKENS = "ARNDCQEGHILKMFPSTWYVX"
 
 
 def _load_yaml(path: str) -> dict:
@@ -229,6 +230,36 @@ def _extract_plddt(
         row = row.clone()
         row[~mask] = float("nan")
         outputs.append(row)
+    return outputs
+
+
+def _extract_aa_sequences(
+    seq_logits: Optional[torch.Tensor],
+    masks: torch.Tensor,
+    sequence_lengths: Optional[torch.Tensor] = None,
+) -> List[Optional[str]]:
+    if seq_logits is None:
+        return [None] * masks.shape[0]
+
+    token_ids = seq_logits.argmax(dim=-1).detach().cpu()
+    if token_ids.dim() == 1:
+        token_ids = token_ids.unsqueeze(0)
+
+    if sequence_lengths is not None:
+        lengths = sequence_lengths.to(torch.long).detach().cpu()
+        positions = torch.arange(token_ids.shape[1]).unsqueeze(0)
+        valid_masks = positions < lengths.unsqueeze(1)
+    else:
+        valid_masks = masks.detach().cpu()
+
+    outputs: List[Optional[str]] = []
+    for row_ids, row_mask in zip(token_ids, valid_masks):
+        chars = [
+            AA_TOKENS[int(idx)] if 0 <= int(idx) < len(AA_TOKENS) else "X"
+            for idx, is_valid in zip(row_ids.tolist(), row_mask.tolist())
+            if is_valid
+        ]
+        outputs.append("".join(chars))
     return outputs
 
 
@@ -711,7 +742,7 @@ class GCPVQVAE:
             show_progress: Whether to show a progress bar (default: false).
 
         Returns:
-            Dict with keys: pid, coords, mask, plddt.
+            Dict with keys: pid, coords, mask, plddt, AA.
         """
         if self.mode not in ("decode", "all"):
             raise RuntimeError("GCPVQVAE is not initialized in decode/all mode.")
@@ -753,14 +784,20 @@ class GCPVQVAE:
             outputs = output_dict["outputs"].view(-1, self.max_length, 3, 3)
             outputs = outputs.detach().cpu()
             plddt_values = _extract_plddt(output_dict.get("plddt_logits"), mask_tensor)
+            aa_values = _extract_aa_sequences(
+                output_dict.get("seq_logits"),
+                mask_tensor,
+                output_dict.get("sequence_lengths"),
+            )
             masks = mask_tensor.detach().cpu()
 
-            for pid, coords, mask, plddt in zip(batch_pids, outputs, masks, plddt_values):
+            for pid, coords, mask, plddt, aa in zip(batch_pids, outputs, masks, plddt_values, aa_values):
                 results.append({
                     "pid": pid,
                     "coords": coords,
                     "mask": mask,
                     "plddt": plddt,
+                    "AA": aa,
                 })
 
         return _stack_records(results)
