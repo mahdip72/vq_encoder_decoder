@@ -6,6 +6,7 @@ import ast
 import logging as log
 from collections import OrderedDict
 from pathlib import Path
+import warnings
 from box import Box
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -148,6 +149,121 @@ def get_dummy_logger():
 
     # Return both logger and buffer so you can inspect logs as needed
     return logger
+
+
+def configure_compile_cache_dirs(project_root=None):
+    if project_root is None:
+        project_root = Path(__file__).resolve().parents[1]
+
+    cache_root = os.path.join(str(project_root), "cache")
+    inductor_cache_dir = os.path.join(cache_root, "torchinductor")
+    triton_cache_dir = os.path.join(cache_root, "triton")
+
+    os.makedirs(inductor_cache_dir, exist_ok=True)
+    os.makedirs(triton_cache_dir, exist_ok=True)
+
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = inductor_cache_dir
+    os.environ["TRITON_CACHE_DIR"] = triton_cache_dir
+
+    return inductor_cache_dir, triton_cache_dir
+
+
+def suppress_inductor_autotune_logging():
+    try:
+        import logging as py_logging
+        import torch._dynamo.convert_frame as dynamo_convert_frame
+        import torch._dynamo.variables.builtin as dynamo_builtin
+        import torch._inductor.config as inductor_config
+        import torch._inductor.select_algorithm as select_algorithm
+        import torch.fx.experimental.symbolic_shapes as symbolic_shapes
+
+        os.environ["TORCHINDUCTOR_MAX_AUTOTUNE_REPORT_CHOICES_STATS"] = "0"
+        select_algorithm.PRINT_AUTOTUNE = False
+        inductor_config.autotune_num_choices_displayed = 0
+        if hasattr(inductor_config, "max_autotune_report_choices_stats"):
+            inductor_config.max_autotune_report_choices_stats = False
+        if hasattr(inductor_config, "triton") and hasattr(inductor_config.triton, "cudagraph_dynamic_shape_warn_limit"):
+            inductor_config.triton.cudagraph_dynamic_shape_warn_limit = None
+        py_logging.getLogger("torch._inductor.select_algorithm").setLevel(py_logging.CRITICAL)
+
+        def _should_suppress(msg, patterns):
+            text = msg if isinstance(msg, str) else str(msg)
+            return any(pattern in text for pattern in patterns)
+
+        def _patch_module_logger(module, method_name, patterns, patch_flag):
+            if getattr(module, patch_flag, False):
+                return
+            original_method = getattr(module.log, method_name)
+
+            def _patched(msg, *args, **kwargs):
+                if _should_suppress(msg, patterns):
+                    return
+                return original_method(msg, *args, **kwargs)
+
+            setattr(module.log, method_name, _patched)
+            setattr(module, patch_flag, True)
+
+        _patch_module_logger(
+            select_algorithm,
+            "error",
+            (
+                "Runtime error during autotuning",
+                "CUDA compilation error during autotuning",
+                "No valid triton configs",
+            ),
+            "_gcp_vqvae_autotune_error_patch",
+        )
+        _patch_module_logger(
+            select_algorithm,
+            "warning",
+            (
+                "Runtime error during autotuning",
+                "CUDA compilation error during autotuning",
+                "No valid triton configs",
+            ),
+            "_gcp_vqvae_autotune_warning_patch",
+        )
+        _patch_module_logger(
+            dynamo_convert_frame,
+            "warning",
+            (
+                "torch._dynamo hit config.recompile_limit",
+                "   function:",
+                "   last reason:",
+                "To log all recompilation reasons",
+                "To diagnose recompilation issues",
+            ),
+            "_gcp_vqvae_recompile_warning_patch",
+        )
+        _patch_module_logger(
+            dynamo_builtin,
+            "warning",
+            (
+                "incorrect arg count <bound method BuiltinVariable.call_next",
+            ),
+            "_gcp_vqvae_builtin_warning_patch",
+        )
+        _patch_module_logger(
+            symbolic_shapes,
+            "warning",
+            (
+                "_maybe_guard_rel() was called on non-relation expression",
+            ),
+            "_gcp_vqvae_symbolic_shapes_warning_patch",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"TypedStorage is deprecated\..*",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"CUDAGraph supports dynamic shapes by recording a new graph for each distinct input size\..*",
+            category=UserWarning,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _remap_gcp_encoder_keys(state_dict, model, logger=None):

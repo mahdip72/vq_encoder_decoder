@@ -13,7 +13,9 @@ from utils.utils import (
     prepare_optimizer,
     prepare_tensorboard,
     save_checkpoint,
-    load_encoder_decoder_configs)
+    load_encoder_decoder_configs,
+    configure_compile_cache_dirs,
+    suppress_inductor_autotune_logging)
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 from datetime import timedelta
@@ -396,6 +398,13 @@ def main(dict_config, config_file_path):
 
     # compile models to train faster and efficiently
     if configs.model.compile_model:
+        inductor_cache_dir, triton_cache_dir = configure_compile_cache_dirs()
+        logging.info(
+            f"torch.compile cache dirs: TORCHINDUCTOR_CACHE_DIR={inductor_cache_dir} "
+            f"TRITON_CACHE_DIR={triton_cache_dir}"
+        )
+        autotune_logs_suppressed = suppress_inductor_autotune_logging()
+        logging.info(f"torch.compile autotune verbose logging suppressed: {autotune_logs_suppressed}")
         if hasattr(net, 'encoder') and configs.model.encoder.name == "gcpnet":
             net = compile_gcp_encoder(net, mode=None, backend="inductor")
             logging.info('GCP encoder compiled.')

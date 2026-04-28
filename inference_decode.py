@@ -10,7 +10,14 @@ from tqdm import tqdm
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import broadcast_object_list
 
-from utils.utils import load_configs, save_backbone_pdb_inference, load_checkpoints_simple, get_logging
+from utils.utils import (
+    load_configs,
+    save_backbone_pdb_inference,
+    load_checkpoints_simple,
+    get_logging,
+    configure_compile_cache_dirs,
+    suppress_inductor_autotune_logging,
+)
 from models.super_model import (
     prepare_model,
     compile_non_gcp_and_exclude_vq,
@@ -170,6 +177,13 @@ def main():
 
     compile_cfg = infer_cfg.get('compile_model')
     if compile_cfg and compile_cfg.get('enabled', False):
+        inductor_cache_dir, triton_cache_dir = configure_compile_cache_dirs()
+        logger.info(
+            f"torch.compile cache dirs: TORCHINDUCTOR_CACHE_DIR={inductor_cache_dir} "
+            f"TRITON_CACHE_DIR={triton_cache_dir}"
+        )
+        autotune_logs_suppressed = suppress_inductor_autotune_logging()
+        logger.info(f"torch.compile autotune verbose logging suppressed: {autotune_logs_suppressed}")
         compile_mode = compile_cfg.get('mode')
         compile_backend = compile_cfg.get('backend', 'inductor')
         compile_encoder = compile_cfg.get('compile_encoder', False)
