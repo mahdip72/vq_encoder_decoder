@@ -173,6 +173,9 @@ inference_codebook_extraction_results/
 evaluation_results/
 demo_results/
 temp/
+cache/
+pst_evaluation/struct_token_bench_release_data/
+vqvae_evaluations/
 
 # all images in root and subdirectories
 **/*.png
