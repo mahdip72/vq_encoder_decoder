@@ -11,7 +11,6 @@ from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import InitProcessGroupKwargs
 from datetime import timedelta
 from accelerate.utils import broadcast_object_list
-import csv
 from utils.utils import (
     load_configs,
     load_checkpoints_simple,
@@ -19,6 +18,8 @@ from utils.utils import (
     configure_compile_cache_dirs,
     suppress_inductor_autotune_logging,
     get_fp8_ao_kwargs_handlers,
+    write_csv_pyarrow_default,
+    merge_csv_files_pyarrow_default,
 )
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
 from models.super_model import (
@@ -26,6 +27,9 @@ from models.super_model import (
     compile_non_gcp_and_exclude_vq,
     compile_gcp_encoder,
 )
+
+
+VQ_INDICES_CSV_COLUMNS = ['pid', 'structures', 'Amino Acid Sequence']
 
 
 def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
@@ -239,16 +243,12 @@ def main():
     csv_filename = infer_cfg.get('vq_indices_csv_filename', 'vq_indices.csv')
     rank = accelerator.process_index
     partial_csv_path = os.path.join(result_dir, f'partial_rank_{rank}.csv')
-    with open(partial_csv_path, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['pid', 'structures', 'Amino Acid Sequence'])
-        for rec in indices_records:
-            pid = rec['pid']
-            inds = rec['structures']
-            seq = rec['Amino Acid Sequence']
-            if not isinstance(inds, (list, tuple)):
-                inds = [inds]
-            writer.writerow([pid, ' '.join(map(str, inds)), seq])
+    csv_write_engine = write_csv_pyarrow_default(
+        partial_csv_path,
+        indices_records,
+        VQ_INDICES_CSV_COLUMNS,
+    )
+    logger.info(f"Rank {rank} wrote partial VQ indices CSV with {csv_write_engine}: {partial_csv_path}")
 
     # Ensure all processes have completed writing their partial files
     accelerator.wait_for_everyone()
@@ -256,18 +256,18 @@ def main():
     # Main process merges all partial CSV files
     if accelerator.is_main_process:
         csv_path = os.path.join(result_dir, csv_filename)
-        with open(csv_path, 'w', newline='') as outf:
-            writer = csv.writer(outf)
-            writer.writerow(['pid', 'structures', 'Amino Acid Sequence'])
-            for r in range(accelerator.num_processes):
-                partial_path = os.path.join(result_dir, f'partial_rank_{r}.csv')
-                with open(partial_path, 'r', newline='') as inf:
-                    reader = csv.reader(inf)
-                    next(reader)  # skip header
-                    for row in reader:
-                        writer.writerow(row)
-                # Remove partial file after merging
-                os.remove(partial_path)
+        partial_paths = [
+            os.path.join(result_dir, f'partial_rank_{r}.csv')
+            for r in range(accelerator.num_processes)
+        ]
+        csv_merge_engine = merge_csv_files_pyarrow_default(
+            csv_path,
+            partial_paths,
+            VQ_INDICES_CSV_COLUMNS,
+        )
+        logger.info(f"Merged VQ indices CSV with {csv_merge_engine}: {csv_path}")
+        for partial_path in partial_paths:
+            os.remove(partial_path)
 
     logger.info(f"Inference encoding completed. Results are saved in {result_dir}")
 

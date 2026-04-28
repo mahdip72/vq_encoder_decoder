@@ -3,6 +3,8 @@ import glob
 import datetime
 import shutil
 import ast
+import csv as std_csv
+import inspect
 import logging as log
 from collections import OrderedDict
 from pathlib import Path
@@ -25,6 +27,116 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when Hydra is unavail
     compose = None  # type: ignore
     initialize = None  # type: ignore
 from Bio.PDB import PDBIO
+
+
+DEFAULT_CSV_BLOCK_SIZE = 64 * 1024 * 1024
+
+
+def _normalise_csv_cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, (list, tuple)):
+        return " ".join(map(str, value))
+    return str(value)
+
+
+def _pandas_read_csv_supports_dtype_backend():
+    import pandas as pd
+
+    return "dtype_backend" in inspect.signature(pd.read_csv).parameters
+
+
+def read_csv_pyarrow_default(csv_path, **read_kwargs):
+    """Read a CSV with pandas' pyarrow engine by default when pyarrow is installed."""
+    import pandas as pd
+
+    try:
+        import pyarrow  # noqa: F401
+    except ImportError:
+        return pd.read_csv(csv_path, **read_kwargs)
+
+    kwargs = dict(read_kwargs)
+    kwargs.pop("low_memory", None)
+    kwargs.setdefault("engine", "pyarrow")
+    if _pandas_read_csv_supports_dtype_backend():
+        kwargs.setdefault("dtype_backend", "pyarrow")
+    return pd.read_csv(csv_path, **kwargs)
+
+
+def write_csv_pyarrow_default(csv_path, records, fieldnames):
+    """Write records to CSV with pyarrow by default, falling back to stdlib CSV."""
+    try:
+        import pyarrow as pa
+        import pyarrow.csv as pyarrow_csv
+    except ImportError:
+        with open(csv_path, "w", newline="") as handle:
+            writer = std_csv.writer(handle)
+            writer.writerow(fieldnames)
+            for record in records:
+                writer.writerow([_normalise_csv_cell(record.get(field)) for field in fieldnames])
+        return "stdlib"
+
+    columns = {
+        field: pa.array(
+            [_normalise_csv_cell(record.get(field)) for record in records],
+            type=pa.string(),
+        )
+        for field in fieldnames
+    }
+    schema = pa.schema([(field, pa.string()) for field in fieldnames])
+    table = pa.table(columns, schema=schema)
+    pyarrow_csv.write_csv(table, str(csv_path))
+    return "pyarrow"
+
+
+def merge_csv_files_pyarrow_default(output_path, input_paths, fieldnames):
+    """Merge same-schema CSV files with pyarrow streaming by default."""
+    try:
+        import pyarrow as pa
+        import pyarrow.csv as pyarrow_csv
+    except ImportError:
+        with open(output_path, "w", newline="") as output_handle:
+            writer = std_csv.writer(output_handle)
+            writer.writerow(fieldnames)
+            for input_path in input_paths:
+                with open(input_path, "r", newline="") as input_handle:
+                    reader = std_csv.reader(input_handle)
+                    next(reader, None)
+                    for row in reader:
+                        writer.writerow(row)
+        return "stdlib"
+
+    schema = pa.schema([(field, pa.string()) for field in fieldnames])
+    read_options = pyarrow_csv.ReadOptions(
+        block_size=DEFAULT_CSV_BLOCK_SIZE,
+        use_threads=True,
+    )
+    convert_options = pyarrow_csv.ConvertOptions(
+        include_columns=list(fieldnames),
+        column_types={field: pa.string() for field in fieldnames},
+    )
+
+    with pa.OSFile(str(output_path), "wb") as sink:
+        writer = pyarrow_csv.CSVWriter(
+            sink,
+            schema,
+            write_options=pyarrow_csv.WriteOptions(include_header=True),
+        )
+        try:
+            for input_path in input_paths:
+                reader = pyarrow_csv.open_csv(
+                    str(input_path),
+                    read_options=read_options,
+                    convert_options=convert_options,
+                )
+                for batch in reader:
+                    writer.write_batch(batch)
+        finally:
+            writer.close()
+
+    return "pyarrow"
 
 
 def _fp8_module_filter(module, fqn: str) -> bool:

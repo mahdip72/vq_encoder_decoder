@@ -3,7 +3,6 @@ import yaml
 import shutil
 import datetime
 import torch
-import pandas as pd
 from torch.utils.data import DataLoader, Dataset
 from box import Box
 from tqdm import tqdm
@@ -18,6 +17,7 @@ from utils.utils import (
     configure_compile_cache_dirs,
     suppress_inductor_autotune_logging,
     get_fp8_ao_kwargs_handlers,
+    read_csv_pyarrow_default,
 )
 from models.super_model import (
     prepare_model,
@@ -30,7 +30,20 @@ class VQIndicesDataset(Dataset):
     """Dataset for loading VQ indices from a CSV file."""
 
     def __init__(self, csv_path, max_length):
-        self.data = pd.read_csv(csv_path)
+        self.data = read_csv_pyarrow_default(csv_path)
+        if 'indices' in self.data.columns:
+            self.indices_column = 'indices'
+        elif 'structures' in self.data.columns:
+            self.indices_column = 'structures'
+        else:
+            raise ValueError("CSV must contain either an 'indices' or 'structures' column.")
+
+        if 'protein_sequence' in self.data.columns:
+            self.sequence_column = 'protein_sequence'
+        elif 'Amino Acid Sequence' in self.data.columns:
+            self.sequence_column = 'Amino Acid Sequence'
+        else:
+            raise ValueError("CSV must contain either a 'protein_sequence' or 'Amino Acid Sequence' column.")
         self.max_length = max_length
 
     def __len__(self):
@@ -40,8 +53,8 @@ class VQIndicesDataset(Dataset):
         row = self.data.iloc[idx]
         pid = row['pid']
         # Indices are space-separated strings
-        indices = [int(i) for i in row['indices'].split()]
-        seq = row['protein_sequence']
+        indices = [int(i) for i in str(row[self.indices_column]).split()]
+        seq = str(row[self.sequence_column])
 
         current_length = len(indices)
         pad_length = self.max_length - current_length
