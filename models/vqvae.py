@@ -379,8 +379,15 @@ class VQVAETransformer(nn.Module):
         when TiTok compression is enabled.
         """
 
-        latent_mask_bool = (indices != -1)
-        decoder_input = self.vector_quantizer.get_output_from_indices(indices)
+        if indices.dim() == 3:
+            latent_mask_bool = (indices[..., 0] != -1)
+            lookup_indices = indices.masked_fill(indices == -1, 0)
+        else:
+            latent_mask_bool = (indices != -1)
+            lookup_indices = indices.masked_fill(~latent_mask_bool, 0)
+
+        decoder_input = self.vector_quantizer.get_output_from_indices(lookup_indices)
+        decoder_input = decoder_input * latent_mask_bool.unsqueeze(-1).to(decoder_input.dtype)
 
         ti_tok_padding_logits: Optional[torch.Tensor] = None
         ti_tok_padding_targets: Optional[torch.Tensor] = None
