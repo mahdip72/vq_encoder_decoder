@@ -15,7 +15,9 @@ from utils.utils import (
     save_checkpoint,
     load_encoder_decoder_configs,
     configure_compile_cache_dirs,
-    suppress_inductor_autotune_logging)
+    suppress_inductor_autotune_logging,
+    get_fp8_ao_kwargs_handlers,
+)
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 from datetime import timedelta
@@ -349,7 +351,11 @@ def main(dict_config, config_file_path):
         # use_stateful_dataloader=True
     )
     accelerator = Accelerator(
-        kwargs_handlers=[ddp_kwargs, InitProcessGroupKwargs(timeout=timedelta(minutes=20))],
+        kwargs_handlers=[
+            ddp_kwargs,
+            InitProcessGroupKwargs(timeout=timedelta(minutes=20)),
+            *get_fp8_ao_kwargs_handlers(configs.train_settings.mixed_precision),
+        ],
         mixed_precision=configs.train_settings.mixed_precision,
         gradient_accumulation_steps=configs.train_settings.grad_accumulation,
         dataloader_config=dataloader_config

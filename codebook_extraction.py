@@ -10,7 +10,12 @@ from box import Box
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import broadcast_object_list
 
-from utils.utils import load_configs, load_checkpoints_simple, get_logging
+from utils.utils import (
+    load_configs,
+    load_checkpoints_simple,
+    get_logging,
+    get_fp8_ao_kwargs_handlers,
+)
 from models.super_model import (
     prepare_model,
     compile_non_gcp_and_exclude_vq,
@@ -63,6 +68,7 @@ def main(config_path: str):
 
     # Initialize accelerator (needed for accelerate logging utilities)
     accelerator = Accelerator(
+        kwargs_handlers=get_fp8_ao_kwargs_handlers(infer_cfg.get('mixed_precision', None)),
         mixed_precision=infer_cfg.get('mixed_precision', None),
         dataloader_config=dataloader_config
     )

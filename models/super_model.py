@@ -24,6 +24,10 @@ class SuperModel(nn.Module):
         self.configs = configs
         self.max_length = int(configs.model.max_length)
         self.logger = logger
+        self.run_encoder_bf16_when_fp8 = (
+            not self.decoder_only
+            and str(getattr(configs.train_settings, "mixed_precision", "no")).lower() == "fp8"
+        )
 
         esm_cfg = getattr(self.configs.train_settings.losses, 'esm', None)
         self.enable_esm_loss = bool(esm_cfg and getattr(esm_cfg, 'enabled', False))
@@ -77,15 +81,23 @@ class SuperModel(nn.Module):
             esm_targets = esm_features.to(mask.device).detach()
 
         if not self.decoder_only:
-            batch_index = batch['graph'].batch
+            graph_batch = batch['graph']
+            batch_index = graph_batch.batch
 
-            # No explicit casting or autocast override here.
-            model_output = self.encoder(batch['graph'])
+            if self.run_encoder_bf16_when_fp8:
+                with torch.autocast(
+                    device_type=mask.device.type,
+                    dtype=torch.bfloat16,
+                    enabled=mask.device.type == "cuda",
+                ):
+                    model_output = self.encoder(graph_batch)
+            else:
+                model_output = self.encoder(graph_batch)
 
             x = model_output["node_embedding"]
 
             x = separate_features(x, batch_index)
-            x = merge_features(x, self.max_length)
+            x = merge_features(x, self.max_length).contiguous()
         else:
             x = batch['indices']
 

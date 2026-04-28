@@ -18,6 +18,7 @@ from utils.utils import (
     get_logging,
     configure_compile_cache_dirs,
     suppress_inductor_autotune_logging,
+    get_fp8_ao_kwargs_handlers,
 )
 from utils.custom_losses import calculate_aligned_mse_loss
 from data.dataset import GCPNetDataset, custom_collate_pretrained_gcp
@@ -170,6 +171,7 @@ def main():
 
     # Initialize accelerator for mixed precision and multi-GPU
     accelerator = Accelerator(
+        kwargs_handlers=get_fp8_ao_kwargs_handlers(infer_cfg.mixed_precision),
         mixed_precision=infer_cfg.mixed_precision,
         dataloader_config=dataloader_config
     )

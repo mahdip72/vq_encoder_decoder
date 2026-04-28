@@ -27,6 +27,37 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when Hydra is unavail
 from Bio.PDB import PDBIO
 
 
+def _fp8_module_filter(module, fqn: str) -> bool:
+    """Exclude the top-level GCP encoder from torchao FP8 conversion."""
+    if fqn.startswith("encoder."):
+        return False
+
+    from accelerate.utils.ao import filter_linear_layers
+
+    return filter_linear_layers(module, fqn, layers_to_filter=[])
+
+
+def get_fp8_ao_kwargs_handlers(mixed_precision):
+    """Return Accelerate kwargs handlers that keep GCPNet out of torchao FP8."""
+    if str(mixed_precision).lower() != "fp8":
+        return []
+
+    try:
+        from accelerate.utils import AORecipeKwargs
+        from torchao.float8 import Float8LinearConfig
+    except ImportError as exc:
+        raise ImportError(
+            "FP8 execution requires torchao with float8 support. Install a compatible torchao build."
+        ) from exc
+
+    return [
+        AORecipeKwargs(
+            config=Float8LinearConfig(pad_inner_dim=True),
+            module_filter_func=_fp8_module_filter,
+        )
+    ]
+
+
 def load_all_configs():
     if compose is None or initialize is None:
         raise RuntimeError("Hydra is not available; cannot compose legacy configs.")
