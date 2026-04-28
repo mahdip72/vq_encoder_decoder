@@ -7,6 +7,7 @@ import csv as std_csv
 import inspect
 import logging as log
 from collections import OrderedDict
+from collections.abc import Mapping
 from pathlib import Path
 import warnings
 from box import Box
@@ -42,6 +43,12 @@ def _normalise_csv_cell(value):
     return str(value)
 
 
+def _get_csv_record_value(record, field, index):
+    if isinstance(record, Mapping):
+        return record.get(field)
+    return record[index]
+
+
 def _pandas_read_csv_supports_dtype_backend():
     import pandas as pd
 
@@ -75,15 +82,21 @@ def write_csv_pyarrow_default(csv_path, records, fieldnames):
             writer = std_csv.writer(handle)
             writer.writerow(fieldnames)
             for record in records:
-                writer.writerow([_normalise_csv_cell(record.get(field)) for field in fieldnames])
+                writer.writerow([
+                    _normalise_csv_cell(_get_csv_record_value(record, field, index))
+                    for index, field in enumerate(fieldnames)
+                ])
         return "stdlib"
 
     columns = {
         field: pa.array(
-            [_normalise_csv_cell(record.get(field)) for record in records],
+            [
+                _normalise_csv_cell(_get_csv_record_value(record, field, index))
+                for record in records
+            ],
             type=pa.string(),
         )
-        for field in fieldnames
+        for index, field in enumerate(fieldnames)
     }
     schema = pa.schema([(field, pa.string()) for field in fieldnames])
     table = pa.table(columns, schema=schema)

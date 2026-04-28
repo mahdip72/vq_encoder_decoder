@@ -46,7 +46,7 @@ def load_saved_encoder_decoder_configs(encoder_cfg_path, decoder_cfg_path):
 
 
 def record_indices(pids, indices_tensor, sequences, records, *, max_length=None):
-    """Append pid-index-sequence tuples to records list, ensuring indices is always a list."""
+    """Append compact CSV row tuples with token indices already serialized."""
     cpu_inds = indices_tensor.detach().cpu().tolist()
     # Handle scalar to list
     if not isinstance(cpu_inds, list):
@@ -57,7 +57,9 @@ def record_indices(pids, indices_tensor, sequences, records, *, max_length=None)
             idx = [idx]
         if max_length is not None and len(seq) > max_length:
             seq = seq[:max_length]
-        records.append({'pid': pid, 'structures': idx[:len(seq)], 'Amino Acid Sequence': seq})
+        token_count = len(seq)
+        structures = " ".join(str(token_id) for token_id in idx[:token_count])
+        records.append((pid, structures, seq))
 
 
 def main():
@@ -201,7 +203,7 @@ def main():
     model, loader = accelerator.prepare(model, loader)
 
     # Prepare for optional VQ index recording
-    indices_records = []  # list of dicts {'pid': str, 'indices': list[int]}
+    indices_records = []  # row tuples: (pid, structures, Amino Acid Sequence)
 
     # Initialize the progress bar using tqdm (separate from iteration)
     progress_bar = tqdm(range(0, int(len(loader))),
