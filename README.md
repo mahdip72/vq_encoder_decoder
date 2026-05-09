@@ -46,6 +46,7 @@ One-line install from GitHub (uses `gcp-vqvae/pyproject.toml`):
 pip install "git+https://github.com/mahdip72/vq_encoder_decoder.git@master#subdirectory=gcp-vqvae"
 ```
 
+Note: issue [#16](https://github.com/mahdip72/vq_encoder_decoder/issues/16) showed that dependency drift in `vector-quantize-pytorch` and `x-transformers` can cause poor roundtrip reconstruction. The package now pins the tested versions; if you see disconnected backbones or very high RMSD, reinstall with the latest package metadata.
 
 Minimal usage:
 ```python

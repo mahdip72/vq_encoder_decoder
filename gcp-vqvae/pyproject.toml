@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gcp-vqvae"
-version = "0.2.1"
+version = "0.2.2"
 description = "GCP-VQVAE inference wrapper (encode/embed/decode)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,8 +19,8 @@ dependencies = [
   "huggingface-hub",
   "h5py",
   "transformers",
-  "x-transformers",
-  "vector-quantize-pytorch",
+  "x-transformers==2.8.0",
+  "vector-quantize-pytorch==1.25.2",
   "ndlinear",
   "graphein",
   "biopython",
